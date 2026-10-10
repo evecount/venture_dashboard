@@ -1,0 +1,4 @@
+slack_bolt
+supabase
+python-dotenv
+requests

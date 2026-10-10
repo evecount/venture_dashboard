@@ -1,0 +1,12 @@
+# Dashboard tasks
+- [x] Light semantic design system with orange accents
+- [x] Command center, KPIs, triage and founder matrix
+- [x] Filters, search and founder detail drawer
+- [x] Verify interactions and page rendering
+- [x] Replace identifying users and venture content with fictional demo examples
+- [x] Verify no original identities or venture details are served by the prototype
+- [x] Add anonymous cohort-member and MVP core-team demo perspectives and role responsibilities
+- [x] Verify role switching and prototype privacy
+- [ ] Add sidebar resident-AI overlay with temporary text, file selection and voice placeholder
+- [ ] Extract sanitized curriculum context from the uploaded syllabus without real identities
+- [ ] Verify chat controls, privacy and rendering

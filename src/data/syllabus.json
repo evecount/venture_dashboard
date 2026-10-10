@@ -1,0 +1,1424 @@
+{
+  "Mamba_MVP_Official_Syllabus_Sch": [
+    {
+      "Date": "2026-10-05 00:00:00",
+      "Day": "Mon",
+      "Week": "WK 01",
+      "Sprint Phase": "Sprint 1: Problem, Founder Thesis & Opportunity",
+      "Module / Tactical Focus": "Sprint Planning & Deep Work Setup",
+      "Exercise / Activity": "4-6 hrs build time + 45 min Mentor/Advisor Sync (Decisions/Accountability)",
+      "Owner / Lead": "Founders / Mentor",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-06 00:00:00",
+      "Day": "Tue",
+      "Week": "WK 01",
+      "Sprint Phase": "Sprint 1: Problem, Founder Thesis & Opportunity",
+      "Module / Tactical Focus": "Protected Build & Functional Execution",
+      "Exercise / Activity": "5-7 hrs deep work + 45 min Functional Specialist (Product/Eng/GTM)",
+      "Owner / Lead": "Founders / Functional Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-07 00:00:00",
+      "Day": "Wed",
+      "Week": "WK 01",
+      "Sprint Phase": "Sprint 1: Problem, Founder Thesis & Opportunity",
+      "Module / Tactical Focus": "Program Lead Office Hours (The Anchor)",
+      "Exercise / Activity": "1 hr Office Hours: Dashboard review, block removal & decision locking",
+      "Owner / Lead": "Mamba Program Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-08 00:00:00",
+      "Day": "Thu",
+      "Week": "WK 01",
+      "Sprint Phase": "Sprint 1: Problem, Founder Thesis & Opportunity",
+      "Module / Tactical Focus": "Validation, Testing & Industry Alignment",
+      "Exercise / Activity": "5-7 hrs build time + 45 min Industry Specialist (Domain/Customer)",
+      "Owner / Lead": "Founders / Industry Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-09 00:00:00",
+      "Day": "Fri",
+      "Week": "WK 01",
+      "Sprint Phase": "Sprint 1: Problem, Founder Thesis & Opportunity",
+      "Module / Tactical Focus": "Deliverable Push & Weekly Dashboard Update",
+      "Exercise / Activity": "Analytics, demo prep & updating KPI progress dashboard",
+      "Owner / Lead": "Founders",
+      "Weekly Deliverable / Milestone": "1-page venture thesis & Top 10 assumptions ranked"
+    },
+    {
+      "Date": "2026-10-12 00:00:00",
+      "Day": "Mon",
+      "Week": "WK 02",
+      "Sprint Phase": "Sprint 1: Ideation, Concept Selection & Sprint 1 Review",
+      "Module / Tactical Focus": "Sprint Planning & Deep Work Setup",
+      "Exercise / Activity": "4-6 hrs build time + 45 min Mentor/Advisor Sync (Decisions/Accountability)",
+      "Owner / Lead": "Founders / Mentor",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-13 00:00:00",
+      "Day": "Tue",
+      "Week": "WK 02",
+      "Sprint Phase": "Sprint 1: Ideation, Concept Selection & Sprint 1 Review",
+      "Module / Tactical Focus": "Protected Build & Functional Execution",
+      "Exercise / Activity": "5-7 hrs deep work + 45 min Functional Specialist (Product/Eng/GTM)",
+      "Owner / Lead": "Founders / Functional Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-14 00:00:00",
+      "Day": "Wed",
+      "Week": "WK 02",
+      "Sprint Phase": "Sprint 1: Ideation, Concept Selection & Sprint 1 Review",
+      "Module / Tactical Focus": "Program Lead Office Hours (The Anchor)",
+      "Exercise / Activity": "1 hr Office Hours: Dashboard review, block removal & decision locking",
+      "Owner / Lead": "Mamba Program Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-15 00:00:00",
+      "Day": "Thu",
+      "Week": "WK 02",
+      "Sprint Phase": "Sprint 1: Ideation, Concept Selection & Sprint 1 Review",
+      "Module / Tactical Focus": "Validation, Testing & Industry Alignment",
+      "Exercise / Activity": "5-7 hrs build time + 45 min Industry Specialist (Domain/Customer)",
+      "Owner / Lead": "Founders / Industry Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-16 00:00:00",
+      "Day": "Fri",
+      "Week": "WK 02",
+      "Sprint Phase": "Sprint 1: Ideation, Concept Selection & Sprint 1 Review",
+      "Module / Tactical Focus": "Sprint Gate & Evidence Review",
+      "Exercise / Activity": "60-90 min Formal Review: KPIs, Evidence Pack & Go/Iterate/Pivot Decision",
+      "Owner / Lead": "Founders",
+      "Weekly Deliverable / Milestone": "Selected concept, Value prop & Sprint 1 evidence pack"
+    },
+    {
+      "Date": "2026-10-19 00:00:00",
+      "Day": "Mon",
+      "Week": "WK 03",
+      "Sprint Phase": "Sprint 2: Product Verification & Customer Discovery",
+      "Module / Tactical Focus": "Sprint Planning & Deep Work Setup",
+      "Exercise / Activity": "4-6 hrs build time + 45 min Mentor/Advisor Sync (Decisions/Accountability)",
+      "Owner / Lead": "Founders / Mentor",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-20 00:00:00",
+      "Day": "Tue",
+      "Week": "WK 03",
+      "Sprint Phase": "Sprint 2: Product Verification & Customer Discovery",
+      "Module / Tactical Focus": "Protected Build & Functional Execution",
+      "Exercise / Activity": "5-7 hrs deep work + 45 min Functional Specialist (Product/Eng/GTM)",
+      "Owner / Lead": "Founders / Functional Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-21 00:00:00",
+      "Day": "Wed",
+      "Week": "WK 03",
+      "Sprint Phase": "Sprint 2: Product Verification & Customer Discovery",
+      "Module / Tactical Focus": "Program Lead Office Hours (The Anchor)",
+      "Exercise / Activity": "1 hr Office Hours: Dashboard review, block removal & decision locking",
+      "Owner / Lead": "Mamba Program Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-22 00:00:00",
+      "Day": "Thu",
+      "Week": "WK 03",
+      "Sprint Phase": "Sprint 2: Product Verification & Customer Discovery",
+      "Module / Tactical Focus": "Validation, Testing & Industry Alignment",
+      "Exercise / Activity": "5-7 hrs build time + 45 min Industry Specialist (Domain/Customer)",
+      "Owner / Lead": "Founders / Industry Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-23 00:00:00",
+      "Day": "Fri",
+      "Week": "WK 03",
+      "Sprint Phase": "Sprint 2: Product Verification & Customer Discovery",
+      "Module / Tactical Focus": "Deliverable Push & Weekly Dashboard Update",
+      "Exercise / Activity": "Analytics, demo prep & updating KPI progress dashboard",
+      "Owner / Lead": "Founders",
+      "Weekly Deliverable / Milestone": "Interview insight repo & Problem evidence scorecard"
+    },
+    {
+      "Date": "2026-10-26 00:00:00",
+      "Day": "Mon",
+      "Week": "WK 04",
+      "Sprint Phase": "Sprint 2: Market Research, Competition & Sprint 2 Review",
+      "Module / Tactical Focus": "Sprint Planning & Deep Work Setup",
+      "Exercise / Activity": "4-6 hrs build time + 45 min Mentor/Advisor Sync (Decisions/Accountability)",
+      "Owner / Lead": "Founders / Mentor",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-27 00:00:00",
+      "Day": "Tue",
+      "Week": "WK 04",
+      "Sprint Phase": "Sprint 2: Market Research, Competition & Sprint 2 Review",
+      "Module / Tactical Focus": "Protected Build & Functional Execution",
+      "Exercise / Activity": "5-7 hrs deep work + 45 min Functional Specialist (Product/Eng/GTM)",
+      "Owner / Lead": "Founders / Functional Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-28 00:00:00",
+      "Day": "Wed",
+      "Week": "WK 04",
+      "Sprint Phase": "Sprint 2: Market Research, Competition & Sprint 2 Review",
+      "Module / Tactical Focus": "Program Lead Office Hours (The Anchor)",
+      "Exercise / Activity": "1 hr Office Hours: Dashboard review, block removal & decision locking",
+      "Owner / Lead": "Mamba Program Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-29 00:00:00",
+      "Day": "Thu",
+      "Week": "WK 04",
+      "Sprint Phase": "Sprint 2: Market Research, Competition & Sprint 2 Review",
+      "Module / Tactical Focus": "Validation, Testing & Industry Alignment",
+      "Exercise / Activity": "5-7 hrs build time + 45 min Industry Specialist (Domain/Customer)",
+      "Owner / Lead": "Founders / Industry Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-30 00:00:00",
+      "Day": "Fri",
+      "Week": "WK 04",
+      "Sprint Phase": "Sprint 2: Market Research, Competition & Sprint 2 Review",
+      "Module / Tactical Focus": "Sprint Gate & Evidence Review",
+      "Exercise / Activity": "60-90 min Formal Review: KPIs, Evidence Pack & Go/Iterate/Pivot Decision",
+      "Owner / Lead": "Founders",
+      "Weekly Deliverable / Milestone": "Market landscape, Competitor matrix & Sprint 2 decision"
+    },
+    {
+      "Date": "2026-11-02 00:00:00",
+      "Day": "Mon",
+      "Week": "WK 05",
+      "Sprint Phase": "Sprint 3: ICP, Segmentation & Buying Motion",
+      "Module / Tactical Focus": "Sprint Planning & Deep Work Setup",
+      "Exercise / Activity": "4-6 hrs build time + 45 min Mentor/Advisor Sync (Decisions/Accountability)",
+      "Owner / Lead": "Founders / Mentor",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-03 00:00:00",
+      "Day": "Tue",
+      "Week": "WK 05",
+      "Sprint Phase": "Sprint 3: ICP, Segmentation & Buying Motion",
+      "Module / Tactical Focus": "Protected Build & Functional Execution",
+      "Exercise / Activity": "5-7 hrs deep work + 45 min Functional Specialist (Product/Eng/GTM)",
+      "Owner / Lead": "Founders / Functional Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-04 00:00:00",
+      "Day": "Wed",
+      "Week": "WK 05",
+      "Sprint Phase": "Sprint 3: ICP, Segmentation & Buying Motion",
+      "Module / Tactical Focus": "Program Lead Office Hours (The Anchor)",
+      "Exercise / Activity": "1 hr Office Hours: Dashboard review, block removal & decision locking",
+      "Owner / Lead": "Mamba Program Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-05 00:00:00",
+      "Day": "Thu",
+      "Week": "WK 05",
+      "Sprint Phase": "Sprint 3: ICP, Segmentation & Buying Motion",
+      "Module / Tactical Focus": "Validation, Testing & Industry Alignment",
+      "Exercise / Activity": "5-7 hrs build time + 45 min Industry Specialist (Domain/Customer)",
+      "Owner / Lead": "Founders / Industry Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-06 00:00:00",
+      "Day": "Fri",
+      "Week": "WK 05",
+      "Sprint Phase": "Sprint 3: ICP, Segmentation & Buying Motion",
+      "Module / Tactical Focus": "Deliverable Push & Weekly Dashboard Update",
+      "Exercise / Activity": "Analytics, demo prep & updating KPI progress dashboard",
+      "Owner / Lead": "Founders",
+      "Weekly Deliverable / Milestone": "Primary/Secondary ICP cards & Top 50-100 target accounts"
+    },
+    {
+      "Date": "2026-11-09 00:00:00",
+      "Day": "Mon",
+      "Week": "WK 06",
+      "Sprint Phase": "Sprint 3: Pricing, Unit Economics & Sprint 3 Review",
+      "Module / Tactical Focus": "Sprint Planning & Deep Work Setup",
+      "Exercise / Activity": "4-6 hrs build time + 45 min Mentor/Advisor Sync (Decisions/Accountability)",
+      "Owner / Lead": "Founders / Mentor",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-10 00:00:00",
+      "Day": "Tue",
+      "Week": "WK 06",
+      "Sprint Phase": "Sprint 3: Pricing, Unit Economics & Sprint 3 Review",
+      "Module / Tactical Focus": "Protected Build & Functional Execution",
+      "Exercise / Activity": "5-7 hrs deep work + 45 min Functional Specialist (Product/Eng/GTM)",
+      "Owner / Lead": "Founders / Functional Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-11 00:00:00",
+      "Day": "Wed",
+      "Week": "WK 06",
+      "Sprint Phase": "Sprint 3: Pricing, Unit Economics & Sprint 3 Review",
+      "Module / Tactical Focus": "Program Lead Office Hours (The Anchor)",
+      "Exercise / Activity": "1 hr Office Hours: Dashboard review, block removal & decision locking",
+      "Owner / Lead": "Mamba Program Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-12 00:00:00",
+      "Day": "Thu",
+      "Week": "WK 06",
+      "Sprint Phase": "Sprint 3: Pricing, Unit Economics & Sprint 3 Review",
+      "Module / Tactical Focus": "Validation, Testing & Industry Alignment",
+      "Exercise / Activity": "5-7 hrs build time + 45 min Industry Specialist (Domain/Customer)",
+      "Owner / Lead": "Founders / Industry Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-13 00:00:00",
+      "Day": "Fri",
+      "Week": "WK 06",
+      "Sprint Phase": "Sprint 3: Pricing, Unit Economics & Sprint 3 Review",
+      "Module / Tactical Focus": "Sprint Gate & Evidence Review",
+      "Exercise / Activity": "60-90 min Formal Review: KPIs, Evidence Pack & Go/Iterate/Pivot Decision",
+      "Owner / Lead": "Founders",
+      "Weekly Deliverable / Milestone": "Pricing v1, Basic unit economics & Sprint 3 commercial thesis"
+    },
+    {
+      "Date": "2026-11-16 00:00:00",
+      "Day": "Mon",
+      "Week": "WK 07",
+      "Sprint Phase": "Sprint 4: GTM Strategy & Demand Generation",
+      "Module / Tactical Focus": "Sprint Planning & Deep Work Setup",
+      "Exercise / Activity": "4-6 hrs build time + 45 min Mentor/Advisor Sync (Decisions/Accountability)",
+      "Owner / Lead": "Founders / Mentor",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-17 00:00:00",
+      "Day": "Tue",
+      "Week": "WK 07",
+      "Sprint Phase": "Sprint 4: GTM Strategy & Demand Generation",
+      "Module / Tactical Focus": "Protected Build & Functional Execution",
+      "Exercise / Activity": "5-7 hrs deep work + 45 min Functional Specialist (Product/Eng/GTM)",
+      "Owner / Lead": "Founders / Functional Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-18 00:00:00",
+      "Day": "Wed",
+      "Week": "WK 07",
+      "Sprint Phase": "Sprint 4: GTM Strategy & Demand Generation",
+      "Module / Tactical Focus": "Program Lead Office Hours (The Anchor)",
+      "Exercise / Activity": "1 hr Office Hours: Dashboard review, block removal & decision locking",
+      "Owner / Lead": "Mamba Program Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-19 00:00:00",
+      "Day": "Thu",
+      "Week": "WK 07",
+      "Sprint Phase": "Sprint 4: GTM Strategy & Demand Generation",
+      "Module / Tactical Focus": "Validation, Testing & Industry Alignment",
+      "Exercise / Activity": "5-7 hrs build time + 45 min Industry Specialist (Domain/Customer)",
+      "Owner / Lead": "Founders / Industry Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-20 00:00:00",
+      "Day": "Fri",
+      "Week": "WK 07",
+      "Sprint Phase": "Sprint 4: GTM Strategy & Demand Generation",
+      "Module / Tactical Focus": "Deliverable Push & Weekly Dashboard Update",
+      "Exercise / Activity": "Analytics, demo prep & updating KPI progress dashboard",
+      "Owner / Lead": "Founders",
+      "Weekly Deliverable / Milestone": "GTM one-pager, Messaging framework & Initial pipeline"
+    },
+    {
+      "Date": "2026-11-23 00:00:00",
+      "Day": "Mon",
+      "Week": "WK 08",
+      "Sprint Phase": "Sprint 4: MVP Scope, Engineering & Sprint 4 Review",
+      "Module / Tactical Focus": "Sprint Planning & Deep Work Setup",
+      "Exercise / Activity": "4-6 hrs build time + 45 min Mentor/Advisor Sync (Decisions/Accountability)",
+      "Owner / Lead": "Founders / Mentor",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-24 00:00:00",
+      "Day": "Tue",
+      "Week": "WK 08",
+      "Sprint Phase": "Sprint 4: MVP Scope, Engineering & Sprint 4 Review",
+      "Module / Tactical Focus": "Protected Build & Functional Execution",
+      "Exercise / Activity": "5-7 hrs deep work + 45 min Functional Specialist (Product/Eng/GTM)",
+      "Owner / Lead": "Founders / Functional Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-25 00:00:00",
+      "Day": "Wed",
+      "Week": "WK 08",
+      "Sprint Phase": "Sprint 4: MVP Scope, Engineering & Sprint 4 Review",
+      "Module / Tactical Focus": "Program Lead Office Hours (The Anchor)",
+      "Exercise / Activity": "1 hr Office Hours: Dashboard review, block removal & decision locking",
+      "Owner / Lead": "Mamba Program Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-26 00:00:00",
+      "Day": "Thu",
+      "Week": "WK 08",
+      "Sprint Phase": "Sprint 4: MVP Scope, Engineering & Sprint 4 Review",
+      "Module / Tactical Focus": "Validation, Testing & Industry Alignment",
+      "Exercise / Activity": "5-7 hrs build time + 45 min Industry Specialist (Domain/Customer)",
+      "Owner / Lead": "Founders / Industry Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-27 00:00:00",
+      "Day": "Fri",
+      "Week": "WK 08",
+      "Sprint Phase": "Sprint 4: MVP Scope, Engineering & Sprint 4 Review",
+      "Module / Tactical Focus": "Sprint Gate & Evidence Review",
+      "Exercise / Activity": "60-90 min Formal Review: KPIs, Evidence Pack & Go/Iterate/Pivot Decision",
+      "Owner / Lead": "Founders",
+      "Weekly Deliverable / Milestone": "Prioritized PRD, Tech roadmap & Sprint 4 build-readiness gate"
+    },
+    {
+      "Date": "2026-11-30 00:00:00",
+      "Day": "Mon",
+      "Week": "WK 09",
+      "Sprint Phase": "Sprint 5: MVP Build Sprint I",
+      "Module / Tactical Focus": "Sprint Planning & Deep Work Setup",
+      "Exercise / Activity": "4-6 hrs build time + 45 min Mentor/Advisor Sync (Decisions/Accountability)",
+      "Owner / Lead": "Founders / Mentor",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-01 00:00:00",
+      "Day": "Tue",
+      "Week": "WK 09",
+      "Sprint Phase": "Sprint 5: MVP Build Sprint I",
+      "Module / Tactical Focus": "Protected Build & Functional Execution",
+      "Exercise / Activity": "5-7 hrs deep work + 45 min Functional Specialist (Product/Eng/GTM)",
+      "Owner / Lead": "Founders / Functional Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-02 00:00:00",
+      "Day": "Wed",
+      "Week": "WK 09",
+      "Sprint Phase": "Sprint 5: MVP Build Sprint I",
+      "Module / Tactical Focus": "Program Lead Office Hours (The Anchor)",
+      "Exercise / Activity": "1 hr Office Hours: Dashboard review, block removal & decision locking",
+      "Owner / Lead": "Mamba Program Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-03 00:00:00",
+      "Day": "Thu",
+      "Week": "WK 09",
+      "Sprint Phase": "Sprint 5: MVP Build Sprint I",
+      "Module / Tactical Focus": "Validation, Testing & Industry Alignment",
+      "Exercise / Activity": "5-7 hrs build time + 45 min Industry Specialist (Domain/Customer)",
+      "Owner / Lead": "Founders / Industry Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-04 00:00:00",
+      "Day": "Fri",
+      "Week": "WK 09",
+      "Sprint Phase": "Sprint 5: MVP Build Sprint I",
+      "Module / Tactical Focus": "Deliverable Push & Weekly Dashboard Update",
+      "Exercise / Activity": "Analytics, demo prep & updating KPI progress dashboard",
+      "Owner / Lead": "Founders",
+      "Weekly Deliverable / Milestone": "Functional core journey, Weekly demo & Bug backlog"
+    },
+    {
+      "Date": "2026-12-07 00:00:00",
+      "Day": "Mon",
+      "Week": "WK 10",
+      "Sprint Phase": "Sprint 5: MVP Build Sprint II & Market Readiness",
+      "Module / Tactical Focus": "Sprint Planning & Deep Work Setup",
+      "Exercise / Activity": "4-6 hrs build time + 45 min Mentor/Advisor Sync (Decisions/Accountability)",
+      "Owner / Lead": "Founders / Mentor",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-08 00:00:00",
+      "Day": "Tue",
+      "Week": "WK 10",
+      "Sprint Phase": "Sprint 5: MVP Build Sprint II & Market Readiness",
+      "Module / Tactical Focus": "Protected Build & Functional Execution",
+      "Exercise / Activity": "5-7 hrs deep work + 45 min Functional Specialist (Product/Eng/GTM)",
+      "Owner / Lead": "Founders / Functional Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-09 00:00:00",
+      "Day": "Wed",
+      "Week": "WK 10",
+      "Sprint Phase": "Sprint 5: MVP Build Sprint II & Market Readiness",
+      "Module / Tactical Focus": "Program Lead Office Hours (The Anchor)",
+      "Exercise / Activity": "1 hr Office Hours: Dashboard review, block removal & decision locking",
+      "Owner / Lead": "Mamba Program Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-10 00:00:00",
+      "Day": "Thu",
+      "Week": "WK 10",
+      "Sprint Phase": "Sprint 5: MVP Build Sprint II & Market Readiness",
+      "Module / Tactical Focus": "Validation, Testing & Industry Alignment",
+      "Exercise / Activity": "5-7 hrs build time + 45 min Industry Specialist (Domain/Customer)",
+      "Owner / Lead": "Founders / Industry Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-11 00:00:00",
+      "Day": "Fri",
+      "Week": "WK 10",
+      "Sprint Phase": "Sprint 5: MVP Build Sprint II & Market Readiness",
+      "Module / Tactical Focus": "Sprint Gate & Evidence Review",
+      "Exercise / Activity": "60-90 min Formal Review: KPIs, Evidence Pack & Go/Iterate/Pivot Decision",
+      "Owner / Lead": "Founders",
+      "Weekly Deliverable / Milestone": "Release candidate (Beta v1), Launch assets ready & Sprint 5 Review"
+    },
+    {
+      "Date": "2026-12-14 00:00:00",
+      "Day": "Mon",
+      "Week": "WK 11",
+      "Sprint Phase": "Sprint 6: Soft Launch & Live Validation",
+      "Module / Tactical Focus": "Sprint Planning & Deep Work Setup",
+      "Exercise / Activity": "4-6 hrs build time + 45 min Mentor/Advisor Sync (Decisions/Accountability)",
+      "Owner / Lead": "Founders / Mentor",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-15 00:00:00",
+      "Day": "Tue",
+      "Week": "WK 11",
+      "Sprint Phase": "Sprint 6: Soft Launch & Live Validation",
+      "Module / Tactical Focus": "Protected Build & Functional Execution",
+      "Exercise / Activity": "5-7 hrs deep work + 45 min Functional Specialist (Product/Eng/GTM)",
+      "Owner / Lead": "Founders / Functional Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-16 00:00:00",
+      "Day": "Wed",
+      "Week": "WK 11",
+      "Sprint Phase": "Sprint 6: Soft Launch & Live Validation",
+      "Module / Tactical Focus": "Program Lead Office Hours (The Anchor)",
+      "Exercise / Activity": "1 hr Office Hours: Dashboard review, block removal & decision locking",
+      "Owner / Lead": "Mamba Program Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-17 00:00:00",
+      "Day": "Thu",
+      "Week": "WK 11",
+      "Sprint Phase": "Sprint 6: Soft Launch & Live Validation",
+      "Module / Tactical Focus": "Validation, Testing & Industry Alignment",
+      "Exercise / Activity": "5-7 hrs build time + 45 min Industry Specialist (Domain/Customer)",
+      "Owner / Lead": "Founders / Industry Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-18 00:00:00",
+      "Day": "Fri",
+      "Week": "WK 11",
+      "Sprint Phase": "Sprint 6: Soft Launch & Live Validation",
+      "Module / Tactical Focus": "Deliverable Push & Weekly Dashboard Update",
+      "Exercise / Activity": "Analytics, demo prep & updating KPI progress dashboard",
+      "Owner / Lead": "Founders",
+      "Weekly Deliverable / Milestone": "First live users, Launch KPI baseline & Top 5 iteration priorities"
+    },
+    {
+      "Date": "2026-12-21 00:00:00",
+      "Day": "Mon",
+      "Week": "WK 12",
+      "Sprint Phase": "Sprint 6: Iterate, Demo & 90-Day Scale Plan / Sprint 6 Review",
+      "Module / Tactical Focus": "Sprint Planning & Deep Work Setup",
+      "Exercise / Activity": "4-6 hrs build time + 45 min Mentor/Advisor Sync (Decisions/Accountability)",
+      "Owner / Lead": "Founders / Mentor",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-22 00:00:00",
+      "Day": "Tue",
+      "Week": "WK 12",
+      "Sprint Phase": "Sprint 6: Iterate, Demo & 90-Day Scale Plan / Sprint 6 Review",
+      "Module / Tactical Focus": "Protected Build & Functional Execution",
+      "Exercise / Activity": "5-7 hrs deep work + 45 min Functional Specialist (Product/Eng/GTM)",
+      "Owner / Lead": "Founders / Functional Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-23 00:00:00",
+      "Day": "Wed",
+      "Week": "WK 12",
+      "Sprint Phase": "Sprint 6: Iterate, Demo & 90-Day Scale Plan / Sprint 6 Review",
+      "Module / Tactical Focus": "Program Lead Office Hours (The Anchor)",
+      "Exercise / Activity": "1 hr Office Hours: Dashboard review, block removal & decision locking",
+      "Owner / Lead": "Mamba Program Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-24 00:00:00",
+      "Day": "Thu",
+      "Week": "WK 12",
+      "Sprint Phase": "Sprint 6: Iterate, Demo & 90-Day Scale Plan / Sprint 6 Review",
+      "Module / Tactical Focus": "Validation, Testing & Industry Alignment",
+      "Exercise / Activity": "5-7 hrs build time + 45 min Industry Specialist (Domain/Customer)",
+      "Owner / Lead": "Founders / Industry Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-25 00:00:00",
+      "Day": "Fri",
+      "Week": "WK 12",
+      "Sprint Phase": "Sprint 6: Iterate, Demo & 90-Day Scale Plan / Sprint 6 Review",
+      "Module / Tactical Focus": "Batch Closed",
+      "Exercise / Activity": "Christmas Public Holiday (Demo Day & Final Review completed earlier in week)",
+      "Owner / Lead": "Founders",
+      "Weekly Deliverable / Milestone": "MVP Demo, 90-day operating plan & Decision: Iterate/Scale/Pivot"
+    }
+  ],
+  "Cybrdeck_Syllabus_Schedule": [
+    {
+      "Date": "2026-10-05 00:00:00",
+      "Day": "Mon",
+      "Week": "WK 01",
+      "Sprint Phase": "Sprint 1: Technical Feasibility & Architecture Setup",
+      "Module / Tactical Focus": "Sprint Planning & Architecture Setup",
+      "Exercise / Activity": "4-6 hrs build time + Architecture Setup: Evaluate feasibility against APIs/LLMs/time.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-06 00:00:00",
+      "Day": "Tue",
+      "Week": "WK 01",
+      "Sprint Phase": "Sprint 1: Technical Feasibility & Architecture Setup",
+      "Module / Tactical Focus": "Protected Build & Engineering Execution",
+      "Exercise / Activity": "5-7 hrs deep work: Evaluate technical stack feasibility & latency tradeoffs.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-07 00:00:00",
+      "Day": "Wed",
+      "Week": "WK 01",
+      "Sprint Phase": "Sprint 1: Technical Feasibility & Architecture Setup",
+      "Module / Tactical Focus": "Program Lead Office Hours (The Anchor) - Technical Unblocking",
+      "Exercise / Activity": "1 hr Office Hours (technical unblocking) + 4-5 hrs build: Feasibility & API constraints.",
+      "Owner / Lead": "Mamba Program Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-08 00:00:00",
+      "Day": "Thu",
+      "Week": "WK 01",
+      "Sprint Phase": "Sprint 1: Technical Feasibility & Architecture Setup",
+      "Module / Tactical Focus": "Validation, Testing & Integrations",
+      "Exercise / Activity": "5-7 hrs build time: Prototype core LLM calls, token limits & latency benchmarking.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-09 00:00:00",
+      "Day": "Fri",
+      "Week": "WK 01",
+      "Sprint Phase": "Sprint 1: Technical Feasibility & Architecture Setup",
+      "Module / Tactical Focus": "Deliverable Push & Weekly Codebase Review",
+      "Exercise / Activity": "Weekly review & push: Synthesize feasibility findings & technical roadmap.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-12 00:00:00",
+      "Day": "Mon",
+      "Week": "WK 02",
+      "Sprint Phase": "Sprint 1: Technical Scoping & SOW Finalization",
+      "Module / Tactical Focus": "Sprint Planning & Architecture Setup",
+      "Exercise / Activity": "4-6 hrs build time + Sprint Planning: Define Cybrdeck build vs Wizard of Oz manual testing.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-13 00:00:00",
+      "Day": "Tue",
+      "Week": "WK 02",
+      "Sprint Phase": "Sprint 1: Technical Scoping & SOW Finalization",
+      "Module / Tactical Focus": "Protected Build & Engineering Execution",
+      "Exercise / Activity": "5-7 hrs deep work: Map manual workflows against MVP automated components.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-14 00:00:00",
+      "Day": "Wed",
+      "Week": "WK 02",
+      "Sprint Phase": "Sprint 1: Technical Scoping & SOW Finalization",
+      "Module / Tactical Focus": "Program Lead Office Hours (The Anchor) - Technical Unblocking",
+      "Exercise / Activity": "1 hr Office Hours (technical unblocking) + 4-5 hrs build: Lock MVP scope & boundary definitions.",
+      "Owner / Lead": "Mamba Program Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-15 00:00:00",
+      "Day": "Thu",
+      "Week": "WK 02",
+      "Sprint Phase": "Sprint 1: Technical Scoping & SOW Finalization",
+      "Module / Tactical Focus": "Validation, Testing & Integrations",
+      "Exercise / Activity": "5-7 hrs build time: Draft technical architecture specifications & dependency matrix.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-16 00:00:00",
+      "Day": "Fri",
+      "Week": "WK 02",
+      "Sprint Phase": "Sprint 1: Technical Scoping & SOW Finalization",
+      "Module / Tactical Focus": "Deliverable Push & Weekly Codebase Review",
+      "Exercise / Activity": "60-90 min Technical Gate: Finalize and sign Technical SOW.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": "Signed Technical SOW"
+    },
+    {
+      "Date": "2026-10-19 00:00:00",
+      "Day": "Mon",
+      "Week": "WK 03",
+      "Sprint Phase": "Sprint 2: Data Architecture & Schema Design",
+      "Module / Tactical Focus": "Sprint Planning & Architecture Setup",
+      "Exercise / Activity": "4-6 hrs build time + Architecture Setup: Map data flow, design database schema (Supabase/Postgres).",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-20 00:00:00",
+      "Day": "Tue",
+      "Week": "WK 03",
+      "Sprint Phase": "Sprint 2: Data Architecture & Schema Design",
+      "Module / Tactical Focus": "Protected Build & Engineering Execution",
+      "Exercise / Activity": "5-7 hrs deep work: Construct relational entities, foreign keys & indexes in Supabase.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-21 00:00:00",
+      "Day": "Wed",
+      "Week": "WK 03",
+      "Sprint Phase": "Sprint 2: Data Architecture & Schema Design",
+      "Module / Tactical Focus": "Program Lead Office Hours (The Anchor) - Technical Unblocking",
+      "Exercise / Activity": "1 hr Office Hours (technical unblocking) + 4-5 hrs build: Validate schema normalization & security rules.",
+      "Owner / Lead": "Mamba Program Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-22 00:00:00",
+      "Day": "Thu",
+      "Week": "WK 03",
+      "Sprint Phase": "Sprint 2: Data Architecture & Schema Design",
+      "Module / Tactical Focus": "Validation, Testing & Integrations",
+      "Exercise / Activity": "5-7 hrs build time: Configure migration scripts & test synthetic data seeders.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-23 00:00:00",
+      "Day": "Fri",
+      "Week": "WK 03",
+      "Sprint Phase": "Sprint 2: Data Architecture & Schema Design",
+      "Module / Tactical Focus": "Deliverable Push & Weekly Codebase Review",
+      "Exercise / Activity": "Weekly codebase review & push: Audit database schema and data models.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-26 00:00:00",
+      "Day": "Mon",
+      "Week": "WK 04",
+      "Sprint Phase": "Sprint 2: Staging Environments & Sandbox Setup",
+      "Module / Tactical Focus": "Sprint Planning & Architecture Setup",
+      "Exercise / Activity": "4-6 hrs build time + Architecture Setup: Spin up staging environments (VPC) and GitHub repos.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-27 00:00:00",
+      "Day": "Tue",
+      "Week": "WK 04",
+      "Sprint Phase": "Sprint 2: Staging Environments & Sandbox Setup",
+      "Module / Tactical Focus": "Protected Build & Engineering Execution",
+      "Exercise / Activity": "5-7 hrs deep work: Configure CI/CD deployment pipelines & branch protection rules.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-28 00:00:00",
+      "Day": "Wed",
+      "Week": "WK 04",
+      "Sprint Phase": "Sprint 2: Staging Environments & Sandbox Setup",
+      "Module / Tactical Focus": "Program Lead Office Hours (The Anchor) - Technical Unblocking",
+      "Exercise / Activity": "1 hr Office Hours (technical unblocking) + 4-5 hrs build: Resolve VPC networking & deployment secrets.",
+      "Owner / Lead": "Mamba Program Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-29 00:00:00",
+      "Day": "Thu",
+      "Week": "WK 04",
+      "Sprint Phase": "Sprint 2: Staging Environments & Sandbox Setup",
+      "Module / Tactical Focus": "Validation, Testing & Integrations",
+      "Exercise / Activity": "5-7 hrs build time: Test multi-tenant isolation & staging deployment pipelines.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-10-30 00:00:00",
+      "Day": "Fri",
+      "Week": "WK 04",
+      "Sprint Phase": "Sprint 2: Staging Environments & Sandbox Setup",
+      "Module / Tactical Focus": "Deliverable Push & Weekly Codebase Review",
+      "Exercise / Activity": "60-90 min Sandbox Review: Validate live DB schema and developer sandbox.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": "Live DB schema, developer sandbox"
+    },
+    {
+      "Date": "2026-11-02 00:00:00",
+      "Day": "Mon",
+      "Week": "WK 05",
+      "Sprint Phase": "Sprint 3: User Authentication & Session Security",
+      "Module / Tactical Focus": "Sprint Planning & Architecture Setup",
+      "Exercise / Activity": "4-6 hrs build time + Architecture Setup: Deploy user login, secure routing, session management.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-03 00:00:00",
+      "Day": "Tue",
+      "Week": "WK 05",
+      "Sprint Phase": "Sprint 3: User Authentication & Session Security",
+      "Module / Tactical Focus": "Protected Build & Engineering Execution",
+      "Exercise / Activity": "5-7 hrs deep work: Implement JWT authentication, token refresh & RBAC middleware.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-04 00:00:00",
+      "Day": "Wed",
+      "Week": "WK 05",
+      "Sprint Phase": "Sprint 3: User Authentication & Session Security",
+      "Module / Tactical Focus": "Program Lead Office Hours (The Anchor) - Technical Unblocking",
+      "Exercise / Activity": "1 hr Office Hours (technical unblocking) + 4-5 hrs build: Debug auth session lifecycle & redirect flows.",
+      "Owner / Lead": "Mamba Program Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-05 00:00:00",
+      "Day": "Thu",
+      "Week": "WK 05",
+      "Sprint Phase": "Sprint 3: User Authentication & Session Security",
+      "Module / Tactical Focus": "Validation, Testing & Integrations",
+      "Exercise / Activity": "5-7 hrs build time: Test authentication guards, cookie policies & CSRF protection.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-06 00:00:00",
+      "Day": "Fri",
+      "Week": "WK 05",
+      "Sprint Phase": "Sprint 3: User Authentication & Session Security",
+      "Module / Tactical Focus": "Deliverable Push & Weekly Codebase Review",
+      "Exercise / Activity": "Weekly codebase review & push: Validate end-to-end user login and secure routing.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-09 00:00:00",
+      "Day": "Mon",
+      "Week": "WK 06",
+      "Sprint Phase": "Sprint 3: Third-Party Integrations & API Connections",
+      "Module / Tactical Focus": "Sprint Planning & Architecture Setup",
+      "Exercise / Activity": "4-6 hrs build time + Architecture Setup: Connect third-party services (Claude/OpenAI, Stripe, webhooks).",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-10 00:00:00",
+      "Day": "Tue",
+      "Week": "WK 06",
+      "Sprint Phase": "Sprint 3: Third-Party Integrations & API Connections",
+      "Module / Tactical Focus": "Protected Build & Engineering Execution",
+      "Exercise / Activity": "5-7 hrs deep work: Build API clients, rate limit handling & exponential retry logic.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-11 00:00:00",
+      "Day": "Wed",
+      "Week": "WK 06",
+      "Sprint Phase": "Sprint 3: Third-Party Integrations & API Connections",
+      "Module / Tactical Focus": "Program Lead Office Hours (The Anchor) - Technical Unblocking",
+      "Exercise / Activity": "1 hr Office Hours (technical unblocking) + 4-5 hrs build: Verify webhook signature validation & async events.",
+      "Owner / Lead": "Mamba Program Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-12 00:00:00",
+      "Day": "Thu",
+      "Week": "WK 06",
+      "Sprint Phase": "Sprint 3: Third-Party Integrations & API Connections",
+      "Module / Tactical Focus": "Validation, Testing & Integrations",
+      "Exercise / Activity": "5-7 hrs build time: Test mock payment events, LLM streaming & provider fallbacks.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-13 00:00:00",
+      "Day": "Fri",
+      "Week": "WK 06",
+      "Sprint Phase": "Sprint 3: Third-Party Integrations & API Connections",
+      "Module / Tactical Focus": "Deliverable Push & Weekly Codebase Review",
+      "Exercise / Activity": "60-90 min Review & Demo: Showcase authenticated staging app with live APIs.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": "Authenticated staging app with APIs"
+    },
+    {
+      "Date": "2026-11-16 00:00:00",
+      "Day": "Mon",
+      "Week": "WK 07",
+      "Sprint Phase": "Sprint 4: Core Logic & Prompt Chaining Architecture",
+      "Module / Tactical Focus": "Sprint Planning & Architecture Setup",
+      "Exercise / Activity": "4-6 hrs build time + Architecture Setup: Build core CRUD and prompt-chaining logic.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-17 00:00:00",
+      "Day": "Tue",
+      "Week": "WK 07",
+      "Sprint Phase": "Sprint 4: Core Logic & Prompt Chaining Architecture",
+      "Module / Tactical Focus": "Protected Build & Engineering Execution",
+      "Exercise / Activity": "5-7 hrs deep work: Implement sequential prompt pipelines & context window managers.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-18 00:00:00",
+      "Day": "Wed",
+      "Week": "WK 07",
+      "Sprint Phase": "Sprint 4: Core Logic & Prompt Chaining Architecture",
+      "Module / Tactical Focus": "Program Lead Office Hours (The Anchor) - Technical Unblocking",
+      "Exercise / Activity": "1 hr Office Hours (technical unblocking) + 4-5 hrs build: Optimize prompt token usage & error handling.",
+      "Owner / Lead": "Mamba Program Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-19 00:00:00",
+      "Day": "Thu",
+      "Week": "WK 07",
+      "Sprint Phase": "Sprint 4: Core Logic & Prompt Chaining Architecture",
+      "Module / Tactical Focus": "Validation, Testing & Integrations",
+      "Exercise / Activity": "5-7 hrs build time: Enforce structured JSON schemas & output validation parser.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-20 00:00:00",
+      "Day": "Fri",
+      "Week": "WK 07",
+      "Sprint Phase": "Sprint 4: Core Logic & Prompt Chaining Architecture",
+      "Module / Tactical Focus": "Deliverable Push & Weekly Codebase Review",
+      "Exercise / Activity": "Weekly codebase review & push: Benchmark prompt execution latency & verify CRUD endpoints.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-23 00:00:00",
+      "Day": "Mon",
+      "Week": "WK 08",
+      "Sprint Phase": "Sprint 4: Backend API Stitching & Endpoint Finalization",
+      "Module / Tactical Focus": "Sprint Planning & Architecture Setup",
+      "Exercise / Activity": "4-6 hrs build time + Architecture Setup: Stitch backend APIs to use case requirements.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-24 00:00:00",
+      "Day": "Tue",
+      "Week": "WK 08",
+      "Sprint Phase": "Sprint 4: Backend API Stitching & Endpoint Finalization",
+      "Module / Tactical Focus": "Protected Build & Engineering Execution",
+      "Exercise / Activity": "5-7 hrs deep work: Wire REST/tRPC handlers to database queries & prompt workflows.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-25 00:00:00",
+      "Day": "Wed",
+      "Week": "WK 08",
+      "Sprint Phase": "Sprint 4: Backend API Stitching & Endpoint Finalization",
+      "Module / Tactical Focus": "Program Lead Office Hours (The Anchor) - Technical Unblocking",
+      "Exercise / Activity": "1 hr Office Hours (technical unblocking) + 4-5 hrs build: Resolve payload serialization & concurrency issues.",
+      "Owner / Lead": "Mamba Program Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-26 00:00:00",
+      "Day": "Thu",
+      "Week": "WK 08",
+      "Sprint Phase": "Sprint 4: Backend API Stitching & Endpoint Finalization",
+      "Module / Tactical Focus": "Validation, Testing & Integrations",
+      "Exercise / Activity": "5-7 hrs build time: Run end-to-end endpoint load tests & API contract tests.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-11-27 00:00:00",
+      "Day": "Fri",
+      "Week": "WK 08",
+      "Sprint Phase": "Sprint 4: Backend API Stitching & Endpoint Finalization",
+      "Module / Tactical Focus": "Deliverable Push & Weekly Codebase Review",
+      "Exercise / Activity": "60-90 min Codebase Review: Confirm functional backend endpoints and API docs.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": "Functional backend endpoints"
+    },
+    {
+      "Date": "2026-11-30 00:00:00",
+      "Day": "Mon",
+      "Week": "WK 09",
+      "Sprint Phase": "Sprint 5: Front-End UI Integration & Vercel Deployment",
+      "Module / Tactical Focus": "Sprint Planning & Architecture Setup",
+      "Exercise / Activity": "4-6 hrs build time + Architecture Setup: Connect backend logic to UI (Vercel/Next.js).",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-01 00:00:00",
+      "Day": "Tue",
+      "Week": "WK 09",
+      "Sprint Phase": "Sprint 5: Front-End UI Integration & Vercel Deployment",
+      "Module / Tactical Focus": "Protected Build & Engineering Execution",
+      "Exercise / Activity": "5-7 hrs deep work: Construct UI components, state management & reactive query hooks.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-02 00:00:00",
+      "Day": "Wed",
+      "Week": "WK 09",
+      "Sprint Phase": "Sprint 5: Front-End UI Integration & Vercel Deployment",
+      "Module / Tactical Focus": "Program Lead Office Hours (The Anchor) - Technical Unblocking",
+      "Exercise / Activity": "1 hr Office Hours (technical unblocking) + 4-5 hrs build: Address hydration errors & frontend state syncing.",
+      "Owner / Lead": "Mamba Program Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-03 00:00:00",
+      "Day": "Thu",
+      "Week": "WK 09",
+      "Sprint Phase": "Sprint 5: Front-End UI Integration & Vercel Deployment",
+      "Module / Tactical Focus": "Validation, Testing & Integrations",
+      "Exercise / Activity": "5-7 hrs build time: Polish error toasts, loading skeletons & optimistic updates.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-04 00:00:00",
+      "Day": "Fri",
+      "Week": "WK 09",
+      "Sprint Phase": "Sprint 5: Front-End UI Integration & Vercel Deployment",
+      "Module / Tactical Focus": "Deliverable Push & Weekly Codebase Review",
+      "Exercise / Activity": "Weekly codebase review & push: Deploy preview branch to Vercel and review user flows.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-07 00:00:00",
+      "Day": "Mon",
+      "Week": "WK 10",
+      "Sprint Phase": "Sprint 5: QA, Bug Squashing & Clickable Beta Release",
+      "Module / Tactical Focus": "Sprint Planning & Architecture Setup",
+      "Exercise / Activity": "4-6 hrs build time + Sprint Planning: QA & UAT, squash critical bugs across all views.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-08 00:00:00",
+      "Day": "Tue",
+      "Week": "WK 10",
+      "Sprint Phase": "Sprint 5: QA, Bug Squashing & Clickable Beta Release",
+      "Module / Tactical Focus": "Protected Build & Engineering Execution",
+      "Exercise / Activity": "5-7 hrs deep work: Resolve high-severity tickets, cross-browser quirks & UI glitches.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-09 00:00:00",
+      "Day": "Wed",
+      "Week": "WK 10",
+      "Sprint Phase": "Sprint 5: QA, Bug Squashing & Clickable Beta Release",
+      "Module / Tactical Focus": "Program Lead Office Hours (The Anchor) - Technical Unblocking",
+      "Exercise / Activity": "1 hr Office Hours (technical unblocking) + 4-5 hrs build: Review edge-case bug fixes with Program Lead.",
+      "Owner / Lead": "Mamba Program Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-10 00:00:00",
+      "Day": "Thu",
+      "Week": "WK 10",
+      "Sprint Phase": "Sprint 5: QA, Bug Squashing & Clickable Beta Release",
+      "Module / Tactical Focus": "Validation, Testing & Integrations",
+      "Exercise / Activity": "5-7 hrs build time: Conduct end-to-end user acceptance tests and regression verification.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-11 00:00:00",
+      "Day": "Fri",
+      "Week": "WK 10",
+      "Sprint Phase": "Sprint 5: QA, Bug Squashing & Clickable Beta Release",
+      "Module / Tactical Focus": "Deliverable Push & Weekly Codebase Review",
+      "Exercise / Activity": "60-90 min Sprint Review: Deliver Clickable Beta v1 demo and user feedback log.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": "Clickable Beta v1"
+    },
+    {
+      "Date": "2026-12-14 00:00:00",
+      "Day": "Mon",
+      "Week": "WK 11",
+      "Sprint Phase": "Sprint 6: Cybersecurity Validation & System Hardening",
+      "Module / Tactical Focus": "Sprint Planning & Architecture Setup",
+      "Exercise / Activity": "4-6 hrs build time + Security Setup: Basic C-Sec validation, package audits & vulnerability scan.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-15 00:00:00",
+      "Day": "Tue",
+      "Week": "WK 11",
+      "Sprint Phase": "Sprint 6: Cybersecurity Validation & System Hardening",
+      "Module / Tactical Focus": "Protected Build & Engineering Execution",
+      "Exercise / Activity": "5-7 hrs deep work: Configure CSP headers, sanitize user inputs & audit secret exposures.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-16 00:00:00",
+      "Day": "Wed",
+      "Week": "WK 11",
+      "Sprint Phase": "Sprint 6: Cybersecurity Validation & System Hardening",
+      "Module / Tactical Focus": "Program Lead Office Hours (The Anchor) - Technical Unblocking",
+      "Exercise / Activity": "1 hr Office Hours (technical unblocking) + 4-5 hrs build: Resolve penetration test findings & security alerts.",
+      "Owner / Lead": "Mamba Program Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-17 00:00:00",
+      "Day": "Thu",
+      "Week": "WK 11",
+      "Sprint Phase": "Sprint 6: Cybersecurity Validation & System Hardening",
+      "Module / Tactical Focus": "Validation, Testing & Integrations",
+      "Exercise / Activity": "5-7 hrs build time: Verify production SSL, API rate limiting & DDoS basic protection.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-18 00:00:00",
+      "Day": "Fri",
+      "Week": "WK 11",
+      "Sprint Phase": "Sprint 6: Cybersecurity Validation & System Hardening",
+      "Module / Tactical Focus": "Deliverable Push & Weekly Codebase Review",
+      "Exercise / Activity": "Weekly codebase review & push: Audit security checklist and sign off on system hardening.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-21 00:00:00",
+      "Day": "Mon",
+      "Week": "WK 12",
+      "Sprint Phase": "Sprint 6: Billing Migration, Admin Handoff & Launch",
+      "Module / Tactical Focus": "Sprint Planning & Architecture Setup",
+      "Exercise / Activity": "4-6 hrs build time + Ops Setup: Billing migration trigger, hand over admin credentials.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-22 00:00:00",
+      "Day": "Tue",
+      "Week": "WK 12",
+      "Sprint Phase": "Sprint 6: Billing Migration, Admin Handoff & Launch",
+      "Module / Tactical Focus": "Protected Build & Engineering Execution",
+      "Exercise / Activity": "5-7 hrs deep work: Rotate production credentials, migrate live Stripe accounts & domain DNS.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-23 00:00:00",
+      "Day": "Wed",
+      "Week": "WK 12",
+      "Sprint Phase": "Sprint 6: Billing Migration, Admin Handoff & Launch",
+      "Module / Tactical Focus": "Program Lead Office Hours (The Anchor) - Technical Unblocking",
+      "Exercise / Activity": "1 hr Office Hours (technical unblocking) + 4-5 hrs build: Verify environment switches & live payment flows.",
+      "Owner / Lead": "Mamba Program Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-24 00:00:00",
+      "Day": "Thu",
+      "Week": "WK 12",
+      "Sprint Phase": "Sprint 6: Billing Migration, Admin Handoff & Launch",
+      "Module / Tactical Focus": "Validation, Testing & Integrations",
+      "Exercise / Activity": "5-7 hrs build time: Run final end-to-end smoke test on production deployment.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": NaN
+    },
+    {
+      "Date": "2026-12-25 00:00:00",
+      "Day": "Fri",
+      "Week": "WK 12",
+      "Sprint Phase": "Sprint 6: Billing Migration, Admin Handoff & Launch",
+      "Module / Tactical Focus": "Deliverable Push & Weekly Codebase Review",
+      "Exercise / Activity": "Formal Handoff & Wrap-up: Codebase handoff, archive developer sandbox & grant repo ownership.",
+      "Owner / Lead": "Founders / Cybrdeck Lead",
+      "Weekly Deliverable / Milestone": "Codebase handoff"
+    }
+  ],
+  "Cohort Governance & Gate Ledger": [
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "Sprint / Week",
+      "Unnamed: 1": "Gate Name",
+      "Unnamed: 2": "Target Date",
+      "Unnamed: 3": "Gate Criteria (The Rule)",
+      "Unnamed: 4": "Founder Sign-Off / Status",
+      "Unnamed: 5": "SOW Link / Notes"
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "Wk 02",
+      "Unnamed: 1": "Technical SOW Lock",
+      "Unnamed: 2": "2026-10-16 00:00:00",
+      "Unnamed: 3": "Explicit MVP scope locked. Custom ML/extra integrations pushed to post-cohort.",
+      "Unnamed: 4": "[ Pending / Signed ]",
+      "Unnamed: 5": "Link to signed agreement"
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "Wk 03",
+      "Unnamed: 1": "Data Schema Approval",
+      "Unnamed: 2": "2026-10-23 00:00:00",
+      "Unnamed: 3": "Supabase/DB entity model approved. No schema changes allowed after this date without fee.",
+      "Unnamed: 4": "[ Pending / Approved ]",
+      "Unnamed: 5": "Link to ERD diagram"
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "Wk 04",
+      "Unnamed: 1": "Sandbox 15-Min Demo",
+      "Unnamed: 2": "2026-10-30 00:00:00",
+      "Unnamed: 3": "Founder logs into VPC sandbox & confirms environment access.",
+      "Unnamed: 4": "[ Pending / Verified ]",
+      "Unnamed: 5": "Sandbox URL"
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "Wk 06",
+      "Unnamed: 1": "API & Auth Staging Gate",
+      "Unnamed: 2": "2026-11-13 00:00:00",
+      "Unnamed: 3": "Founder supplies all 3rd-party keys (OpenAI, Stripe, etc.); test auth confirmed.",
+      "Unnamed: 4": "[ Pending / Verified ]",
+      "Unnamed: 5": "Key delivery checklist"
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "Wk 08",
+      "Unnamed: 1": "Strict Feature Freeze",
+      "Unnamed: 2": "2026-11-27 00:00:00",
+      "Unnamed: 3": "Final UI mockups locked. Zero new feature requests accepted past this date.",
+      "Unnamed: 4": "[ Hard Lock ]",
+      "Unnamed: 5": "Mockup freeze sign-off"
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "Wk 10",
+      "Unnamed: 1": "Beta v1 UAT Gate",
+      "Unnamed: 2": "2026-12-11 00:00:00",
+      "Unnamed: 3": "Only critical/blocking crash bugs accepted. Cosmetic/new feature requests deferred.",
+      "Unnamed: 4": "[ UAT Passed ]",
+      "Unnamed: 5": "UAT bug tracker"
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "Wk 11",
+      "Unnamed: 1": "C-Sec Launch Clearance",
+      "Unnamed: 2": "2026-12-18 00:00:00",
+      "Unnamed: 3": "Security scoping clear. Founder acknowledges data liability per MOU.",
+      "Unnamed: 4": "[ Cleared ]",
+      "Unnamed: 5": "Security audit notes"
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "Wk 12",
+      "Unnamed: 1": "Production & Billing Handover",
+      "Unnamed: 2": "2026-12-25 00:00:00",
+      "Unnamed: 3": "Founder enters credit card for AWS/Vercel/Supabase. Codebase transfer complete. Cybrdeck offboards.",
+      "Unnamed: 4": "[ Transferred ]",
+      "Unnamed: 5": "Billing transfer receipt"
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "SECTION 2: FOUNDER KEY & ASSET DEPENDENCY TRACKER",
+      "Unnamed: 1": NaN,
+      "Unnamed: 2": null,
+      "Unnamed: 3": NaN,
+      "Unnamed: 4": NaN,
+      "Unnamed: 5": NaN
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "Sprint / Week",
+      "Unnamed: 1": "Dependency / Asset Name",
+      "Unnamed: 2": "Target Due Date",
+      "Unnamed: 3": "Technical Specification & Security Scope",
+      "Unnamed: 4": "Founder Delivery Status",
+      "Unnamed: 5": "Access / Verification Link"
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "Wk 02",
+      "Unnamed: 1": "GitHub Org Access & Repository Transfer",
+      "Unnamed: 2": "2026-10-16 00:00:00",
+      "Unnamed: 3": "Org admin access granted to Cybrdeck team; base repository permissions provisioned.",
+      "Unnamed: 4": "[ Pending / Verified ]",
+      "Unnamed: 5": "GitHub org invite link"
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "Wk 03",
+      "Unnamed: 1": "Supabase DB Instance & Cloud Service Role",
+      "Unnamed: 2": "2026-10-23 00:00:00",
+      "Unnamed: 3": "Dedicated staging DB instance created; connection URL & service role credentials staged.",
+      "Unnamed: 4": "[ Pending / Approved ]",
+      "Unnamed: 5": "Supabase settings console"
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "Wk 04",
+      "Unnamed: 1": "Domain Registrar & DNS Delegation",
+      "Unnamed: 2": "2026-10-30 00:00:00",
+      "Unnamed: 3": "Cloudflare DNS management access delegated; staging and production CNAME records verified.",
+      "Unnamed: 4": "[ Pending / Verified ]",
+      "Unnamed: 5": "Cloudflare DNS dashboard"
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "Wk 05",
+      "Unnamed: 1": "OAuth 2.0 & Social Auth Client Keys",
+      "Unnamed: 2": "2026-11-06 00:00:00",
+      "Unnamed: 3": "Google Workspace & Apple Developer OAuth Client ID and secrets provisioned for auth flow.",
+      "Unnamed: 4": "[ Pending / Staged ]",
+      "Unnamed: 5": "Auth provider credentials"
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "Wk 06",
+      "Unnamed: 1": "AI / LLM API Production Keys (OpenAI/Anthropic)",
+      "Unnamed: 2": "2026-11-13 00:00:00",
+      "Unnamed: 3": "Tier-4 funded production API keys supplied; organization rate limits & spend caps verified.",
+      "Unnamed: 4": "[ Pending / Staged ]",
+      "Unnamed: 5": "API key delivery checklist"
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "Wk 06",
+      "Unnamed: 1": "Stripe Payment Gateway & Webhook Secrets",
+      "Unnamed: 2": "2026-11-13 00:00:00",
+      "Unnamed: 3": "Stripe live & test publishable/secret API keys generated; webhook endpoints configured.",
+      "Unnamed: 4": "[ Pending / Staged ]",
+      "Unnamed: 5": "Stripe developer console"
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "Wk 07",
+      "Unnamed: 1": "Transactional Email & Messaging (Resend/SendGrid)",
+      "Unnamed: 2": "2026-11-20 00:00:00",
+      "Unnamed: 3": "Domain DKIM/SPF DNS records authenticated; transactional API keys generated.",
+      "Unnamed: 4": "[ Pending / Staged ]",
+      "Unnamed: 5": "Email service verification"
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": NaN,
+      "Unnamed: 1": NaN,
+      "Unnamed: 2": null,
+      "Unnamed: 3": NaN,
+      "Unnamed: 4": NaN,
+      "Unnamed: 5": NaN
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "SECTION 3: OUT-OF-SCOPE & PHASE 2 FEATURE PIPELINE",
+      "Unnamed: 1": NaN,
+      "Unnamed: 2": null,
+      "Unnamed: 3": NaN,
+      "Unnamed: 4": NaN,
+      "Unnamed: 5": NaN
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "Request ID",
+      "Unnamed: 1": "Feature Request / Idea Name",
+      "Unnamed: 2": "Logged Date",
+      "Unnamed: 3": "Technical Assessment & SOW Impact",
+      "Unnamed: 4": "Governance Disposition",
+      "Unnamed: 5": "Roadmap Target / Backlog Link"
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "FEAT-01",
+      "Unnamed: 1": "Multi-Tenant White-Labeling & Custom Subdomains",
+      "Unnamed: 2": "2026-10-18 00:00:00",
+      "Unnamed: 3": "Requires dedicated routing layer & tenant data isolation; excluded from MVP core.",
+      "Unnamed: 4": "[ Phase 2 Roadmap ]",
+      "Unnamed: 5": "Linear #ENG-104"
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "FEAT-02",
+      "Unnamed: 1": "Custom Fine-Tuned LLM Pipeline & LoRA Adapters",
+      "Unnamed: 2": "2026-10-24 00:00:00",
+      "Unnamed: 3": "Exceeds MVP compute budget; base prompt engineering & few-shot chaining fulfills specs.",
+      "Unnamed: 4": "[ Deferred to Post-Launch ]",
+      "Unnamed: 5": "Architecture RFC #03"
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "FEAT-03",
+      "Unnamed: 1": "Native Mobile Apps (iOS & Android / React Native)",
+      "Unnamed: 2": "2026-11-02 00:00:00",
+      "Unnamed: 3": "SOW explicitly locks scope to responsive web application (PWA); native builds deferred.",
+      "Unnamed: 4": "[ Phase 2 Roadmap ]",
+      "Unnamed: 5": "Mobile PRD draft"
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "FEAT-04",
+      "Unnamed: 1": "Enterprise SAML / Okta SSO Integration",
+      "Unnamed: 2": "2026-11-08 00:00:00",
+      "Unnamed: 3": "High implementation complexity; available as studio post-MVP add-on package.",
+      "Unnamed: 4": "[ Scope Add-On (Fee) ]",
+      "Unnamed: 5": "Add-On Quote #SOW-A1"
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "FEAT-05",
+      "Unnamed: 1": "Real-Time Collaborative Multi-User Editing",
+      "Unnamed: 2": "2026-11-15 00:00:00",
+      "Unnamed: 3": "Complex CRDT state sync; optimistic locking and standard polling satisfies MVP use case.",
+      "Unnamed: 4": "[ Phase 2 Roadmap ]",
+      "Unnamed: 5": "Backlog #UX-88"
+    },
+    {
+      "SECTION 1: COHORT GOVERNANCE & FORMAL GATE LEDGER": "FEAT-06",
+      "Unnamed: 1": "Automated PDF Report Generator & Vector Export",
+      "Unnamed: 2": "2026-11-22 00:00:00",
+      "Unnamed: 3": "Server-side headless browser rendering deferred; standard CSV and JSON export provided.",
+      "Unnamed: 4": "[ Phase 2 Roadmap ]",
+      "Unnamed: 5": "Linear #ENG-142"
+    }
+  ]
+}
