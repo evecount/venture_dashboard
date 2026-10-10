@@ -52,6 +52,7 @@ import {
   nextOfficeHoursActivity, 
   nextOfficeHoursDate, 
   nextOfficeHoursOwner,
+  allSyllabusEvents,
   type Founder, 
   type DemoPerspective 
 } from "./data";
@@ -809,6 +810,46 @@ export function CommandCenter() {
                 >
                   <ArrowUpRight size={13} />
                 </Button>
+              </div>
+              </div>
+            </section>
+            
+            <section id="full-syllabus" className="mt-8 scroll-mt-6">
+              <div className="section-heading">
+                <div className="flex items-center gap-2">
+                  <CalendarDays size={14} />
+                  <h2>Full Syllabus Timeline</h2>
+                </div>
+              </div>
+              <div className="flex flex-col gap-3 pt-2">
+                {allSyllabusEvents.map((event: any, idx: number) => (
+                  <div key={idx} className="flex flex-col gap-1 rounded-md border border-border p-3 shadow-sm bg-card hover:bg-accent/50 transition-colors">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-primary">{event["Week"]} · {event["Day"]}</span>
+                      <span className="text-[9px] text-muted-foreground">
+                        {event["Date"] ? new Date(event["Date"]).toLocaleDateString("en-US", { month: 'short', day: 'numeric' }) : "TBD"}
+                      </span>
+                    </div>
+                    {event["Sprint Phase"] && (
+                      <h3 className="text-[12px] font-semibold">{event["Sprint Phase"]}</h3>
+                    )}
+                    {event["Exercise / Activity"] && (
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        <strong className="text-foreground">Activity:</strong> {event["Exercise / Activity"]}
+                      </p>
+                    )}
+                    {event["Weekly Deliverable / Milestone"] && (
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        <strong className="text-foreground">Deliverable:</strong> {event["Weekly Deliverable / Milestone"]}
+                      </p>
+                    )}
+                    {event["Owner / Lead"] && (
+                      <p className="text-[10px] text-muted-foreground mt-1">
+                        <strong className="text-foreground">Lead:</strong> {event["Owner / Lead"]}
+                      </p>
+                    )}
+                  </div>
+                ))}
               </div>
             </section>
           </div>
