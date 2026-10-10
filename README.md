@@ -2,7 +2,7 @@
 
 **The first venture studio dashboard that requires ZERO clicking from your founders.**
 
-[👉 View the Live Prototype](https://evecount.github.io/venture_dashboard/) *(Password: mamba2026)*
+[👉 View the Live Prototype](https://evecount.github.io/venture_dashboard/)
 
 ---
 
