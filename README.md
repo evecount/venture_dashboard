@@ -20,4 +20,8 @@ Behind the scenes, **Qwen AI** instantly parses the unstructured context, extrac
 
 The React dashboard updates in real-time for the Studio Mentors. 
 
+### Proactive Chasing (No More Follow-Ups)
+Because the bot has native access to the Slack API (`app.client.chat_postMessage`), it isn't just a passive listener. 
+If a founder's status remains "Blocked" in the Supabase ledger for more than 48 hours, the `MVP_buddy` bot will automatically DM them: *"Hey! The ledger shows you are still blocked on [issue]. Send me a voice memo or text update. Do you need me to schedule a sync with Gwen and Ben?"*
+
 **Zero friction. Zero clicking. Pure execution.**
