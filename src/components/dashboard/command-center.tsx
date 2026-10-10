@@ -811,7 +811,6 @@ export function CommandCenter() {
                   <ArrowUpRight size={13} />
                 </Button>
               </div>
-              </div>
             </section>
             
             <section id="full-syllabus" className="mt-8 scroll-mt-6">
