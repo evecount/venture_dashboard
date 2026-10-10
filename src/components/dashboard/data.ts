@@ -79,6 +79,27 @@ export const founders: Founder[] = [
       "I just got the Qwen API key hooked up. It's perfectly extracting the JSON block from 10-page transcripts. My next immediate blocker is setting up the Telegram integration since some founders prefer that over Slack.",
     note: "Cybrdeck Strategy: Prioritize the Telegram BotFather setup next to ensure multi-channel data ingestion.",
   },
+  {
+    id: "founder-ben-04",
+    name: "Ben Lim",
+    startup: "Cybrdeck · Autonomous Agent Architecture",
+    stream: "Tech",
+    lead: "Self / Gwen Lim",
+    status: "In progress",
+    digest:
+      "Architecting the autonomous background agent layer that will draft PRs and scaffold code directly from the founder transcripts parsed by Qwen.",
+    time: "5m ago",
+    progress: 40,
+    audience: "Accelerated Founders & Engineering Teams",
+    stack: ["Python", "Supabase", "Qwen LLM", "GitHub Actions"],
+    blocker:
+      "Waiting on Gwen to finalize the Telegram ingestion pipeline before triggering the background codebase scaffolding.",
+    profile:
+      "Ben is the systems architect for Cybrdeck, turning the unstructured founder breadcrumbs into automated, executable engineering outcomes (the 'Stealth Tier').",
+    transcript:
+      "Gwen's Slack pipeline is working perfectly. Once she finishes the Telegram bot, we will have a unified data stream in Supabase. My next step is wiring up the background agents to actually start reading those JSON blobs and writing the boilerplate code for the founders.",
+    note: "Cybrdeck Engineering: Sync with Gwen once the Telegram BotFather setup is done so we can map the data schemas into the autonomous code-writer.",
+  },
 ];
 export const studioRoles = [
   { id: "coordinator", title: "Program Coordinator", focus: "Program delivery", responsibility: "Coordinate the cohort calendar, office hours, deliverables and gate readiness.", task: "Prepare the demo office-hours agenda and follow up on two review requests." },
@@ -86,7 +107,7 @@ export const studioRoles = [
   { id: "marketing", title: "Marketing / Rollout / User Validation", focus: "Market validation", responsibility: "Support launch planning, user recruitment, validation experiments and activation feedback.", task: "Draft a fictional user-validation experiment for the supply chain concept." },
   { id: "technical", title: "Technical Advisor (Cybrdeck)", focus: "MVP development", responsibility: "Advise on MVP scope, architecture, technical feasibility and build blockers.", task: "Review Jordan's parsing script and suggest a more robust regex or mapping library before scaling the backend." },
 ] as const;
-export type DemoPerspective = typeof studioRoles[number]["id"] | "founder-alex-01" | "founder-jordan-02" | "founder-gwen-03";
+export type DemoPerspective = typeof studioRoles[number]["id"] | "founder-alex-01" | "founder-jordan-02" | "founder-gwen-03" | "founder-ben-04";
 import syllabusData from "../../data/syllabus.json";
 
 const rawData = (syllabusData as any).Mamba_MVP_Official_Syllabus_Sch;
