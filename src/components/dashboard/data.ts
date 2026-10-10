@@ -72,12 +72,12 @@ export const founders: Founder[] = [
     audience: "Mamba Studio Mentors & Founders",
     stack: ["Python", "Slack Bolt", "Qwen AI", "Supabase"],
     blocker:
-      "Need to build the Telegram bot integration so founders aren't forced to use Slack. Setting up BotFather next.",
+      "Need to build out the GitHub PR automation pipeline. Setting up the GitHub Actions workflows next.",
     profile:
       "Gwen is the engineering lead for Cybrdeck, building out the stealth Venture OS layer to handle Mamba's cohort data at scale.",
     transcript:
-      "I just got the Qwen API key hooked up. It's perfectly extracting the JSON block from 10-page transcripts. My next immediate blocker is setting up the Telegram integration since some founders prefer that over Slack.",
-    note: "Cybrdeck Strategy: Prioritize the Telegram BotFather setup next to ensure multi-channel data ingestion.",
+      "I just got the Qwen API key hooked up. It's perfectly extracting the JSON block from 10-page transcripts. My next immediate blocker is setting up the automated PR generation since founders want code written for them directly from Slack.",
+    note: "Cybrdeck Strategy: Prioritize the GitHub Actions setup next to ensure seamless codebase scaffolding.",
   },
   {
     id: "founder-ben-04",
@@ -93,12 +93,12 @@ export const founders: Founder[] = [
     audience: "Accelerated Founders & Engineering Teams",
     stack: ["Python", "Supabase", "Qwen LLM", "GitHub Actions"],
     blocker:
-      "Waiting on Gwen to finalize the Telegram ingestion pipeline before triggering the background codebase scaffolding.",
+      "Waiting on Gwen to finalize the GitHub Actions pipeline before triggering the background codebase scaffolding.",
     profile:
       "Ben is the systems architect for Cybrdeck, turning the unstructured founder breadcrumbs into automated, executable engineering outcomes (the 'Stealth Tier').",
     transcript:
-      "Gwen's Slack pipeline is working perfectly. Once she finishes the Telegram bot, we will have a unified data stream in Supabase. My next step is wiring up the background agents to actually start reading those JSON blobs and writing the boilerplate code for the founders.",
-    note: "Cybrdeck Engineering: Sync with Gwen once the Telegram BotFather setup is done so we can map the data schemas into the autonomous code-writer.",
+      "Gwen's Slack pipeline is working perfectly. Once she finishes the GitHub PR automation, we will have a unified code generation loop in Supabase. My next step is wiring up the background agents to actually start reading those JSON blobs and writing the boilerplate code for the founders.",
+    note: "Cybrdeck Engineering: Sync with Gwen once the GitHub workflow setup is done so we can map the data schemas into the autonomous code-writer.",
   },
 ];
 export const studioRoles = [
