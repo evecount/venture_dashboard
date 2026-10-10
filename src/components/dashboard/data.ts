@@ -58,6 +58,27 @@ export const founders: Founder[] = [
       "The frontend looks great, but my OCR script is randomly dropping the biomarker fields when the PDF formatting changes. Can Gwen or Ben look at my parsing logic?",
     note: "Cybrdeck Engineering: Review Jordan's parsing script and suggest a more robust regex or mapping library before we scale the backend.",
   },
+  {
+    id: "founder-gwen-03",
+    name: "Gwen Lim",
+    startup: "Cybrdeck · Autonomous Studio Infrastructure",
+    stream: "Tech",
+    lead: "Self / Ben Lim",
+    status: "In progress",
+    digest:
+      "Successfully wired the Qwen LLM into the Slack bot to autonomously parse massive meeting transcripts and push JSON to Supabase.",
+    time: "10m ago",
+    progress: 95,
+    audience: "Mamba Studio Mentors & Founders",
+    stack: ["Python", "Slack Bolt", "Qwen AI", "Supabase"],
+    blocker:
+      "Need to build the Telegram bot integration so founders aren't forced to use Slack. Setting up BotFather next.",
+    profile:
+      "Gwen is the engineering lead for Cybrdeck, building out the stealth Venture OS layer to handle Mamba's cohort data at scale.",
+    transcript:
+      "I just got the Qwen API key hooked up. It's perfectly extracting the JSON block from 10-page transcripts. My next immediate blocker is setting up the Telegram integration since some founders prefer that over Slack.",
+    note: "Cybrdeck Strategy: Prioritize the Telegram BotFather setup next to ensure multi-channel data ingestion.",
+  },
 ];
 export const studioRoles = [
   { id: "coordinator", title: "Program Coordinator", focus: "Program delivery", responsibility: "Coordinate the cohort calendar, office hours, deliverables and gate readiness.", task: "Prepare the demo office-hours agenda and follow up on two review requests." },
@@ -65,7 +86,7 @@ export const studioRoles = [
   { id: "marketing", title: "Marketing / Rollout / User Validation", focus: "Market validation", responsibility: "Support launch planning, user recruitment, validation experiments and activation feedback.", task: "Draft a fictional user-validation experiment for the supply chain concept." },
   { id: "technical", title: "Technical Advisor (Cybrdeck)", focus: "MVP development", responsibility: "Advise on MVP scope, architecture, technical feasibility and build blockers.", task: "Review Jordan's parsing script and suggest a more robust regex or mapping library before scaling the backend." },
 ] as const;
-export type DemoPerspective = typeof studioRoles[number]["id"] | "founder-alex-01" | "founder-jordan-02";
+export type DemoPerspective = typeof studioRoles[number]["id"] | "founder-alex-01" | "founder-jordan-02" | "founder-gwen-03";
 import syllabusData from "../../data/syllabus.json";
 
 const rawData = (syllabusData as any).Mamba_MVP_Official_Syllabus_Sch;
