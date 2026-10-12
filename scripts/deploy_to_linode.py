@@ -57,12 +57,15 @@ fi
 """)
 
 # 4. Write .env on remote server (unquoted for Docker --env-file)
-env_content = f"""VITE_SUPABASE_URL={os.environ.get('VITE_SUPABASE_URL', '').strip('"\'')}
-VITE_SUPABASE_ANON_KEY={os.environ.get('VITE_SUPABASE_ANON_KEY', '').strip('"\'')}
-QWEN_API_KEY={os.environ.get('QWEN_API_KEY', '').strip('"\'')}
-SUPABASE_SERVICE_ROLE_KEY={os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '').strip('"\'')}
-SLACK_BOT_TOKEN={os.environ.get('SLACK_BOT_TOKEN', '').strip('"\'')}
-SLACK_APP_TOKEN={os.environ.get('SLACK_APP_TOKEN', '').strip('"\'')}
+def clean_env_val(key):
+    return (os.environ.get(key) or '').replace('"', '').replace("'", "").strip()
+
+env_content = f"""VITE_SUPABASE_URL={clean_env_val('VITE_SUPABASE_URL')}
+VITE_SUPABASE_ANON_KEY={clean_env_val('VITE_SUPABASE_ANON_KEY')}
+QWEN_API_KEY={clean_env_val('QWEN_API_KEY')}
+SUPABASE_SERVICE_ROLE_KEY={clean_env_val('SUPABASE_SERVICE_ROLE_KEY')}
+SLACK_BOT_TOKEN={clean_env_val('SLACK_BOT_TOKEN')}
+SLACK_APP_TOKEN={clean_env_val('SLACK_APP_TOKEN')}
 """
 
 sftp = ssh.open_sftp()
