@@ -994,41 +994,150 @@ export function CommandCenter() {
             </section>
             
             <section id="full-syllabus" className="mt-8 scroll-mt-6">
-              <div className="section-heading">
-                <div className="flex items-center gap-2">
-                  <CalendarDays size={14} />
-                  <h2>Full Syllabus Timeline</h2>
+              <div className="section-heading mb-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <CalendarDays size={16} className="text-primary" />
+                    <h2 className="text-base font-bold text-foreground">Full Syllabus Timeline & Founder Completion</h2>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1 font-medium"><Check size={12} className="text-emerald-600" /> Done</span>
+                    <span className="flex items-center gap-1 font-medium"><Zap size={12} className="text-sky-600" /> In Progress</span>
+                    <span className="flex items-center gap-1 font-medium"><CircleAlert size={12} className="text-destructive" /> Blocked</span>
+                    <span className="flex items-center gap-1 font-medium"><Circle size={10} className="text-muted-foreground" /> Pending</span>
+                  </div>
                 </div>
               </div>
               <div className="flex flex-col gap-3 pt-2">
-                {allSyllabusEvents.map((event: any, idx: number) => (
-                  <div key={idx} className="flex flex-col gap-1 rounded-md border border-border p-3 shadow-sm bg-card hover:bg-accent/50 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold text-primary">{event["Week"]} · {event["Day"]}</span>
-                      <span className="text-[9px] text-muted-foreground">
-                        {event["Date"] ? new Date(event["Date"]).toLocaleDateString("en-US", { month: 'short', day: 'numeric' }) : "TBD"}
-                      </span>
+                {allSyllabusEvents.map((event: any, idx: number) => {
+                  const isWeek1 = event["Week"] === "WK 01";
+                  const hasDeliverable = !!event["Weekly Deliverable / Milestone"];
+
+                  return (
+                    <div 
+                      key={idx} 
+                      className={`grid grid-cols-1 lg:grid-cols-12 gap-4 rounded-xl border p-4 shadow-xs bg-card transition-all hover:border-primary/40 ${
+                        hasDeliverable ? "border-primary/30 bg-primary/2" : "border-border"
+                      }`}
+                    >
+                      {/* Left: Syllabus Event Details (8 cols) */}
+                      <div className="lg:col-span-7 flex flex-col justify-between">
+                        <div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="inline-flex items-center gap-1.5 font-mono text-[10px] font-bold text-primary uppercase">
+                              <span className="size-1.5 rounded-full bg-primary" />
+                              {event["Week"]} · {event["Day"]}
+                            </span>
+                            <span className="text-[10px] font-medium text-muted-foreground">
+                              {event["Date"] ? new Date(event["Date"]).toLocaleDateString("en-US", { month: 'short', day: 'numeric', year: 'numeric' }) : "TBD"}
+                            </span>
+                          </div>
+
+                          {event["Sprint Phase"] && (
+                            <h3 className="text-xs font-bold text-foreground leading-snug">{event["Sprint Phase"]}</h3>
+                          )}
+
+                          {event["Exercise / Activity"] && (
+                            <p className="text-[11px] text-muted-foreground mt-1.5 leading-relaxed">
+                              <strong className="text-foreground font-semibold">Activity:</strong> {event["Exercise / Activity"]}
+                            </p>
+                          )}
+
+                          {event["Weekly Deliverable / Milestone"] && (
+                            <div className="mt-2.5 rounded-md border border-primary/20 bg-primary/5 p-2 text-xs">
+                              <span className="font-bold text-primary flex items-center gap-1">
+                                <Flag size={12} /> Milestone Deliverable:
+                              </span>
+                              <p className="font-medium text-foreground mt-0.5">{event["Weekly Deliverable / Milestone"]}</p>
+                            </div>
+                          )}
+                        </div>
+
+                        {event["Owner / Lead"] && (
+                          <p className="text-[10px] text-muted-foreground mt-2 pt-2 border-t border-border/40">
+                            <strong>Session Lead:</strong> {event["Owner / Lead"]}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Right Column: Founder Completion Tracker (5 cols) */}
+                      <div className="lg:col-span-5 lg:border-l lg:border-border/60 lg:pl-4 flex flex-col justify-between bg-muted/20 -m-4 p-4 lg:m-0 rounded-b-xl lg:rounded-none">
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                              Founder Completion
+                            </span>
+                            <span className="text-[9px] font-mono text-muted-foreground">
+                              {isWeek1 ? "Active Sprint" : "Upcoming"}
+                            </span>
+                          </div>
+
+                          {/* Founder checklist */}
+                          <div className="space-y-1.5">
+                            {cohortFounders.map((f, fIdx) => {
+                              // Dynamic completion state simulation
+                              let status: "done" | "in-progress" | "blocked" | "pending" = "pending";
+                              if (isWeek1) {
+                                if (f.id.includes("alex")) status = "done";
+                                else if (f.id.includes("jordan")) status = f.status === "Blocked" ? "blocked" : "in-progress";
+                                else if (f.id.includes("gwen")) status = "done";
+                                else if (f.id.includes("ben")) status = "in-progress";
+                                else status = "done";
+                              } else {
+                                status = "pending";
+                              }
+
+                              return (
+                                <button
+                                  key={f.id}
+                                  onClick={() => {
+                                    setNotice(`Updated ${f.name} on ${event["Week"]} milestone: Status verified.`);
+                                  }}
+                                  className="w-full flex items-center justify-between rounded-lg border border-border/50 bg-card px-2.5 py-1.5 text-xs text-left transition-colors hover:bg-muted/60 cursor-pointer"
+                                  title={`Click to update ${f.name}'s milestone progress`}
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[9px] font-bold text-foreground">
+                                      {f.name.split(" ").map(n => n[0]).join("")}
+                                    </span>
+                                    <span className="truncate text-[11px] font-medium text-foreground">{f.name}</span>
+                                  </div>
+
+                                  <span className="shrink-0 text-[10px]">
+                                    {status === "done" && (
+                                      <span className="inline-flex items-center gap-1 font-bold text-emerald-600 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                                        <Check size={10} /> Done
+                                      </span>
+                                    )}
+                                    {status === "in-progress" && (
+                                      <span className="inline-flex items-center gap-1 font-bold text-sky-600 bg-sky-500/10 px-1.5 py-0.5 rounded">
+                                        <Zap size={10} /> In Progress
+                                      </span>
+                                    )}
+                                    {status === "blocked" && (
+                                      <span className="inline-flex items-center gap-1 font-bold text-destructive bg-destructive/10 px-1.5 py-0.5 rounded">
+                                        <CircleAlert size={10} /> Blocked
+                                      </span>
+                                    )}
+                                    {status === "pending" && (
+                                      <span className="inline-flex items-center gap-1 font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                                        Pending
+                                      </span>
+                                    )}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <p className="mt-2 text-[9px] text-muted-foreground/80 italic text-right">
+                          Tap any founder to review or toggle check-in record.
+                        </p>
+                      </div>
                     </div>
-                    {event["Sprint Phase"] && (
-                      <h3 className="text-[12px] font-semibold">{event["Sprint Phase"]}</h3>
-                    )}
-                    {event["Exercise / Activity"] && (
-                      <p className="text-[11px] text-muted-foreground mt-1">
-                        <strong className="text-foreground">Activity:</strong> {event["Exercise / Activity"]}
-                      </p>
-                    )}
-                    {event["Weekly Deliverable / Milestone"] && (
-                      <p className="text-[11px] text-muted-foreground mt-1">
-                        <strong className="text-foreground">Deliverable:</strong> {event["Weekly Deliverable / Milestone"]}
-                      </p>
-                    )}
-                    {event["Owner / Lead"] && (
-                      <p className="text-[10px] text-muted-foreground mt-1">
-                        <strong className="text-foreground">Lead:</strong> {event["Owner / Lead"]}
-                      </p>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </section>
           </div>
