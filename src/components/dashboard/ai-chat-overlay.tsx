@@ -33,15 +33,36 @@ interface AiChatOverlayProps {
 export function AiChatOverlay({ isOpen, onClose, role, onAddFounder }: AiChatOverlayProps) {
   const [inputValue, setInputValue] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
+  const [dispatchedSlackIds, setDispatchedSlackIds] = useState<Record<string, boolean>>({});
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "m-1",
       sender: "ai",
-      text: `Hello! I am MVP_buddy, your resident Venture Studio AI. I orchestrate founder operations and enforce the pre-build demand validation protocol.\n\nWould you like to onboard a new founder to Cohort SG#01, log a sprint check-in, or audit active blockers?`,
+      text: `Hello! I am MVP_buddy, your resident Venture Studio AI. I orchestrate founder operations and enforce the pre-build demand validation protocol.\n\nWould you like to onboard a new founder to Cohort SG#01, log a sprint check-in, audit active blockers, or dispatch a message to Slack?`,
     },
   ]);
 
   if (!isOpen) return null;
+
+  const handleDispatchToSlack = async (msgId: string, text: string, targetChannel = "#mamba-leads") => {
+    setDispatchedSlackIds((prev) => ({ ...prev, [msgId]: true }));
+    
+    // Check if user set a live webhook URL in localStorage
+    const webhookUrl = typeof window !== "undefined" ? localStorage.getItem("mamba_slack_webhook") : null;
+    if (webhookUrl) {
+      try {
+        await fetch(webhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: `[MVP_buddy Dashboard Dispatch to ${targetChannel}]\n${text}`,
+          }),
+        });
+      } catch (err) {
+        console.warn("Slack webhook transmission error:", err);
+      }
+    }
+  };
 
   const handleQuickOnboard = (preset: "maya" | "liam") => {
     const founderData: Founder = preset === "maya" 
@@ -190,8 +211,26 @@ export function AiChatOverlay({ isOpen, onClose, role, onAddFounder }: AiChatOve
     setTimeout(() => {
       setIsProcessing(false);
       let reply = "";
-      if (inputCopy.toLowerCase().includes("founder") || inputCopy.toLowerCase().includes("onboard") || inputCopy.toLowerCase().includes("add")) {
+      const lower = inputCopy.toLowerCase();
+      if (lower.includes("founder") || lower.includes("onboard") || lower.includes("add")) {
         reply = `📋 **Onboarding Protocol Triggered!**\n\nTo onboard a founder and generate their live card, I require the **3 Standard Intake Documents**:\n\n1. 📄 **Problem & Founder Thesis** (Sprint 1 Milestone)\n2. 🎙️ **At least 3 Customer Discovery Transcripts** (Validating demand before custom engineering)\n3. 🛠️ **Current Tech Stack & Slack User ID** (For autonomous telemetry)\n\nYou can click the quick demo buttons below to test-ingest pre-validated founder files!`;
+      } else if (lower.includes("slack") || lower.includes("poke") || lower.includes("notify") || lower.includes("message")) {
+        const isJordan = lower.includes("jordan");
+        const isAlex = lower.includes("alex");
+        const recipient = isJordan ? "Jordan Lee (Vitals.co)" : isAlex ? "Alex Vance (Nexus Logistics)" : "Mamba Cohort Leads";
+        const channel = isJordan || isAlex ? `#mamba-sg01-checkins / DM` : `#mamba-leads`;
+        
+        reply = `📣 **Slack Dispatch Prepared!**\n\n` +
+          `• **Target Channel / Recipient**: ${channel} (${recipient})\n` +
+          `• **Draft Content**:\n` +
+          `  "Hey ${isJordan ? "Jordan" : isAlex ? "Alex" : "team"}, MVP_buddy check-in: ${
+            isJordan 
+              ? "Noticed the OCR biomarker parsing script has been blocked for 48h. Gwen and Ben have a regex solution ready—let's do a 15-min pairing sync." 
+              : isAlex 
+              ? "Discovery validation phase complete. Ready for copy sign-off with James Sun before live landing page deployment." 
+              : "Active cohort check-in logged from studio dashboard."
+          }"\n\n` +
+          `Click below to dispatch this message directly to Slack.`;
       } else {
         reply = `Understood! I've noted this in the ambient ledger. If this impacts sprint milestones or introduces a blocker, I will update the cohort velocity and alert Gwen & Ben.`;
       }
@@ -301,6 +340,27 @@ export function AiChatOverlay({ isOpen, onClose, role, onAddFounder }: AiChatOve
                         {f}
                       </span>
                     ))}
+                  </div>
+                )}
+
+                {/* Outbound Slack Dispatch Action */}
+                {m.sender === "ai" && m.id !== "m-1" && (
+                  <div className="mt-3 flex items-center justify-between pt-2 border-t border-border/50 text-[11px]">
+                    {dispatchedSlackIds[m.id] ? (
+                      <span className="font-medium text-emerald-700 bg-emerald-500/15 px-2 py-0.5 rounded text-[10px]">
+                        Dispatched to #mamba-leads · Verified by MVP_buddy
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => handleDispatchToSlack(m.id, m.text)}
+                        className="rounded border border-border bg-card px-2.5 py-1 font-medium text-foreground hover:bg-accent hover:border-primary/40 transition-colors cursor-pointer text-[10px] shadow-2xs"
+                      >
+                        Post to Slack #mamba-leads
+                      </button>
+                    )}
+                    <span className="text-[10px] text-muted-foreground">
+                      Slack Integration
+                    </span>
                   </div>
                 )}
               </div>

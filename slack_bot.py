@@ -162,9 +162,60 @@ def handle_founder_checkin(message, say):
         say(f"Oops, failed to save to database: {str(e)}")
         print(f"Database Error: {e}")
 
+# --- OUTBOUND DISPATCH (DASHBOARD -> SLACK) ---
+def send_slack_message(channel: str, text: str, thread_ts: str = None) -> bool:
+    """
+    Sends an outbound message to a specified Slack channel or user DM.
+    Can be called directly from Python or triggered by the dashboard outbox.
+    """
+    if not app or not SLACK_BOT_TOKEN:
+        print("[Simulated Slack Outbound] Bot token not configured. Message:", text)
+        return False
+    try:
+        kwargs = {"channel": channel, "text": text}
+        if thread_ts:
+            kwargs["thread_ts"] = thread_ts
+        res = app.client.chat_postMessage(**kwargs)
+        print(f"Message dispatched to Slack channel {channel}: {res.get('ts')}")
+        return True
+    except Exception as e:
+        print(f"Error sending Slack message: {e}")
+        return False
+
+def process_outbox_queue():
+    """
+    Polls the Supabase 'slack_outbox' table for pending messages queued from the dashboard.
+    Dispatches each message and marks it as sent.
+    """
+    if not supabase:
+        return
+    try:
+        response = supabase.table("slack_outbox").select("*").eq("status", "pending").limit(10).execute()
+        rows = response.data or []
+        for row in rows:
+            row_id = row["id"]
+            channel = row.get("channel", "#mamba-leads")
+            content = row.get("text", "")
+            success = send_slack_message(channel, content)
+            supabase.table("slack_outbox").update({
+                "status": "sent" if success else "failed",
+                "sent_at": "now()"
+            }).eq("id", row_id).execute()
+    except Exception as e:
+        print(f"Outbox queue error: {e}")
+
 if __name__ == "__main__":
-    print("Venture Studio Slack Bot is starting in Socket Mode...")
-    if SLACK_BOT_TOKEN and SLACK_APP_TOKEN:
-        SocketModeHandler(app, SLACK_APP_TOKEN).start()
+    import sys
+    if "--send" in sys.argv:
+        # Example CLI usage: python slack_bot.py --send "#mamba-leads" "Hello from dashboard!"
+        channel_target = sys.argv[2] if len(sys.argv) > 2 else "#mamba-leads"
+        msg_content = sys.argv[3] if len(sys.argv) > 3 else "60-Second Lead Briefing from MVP_buddy"
+        print(f"Triggering outbound message to {channel_target}...")
+        send_slack_message(channel_target, msg_content)
     else:
-        print("Please add SLACK_BOT_TOKEN and SLACK_APP_TOKEN to your .env file to run the bot.")
+        print("Venture Studio Slack Bot is starting in Socket Mode...")
+        if SLACK_BOT_TOKEN and SLACK_APP_TOKEN:
+            SocketModeHandler(app, SLACK_APP_TOKEN).start()
+        else:
+            print("Please add SLACK_BOT_TOKEN and SLACK_APP_TOKEN to your .env file to run the bot.")
+
