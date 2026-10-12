@@ -28,6 +28,10 @@ import {
   TrendingUp,
   Users,
   Zap,
+  LocateFixed,
+  Flame,
+  Sparkles,
+  UserPlus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -109,7 +113,8 @@ export function CommandCenter() {
   const [notice, setNotice] = useState("");
   const [section, setSection] = useState("overview");
   const [chatOpen, setChatOpen] = useState(false);
-  const visible = founders.filter((f) => {
+  const [cohortFounders, setCohortFounders] = useState<Founder[]>(founders);
+  const visible = cohortFounders.filter((f) => {
     const matchesStream =
       filter === "All startups" ||
       (filter === "Tech" && f.stream === "Tech") ||
@@ -132,15 +137,8 @@ export function CommandCenter() {
   return (
     <div className="dashboard-shell">
       <aside className="side-rail" aria-label="Main navigation">
-        <div className="brand-mark" title="Adventure Studio">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path
-              d="M3 19 11 4l4 7-4 8H3Z M13 19l4-8 4 8h-8Z"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinejoin="round"
-            />
-          </svg>
+        <div className="brand-mark" title="Adventure Studio · Live Coordinates">
+          <LocateFixed size={20} strokeWidth={2.2} />
         </div>
         <div className="flex flex-col gap-3">
           <Button
@@ -330,6 +328,188 @@ export function CommandCenter() {
               <span className="text-[10px] text-muted-foreground">
                 Simulated activity · No live sync
               </span>
+            </div>
+          </div>
+
+          {/* --- FOUNDER POKEMON CARDS SHOWCASE --- */}
+          <div className="mt-6 mb-8">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base font-bold tracking-tight text-foreground flex items-center gap-2">
+                    <Sparkles className="size-4 text-primary" /> Active Founder Roster
+                  </h2>
+                  <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-[11px] font-semibold text-primary">
+                    {cohortFounders.length} Live Cards
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Real-time telemetry cards showing current abilities, sprint progress, and active blockers.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                className="gap-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 text-xs shadow-xs cursor-pointer"
+                onClick={() => setChatOpen(true)}
+              >
+                <UserPlus size={14} />
+                + Onboard Founder via AI
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {cohortFounders.map((f) => {
+                const isTech = f.stream === "Tech";
+                const isBlocked = f.status === "Blocked";
+                return (
+                  <div
+                    key={f.id}
+                    className="group relative flex flex-col justify-between rounded-xl border border-border bg-card p-5 shadow-xs transition-all duration-200 hover:-translate-y-1 hover:shadow-md hover:border-primary/40"
+                  >
+                    {/* Card Top: Stream Type + Velocity Bar */}
+                    <div>
+                      <div className="flex items-center justify-between border-b border-border/50 pb-3 mb-3">
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold tracking-wide uppercase ${
+                            isTech
+                              ? "bg-sky-500/10 text-sky-600 border border-sky-500/20"
+                              : "bg-amber-500/10 text-amber-700 border border-amber-500/20"
+                          }`}
+                        >
+                          {isTech ? <Zap size={11} className="fill-current" /> : <Flame size={11} className="fill-current" />}
+                          {isTech ? "Tech Architect" : "GTM Strategist"}
+                        </span>
+
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-mono font-semibold text-muted-foreground">
+                            VELOCITY {f.progress}%
+                          </span>
+                          <div className="h-1.5 w-12 rounded-full bg-muted overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-500 ${
+                                isBlocked ? "bg-destructive" : "bg-primary"
+                              }`}
+                              style={{ width: `${f.progress}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Card Portrait & Identity */}
+                      <div className="flex items-start gap-3.5 mb-3.5">
+                        <div
+                          className={`relative flex size-12 shrink-0 items-center justify-center rounded-2xl font-bold text-sm text-white shadow-sm ${
+                            isTech
+                              ? "bg-gradient-to-br from-sky-500 to-indigo-600"
+                              : "bg-gradient-to-br from-amber-500 to-orange-600"
+                          }`}
+                        >
+                          {f.name.split(" ").map((n) => n[0]).join("")}
+                          <span
+                            className={`absolute -bottom-1 -right-1 size-3.5 rounded-full border-2 border-card ${
+                              isBlocked ? "bg-destructive" : "bg-emerald-500 animate-pulse"
+                            }`}
+                            title={f.status}
+                          />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <h3 className="font-bold text-sm text-foreground truncate group-hover:text-primary transition-colors">
+                            {f.name}
+                          </h3>
+                          <p className="text-xs font-medium text-muted-foreground truncate">
+                            {f.startup}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground/80 mt-0.5 flex items-center gap-1">
+                            <span className="size-1.5 rounded-full bg-muted-foreground/40" />
+                            Lead: {f.lead}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Moves: What they're doing */}
+                      <div className="rounded-lg bg-muted/40 p-2.5 mb-3 border border-border/30">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1 flex items-center gap-1">
+                          <Activity size={10} className="text-primary" /> Active Sprint Move:
+                        </p>
+                        <p className="text-xs text-foreground/90 line-clamp-2 leading-relaxed">
+                          {f.digest}
+                        </p>
+                      </div>
+
+                      {/* Vulnerability / Blocker */}
+                      <div
+                        className={`rounded-lg p-2.5 mb-3 border text-xs leading-relaxed ${
+                          isBlocked
+                            ? "bg-destructive/10 border-destructive/20 text-destructive font-medium"
+                            : "bg-emerald-500/10 border-emerald-500/20 text-emerald-700"
+                        }`}
+                      >
+                        <p className="text-[10px] font-bold uppercase tracking-wider mb-0.5 flex items-center gap-1">
+                          {isBlocked ? <CircleAlert size={10} /> : <CheckCheck size={10} />}
+                          {isBlocked ? "Current Blocker:" : "Sprint Status:"}
+                        </p>
+                        <p className="line-clamp-2 text-[11px]">
+                          {isBlocked ? f.blocker : "Unblocked. Execution on track."}
+                        </p>
+                      </div>
+
+                      {/* Stack Tags */}
+                      <div className="flex flex-wrap gap-1 mb-4">
+                        {f.stack.slice(0, 3).map((tool, tIdx) => (
+                          <span
+                            key={tIdx}
+                            className="rounded bg-muted px-2 py-0.5 text-[9px] font-mono text-muted-foreground"
+                          >
+                            {tool}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Card Footer Actions */}
+                    <div className="pt-2 border-t border-border/40 flex items-center justify-between gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full text-xs h-7 rounded-md cursor-pointer"
+                        onClick={() => openFounder(f)}
+                      >
+                        Inspect Dossier
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs h-7 px-2 text-muted-foreground hover:text-foreground cursor-pointer"
+                        title="Poke in Slack"
+                        onClick={() =>
+                          setNotice(`Slack Bot: Poked ${f.name} in their private Slack channel.`)
+                        }
+                      >
+                        <MessageSquare size={13} />
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Onboard New Founder Card (Pokemon Mint Card) */}
+              <button
+                onClick={() => setChatOpen(true)}
+                className="group relative flex min-h-[300px] flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-muted/20 p-6 text-center transition-all hover:border-primary/60 hover:bg-primary/5 cursor-pointer"
+              >
+                <div className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary group-hover:scale-110 transition-transform shadow-xs mb-3">
+                  <UserPlus size={26} />
+                </div>
+                <h3 className="font-bold text-sm text-foreground group-hover:text-primary transition-colors">
+                  Onboard New Founder
+                </h3>
+                <p className="text-xs text-muted-foreground mt-1 max-w-[200px]">
+                  Trigger the AI Intake Protocol to request thesis & discovery notes, then mint their card.
+                </p>
+                <span className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground shadow-xs">
+                  <Sparkles size={12} /> Launch Protocol
+                </span>
+              </button>
             </div>
           </div>
           <StudioPerspectives perspective={perspective} onChange={(value) => {
@@ -1046,7 +1226,10 @@ export function CommandCenter() {
       <AiChatOverlay 
         isOpen={chatOpen} 
         onClose={() => setChatOpen(false)} 
-        role={isMember ? (perspective === "demo-founder-01" ? "Demo Founder A" : "Demo Founder B") : "Program Coordinator"} 
+        role={isMember ? (perspective === "demo-founder-01" ? "Demo Founder A" : "Demo Founder B") : "Program Coordinator"}
+        onAddFounder={(newFounder) => {
+          setCohortFounders((prev) => [newFounder, ...prev]);
+        }}
       />
     </div>
   );
