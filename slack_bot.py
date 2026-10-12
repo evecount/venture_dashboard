@@ -168,15 +168,22 @@ def send_slack_message(channel: str, text: str, thread_ts: str = None) -> bool:
     Sends an outbound message to a specified Slack channel or user DM.
     Can be called directly from Python or triggered by the dashboard outbox.
     """
+    # Channel alias mapping
+    target_channel = channel
+    if channel in ["gwen-ben", "gwen_ben", "@gwen_ben", "gwen", "ben"]:
+        target_channel = os.environ.get("SLACK_GWEN_BEN_CHANNEL", "#cybrdeck-leads")
+    elif channel in ["leads", "mamba-leads"]:
+        target_channel = os.environ.get("SLACK_LEADS_CHANNEL", "#mamba-leads")
+
     if not app or not SLACK_BOT_TOKEN:
-        print("[Simulated Slack Outbound] Bot token not configured. Message:", text)
+        print(f"[Simulated Slack Outbound to {target_channel}] Bot token not configured. Message: {text[:80]}...")
         return False
     try:
-        kwargs = {"channel": channel, "text": text}
+        kwargs = {"channel": target_channel, "text": text}
         if thread_ts:
             kwargs["thread_ts"] = thread_ts
         res = app.client.chat_postMessage(**kwargs)
-        print(f"Message dispatched to Slack channel {channel}: {res.get('ts')}")
+        print(f"Message dispatched to Slack channel {target_channel}: {res.get('ts')}")
         return True
     except Exception as e:
         print(f"Error sending Slack message: {e}")
