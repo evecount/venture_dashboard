@@ -31,17 +31,28 @@ jobs:
         run: npm ci --legacy-peer-deps || npm install --legacy-peer-deps
 
       - name: Build Project
+        env:
+          NITRO_PRESET: static
         run: npm run build
 
-      - name: Locate Build Artifact
+      - name: Locate Build Artifact and Setup Static Hosting
         id: locate
         run: |
           if [ -d ".output/public" ]; then
-            echo "path=.output/public" >> $GITHUB_OUTPUT
+            TARGET_DIR=".output/public"
           elif [ -d "dist" ]; then
-            echo "path=dist" >> $GITHUB_OUTPUT
+            TARGET_DIR="dist"
           else
-            echo "path=." >> $GITHUB_OUTPUT
+            TARGET_DIR="."
+          fi
+          echo "path=$TARGET_DIR" >> $GITHUB_OUTPUT
+
+          # Disable Jekyll so underscore-prefixed folders (e.g. _build) are served
+          touch "$TARGET_DIR/.nojekyll"
+
+          # Provide 404.html fallback for client-side routing
+          if [ -f "$TARGET_DIR/index.html" ]; then
+            cp "$TARGET_DIR/index.html" "$TARGET_DIR/404.html"
           fi
 
       - name: Upload Pages Artifact
