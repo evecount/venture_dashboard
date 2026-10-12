@@ -175,7 +175,11 @@ def send_slack_message(channel: str, text: str, thread_ts: str = None) -> bool:
     """
     # Channel alias mapping
     target_channel = channel
-    if channel in ["gwen-ben", "gwen_ben", "@gwen_ben", "gwen", "ben"]:
+    if channel in ["james", "@james", "james_sun", "mamba"]:
+        target_channel = "D0C77UV5GT0"  # James (james@mambapartners.com)
+    elif channel in ["gwen", "@gwen", "gwen_lim"]:
+        target_channel = "D0C94PG2R24"  # Gwen Lim
+    elif channel in ["gwen-ben", "gwen_ben", "@gwen_ben", "ben"]:
         target_channel = os.environ.get("SLACK_GWEN_BEN_CHANNEL", "#cybrdeck-leads")
     elif channel in ["leads", "mamba-leads"]:
         target_channel = os.environ.get("SLACK_LEADS_CHANNEL", "#mamba-leads")
