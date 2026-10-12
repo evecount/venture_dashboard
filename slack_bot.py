@@ -32,18 +32,20 @@ app = App(token=SLACK_BOT_TOKEN)
 
 # --- SYSTEM PROMPT & RESOURCES ---
 # The bot's identity and knowledge base. 
-# We strictly exclude Takshma and Matthew to protect public IP.
+# --- SYSTEM PROMPT & RESOURCES ---
 CYBRDECK_SYSTEM_PROMPT = """
-You are MVP_buddy, the primary technical architecture and engineering mentor for Cybrdeck.
-Cybrdeck (Eve Count Pte. Ltd.) is the technical execution arm of the Mamba MVP Program.
-Your creators and engineering leads are Gwen Lim and Ben Lim. 
-Your role is to enforce pre-build demand validation — ensuring founders manually validate customer demand BEFORE Cybrdeck writes any custom backend code. You protect Cybrdeck's engineering hours and ensure clean IP boundaries.
+You are MVP_buddy, the autonomous technical architecture mentor AI for Cybrdeck (Eve Count Pte. Ltd.), created by Gwen Lim and Ben Lim for the Mamba MVP Program.
+You carry Gwen Lim's exact personality: razor-sharp, slightly snarky, witty, high-agency, and completely allergic to corporate fluff or founder excuses.
+You despise vanity metrics, over-engineered architectures, and building before validating customer demand.
+You enforce the Pre-Build Demand Validation Protocol with brutal honesty and dry wit.
+When founders speak to you, never sound like a polite corporate chatbot. Be sharp, clever, sarcastic when appropriate, and deeply insightful.
+If someone asks off-topic or philosophical questions (like "the meaning of life"), roast them affectionately with a venture twist (e.g. "The meaning of life is finding customers who will actually pay before you burn Gwen and Ben's engineering hours on a backend you don't need.").
 """
 
 def process_with_qwen(text):
     """
     Real API Call to Qwen (via OpenAI compatible endpoint).
-    Injects the CYBRDECK_SYSTEM_PROMPT and parses the user's text/transcript.
+    Injects the CYBRDECK_SYSTEM_PROMPT and generates structured data + a snarky reply.
     """
     if not qwen_client:
         print("No QWEN_API_KEY found, falling back to simulated logic...")
@@ -52,7 +54,8 @@ def process_with_qwen(text):
             "stream": "Tech (Cybrdeck)",
             "progress": 50,
             "digest": f"Simulated digest (No API Key): {text[:60]}...",
-            "blocker": "Missing Qwen API Key."
+            "blocker": "Missing Qwen API Key.",
+            "reply": "Missing API Key, but nice try. Tell Gwen to check .env."
         }
         
     print(f"Sending context to Qwen LLM...")
@@ -65,10 +68,11 @@ def process_with_qwen(text):
       "status": "Blocked" or "In progress" or "Complete",
       "stream": "Tech (Cybrdeck)" or "GTM",
       "blocker": "A short 1-sentence description of what they are stuck on (or 'None')",
-      "digest": "A 1-sentence summary of their progress and what the human mentors should do next"
+      "digest": "A 1-sentence summary of their progress and what the human mentors should do next",
+      "reply": "A witty, slightly snarky, sharp 1-3 sentence response directly addressing what they just said, matching Gwen Lim's signature Cybrdeck personality."
     }}
     
-    Founder Transcript:
+    Founder Transcript / Message:
     {text}
     """
     
@@ -87,7 +91,8 @@ def process_with_qwen(text):
             "stream": result.get("stream", "Tech (Cybrdeck)"),
             "progress": 50,
             "digest": result.get("digest", "Processed by Qwen."),
-            "blocker": result.get("blocker", "None")
+            "blocker": result.get("blocker", "None"),
+            "reply": result.get("reply", "Telemetry logged. Now go talk to actual paying customers.")
         }
     except Exception as e:
         print(f"Qwen API error: {e}")
@@ -96,7 +101,8 @@ def process_with_qwen(text):
             "stream": "Tech (Cybrdeck)",
             "progress": 50,
             "digest": f"Error parsing with Qwen: {str(e)}",
-            "blocker": "API Error"
+            "blocker": "API Error",
+            "reply": f"My neural link glitched: {str(e)}. Try again."
         }
 
 import re
@@ -119,17 +125,14 @@ def handle_greeting(message, say):
 @app.message(re.compile(".*"))
 def handle_founder_checkin(message, say):
     """
-    Listens for any Slack message.
+    Listens for any Slack message and responds with Gwen's signature snarky Cybrdeck personality.
     """
     user_id = message.get("user")
     text = message.get("text", "")
     files = message.get("files", [])
     
-    say(f"Received your check-in, <@{user_id}>! Running it through the Studio AI...")
-    
     # Detect and download files (e.g. massive transcripts)
     if files:
-        say(f"Detected {len(files)} file attachment(s). Reading transcript data...")
         for file in files:
             url = file.get("url_private_download")
             if url:
@@ -137,16 +140,16 @@ def handle_founder_checkin(message, say):
                 response = requests.get(url, headers=headers)
                 if response.status_code == 200:
                     text += f"\n\n[Transcript Content from {file.get('name')}]:\n{response.text}"
-                else:
-                    say(f"Failed to download {file.get('name')}.")
                     
-    # 1. Process via real Qwen API
+    # 1. Process via real Qwen API with Gwen's signature personality
     extracted_data = process_with_qwen(text)
     
-    # 2. Save to Supabase (bypassing RLS with Service Role Key)
+    # 2. Reply with Gwen's witty/snarky personality directly in Slack
+    say(extracted_data.get("reply", "Telemetry logged. Now go find a customer who actually wants to pay."))
+    
+    # 3. Save to Supabase (bypassing RLS with Service Role Key)
     try:
         if supabase:
-            # Note: You'll need to create a 'founder_checkins' table in Supabase
             supabase.table("founder_checkins").insert({
                 "slack_user_id": user_id,
                 "raw_transcript": text,
@@ -155,11 +158,7 @@ def handle_founder_checkin(message, say):
                 "blocker": extracted_data["blocker"],
                 "digest": extracted_data["digest"]
             }).execute()
-            say("Check-in parsed and saved to the Venture Dashboard! 🚀")
-        else:
-            say("Warning: Database not connected.")
     except Exception as e:
-        say(f"Oops, failed to save to database: {str(e)}")
         print(f"Database Error: {e}")
 
 # --- OUTBOUND DISPATCH (DASHBOARD -> SLACK) ---
