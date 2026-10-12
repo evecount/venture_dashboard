@@ -228,7 +228,7 @@ def handle_greeting(message, say):
         f"I am MVP_buddy, your technical engineering mentor from Cybrdeck (run by Gwen and Ben).\n\n"
         f"*How this works:*\n"
         f"You don't need to fill out status report forms. Whenever you make progress, hit a blocker, or finish customer interviews, just talk to me right here in Slack! Send a voice note or type a message.\n\n"
-        f"I will use AI to extract the context, identify your blockers, and automatically update your progress on the Venture Dashboard so the human mentors (James, Gwen, Ben) know exactly where you are.\n\n"
+        f"I will use AI to extract the context, identify your blockers, and automatically update your progress on the Venture Dashboard so the human team (James Sun [Program Lead], Gwen & Ben [Cybrdeck Tech], and Arthur [Project Coordinator]) knows exactly where you are.\n\n"
         f"Whenever you're ready, just send me a message about what you're working on today!"
     )
 
@@ -290,7 +290,9 @@ def send_slack_message(channel: str, text: str, thread_ts: str = None) -> bool:
     elif channel in ["gwen", "@gwen", "gwen_lim"]:
         target_channel = "D0C94PG2R24"  # Gwen Lim (gwen@evecount.com)
     elif channel in ["james", "@james", "james_sun", "mamba"]:
-        target_channel = "D0C77UV5GT0"  # James (james@mambapartners.com)
+        target_channel = "D0C77UV5GT0"  # James Sun (james@mambapartners.com - Program Lead)
+    elif channel in ["arthur", "@arthur", "arthur_pandaan", "coordinator"]:
+        target_channel = "D0C8AC5G2SX"  # Arthur Andre Pandaan (arthur@mambapartners.com - Project Coordinator)
     elif channel in ["leads", "mamba-leads"]:
         target_channel = os.environ.get("SLACK_LEADS_CHANNEL", "#mamba-leads")
 
