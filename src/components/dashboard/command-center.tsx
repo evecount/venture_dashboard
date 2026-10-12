@@ -98,6 +98,14 @@ const filters = [
   "Flagged blockers",
 ];
 
+export interface Cohort {
+  id: string;
+  name: string;
+  tag: string;
+  location: string;
+  founders: Founder[];
+}
+
 export function CommandCenter() {
   const [perspective, setPerspective] = useState<DemoPerspective>("coordinator");
   const isMember = perspective.startsWith("demo-founder-");
@@ -113,7 +121,34 @@ export function CommandCenter() {
   const [notice, setNotice] = useState("");
   const [section, setSection] = useState("overview");
   const [chatOpen, setChatOpen] = useState(false);
-  const [cohortFounders, setCohortFounders] = useState<Founder[]>(founders);
+  
+  const [cohorts, setCohorts] = useState<Cohort[]>([
+    {
+      id: "SG#01",
+      name: "Mamba MVP Program",
+      tag: "SG#01",
+      location: "Singapore · Current Cohort",
+      founders: founders,
+    },
+  ]);
+  const [activeCohortId, setActiveCohortId] = useState("SG#01");
+  const currentCohort = cohorts.find((c) => c.id === activeCohortId) || cohorts[0];
+  const cohortFounders = currentCohort.founders;
+
+  const handleAddFounder = (newFounder: Founder) => {
+    setCohorts((prev) =>
+      prev.map((c) =>
+        c.id === activeCohortId ? { ...c, founders: [newFounder, ...c.founders] } : c
+      )
+    );
+  };
+
+  const handleAddCohort = (newCohort: Cohort) => {
+    setCohorts((prev) => [...prev, newCohort]);
+    setActiveCohortId(newCohort.id);
+    setNotice(`Switched to ${newCohort.name} · ${newCohort.tag} (${newCohort.founders.length} founders).`);
+  };
+
   const visible = cohortFounders.filter((f) => {
     const matchesStream =
       filter === "All startups" ||
@@ -236,17 +271,35 @@ export function CommandCenter() {
               onClick={() => setWorkspaceOpen(!workspaceOpen)}
               aria-expanded={workspaceOpen}
             >
-              <span className="workspace-name font-semibold">Mamba MVP Program</span>
-              <span className="cohort-tag">SG#01</span>
+              <span className="workspace-name font-semibold">{currentCohort.name}</span>
+              <span className="cohort-tag">{currentCohort.tag}</span>
               <ChevronDown className="size-3! text-muted-foreground" />
             </Button>
             {workspaceOpen && (
-              <div className="absolute top-11 left-0 z-20 w-64 rounded-md border border-border bg-card p-3 shadow-sm">
-                <p className="mb-2 text-[10px] text-muted-foreground">WORKSPACES</p>
-                <div className="flex items-center justify-between text-xs">
-                  Mamba MVP Program · SG#01 <Check size={13} className="text-primary" />
+              <div className="absolute top-11 left-0 z-20 w-72 rounded-md border border-border bg-card p-3 shadow-md">
+                <p className="mb-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">ACTIVE COHORTS</p>
+                <div className="space-y-1">
+                  {cohorts.map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => {
+                        setActiveCohortId(c.id);
+                        setWorkspaceOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between p-2 rounded text-xs transition-colors cursor-pointer text-left ${
+                        c.id === activeCohortId
+                          ? "bg-primary/10 text-primary font-semibold border border-primary/20"
+                          : "hover:bg-muted text-foreground"
+                      }`}
+                    >
+                      <div>
+                        <div>{c.name} · {c.tag}</div>
+                        <div className="text-[10px] text-muted-foreground font-normal">{c.location} · {c.founders.length} founders</div>
+                      </div>
+                      {c.id === activeCohortId && <Check size={14} className="text-primary shrink-0" />}
+                    </button>
+                  ))}
                 </div>
-                <p className="mt-2 text-[10px] text-muted-foreground">Current cohort · Singapore</p>
               </div>
             )}
           </div>
@@ -1386,9 +1439,9 @@ export function CommandCenter() {
         isOpen={chatOpen} 
         onClose={() => setChatOpen(false)} 
         role={isMember ? (perspective === "demo-founder-01" ? "Demo Founder A" : "Demo Founder B") : "Program Coordinator"}
-        onAddFounder={(newFounder) => {
-          setCohortFounders((prev) => [newFounder, ...prev]);
-        }}
+        activeCohortTag={currentCohort.tag}
+        onAddFounder={handleAddFounder}
+        onAddCohort={handleAddCohort}
       />
     </div>
   );

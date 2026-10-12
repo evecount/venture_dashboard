@@ -27,10 +27,12 @@ interface AiChatOverlayProps {
   isOpen: boolean;
   onClose: () => void;
   role: string;
+  activeCohortTag?: string;
   onAddFounder?: (founder: Founder) => void;
+  onAddCohort?: (cohort: { id: string; name: string; tag: string; location: string; founders: Founder[] }) => void;
 }
 
-export function AiChatOverlay({ isOpen, onClose, role, onAddFounder }: AiChatOverlayProps) {
+export function AiChatOverlay({ isOpen, onClose, role, activeCohortTag = "SG#01", onAddFounder, onAddCohort }: AiChatOverlayProps) {
   const [inputValue, setInputValue] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [dispatchedSlack, setDispatchedSlack] = useState<Record<string, { leads?: boolean; gwenBen?: boolean }>>({});
@@ -38,7 +40,7 @@ export function AiChatOverlay({ isOpen, onClose, role, onAddFounder }: AiChatOve
     {
       id: "m-1",
       sender: "ai",
-      text: `Hello! I am MVP_buddy, your resident Venture Studio AI. I orchestrate founder operations and enforce the pre-build demand validation protocol.\n\nWould you like to onboard a new founder to Cohort SG#01, log a sprint check-in, audit active blockers, or dispatch a message to Gwen & Ben on Slack?`,
+      text: `Hello! I am MVP_buddy, your resident Venture Studio AI. I orchestrate founder operations and enforce the pre-build demand validation protocol.\n\nWould you like to onboard a new founder to Cohort ${activeCohortTag}, provision an entirely new cohort (e.g. SG#02), audit active blockers, or dispatch a message to Gwen & Ben on Slack?`,
     },
   ]);
 
@@ -147,6 +149,81 @@ export function AiChatOverlay({ isOpen, onClose, role, onAddFounder }: AiChatOve
     }, 1200);
   };
 
+  const handleProvisionCohort = (tag = "SG#02") => {
+    const newFounders: Founder[] = [
+      {
+        id: `founder-maya-${Date.now()}`,
+        name: "Maya Torres",
+        startup: "PayFlow · Cross-Border B2B Clearing",
+        stream: "Tech",
+        lead: "Gwen & Ben (Cybrdeck)",
+        status: "In progress",
+        digest: "Validated merchant clearing with 5 SMEs in Singapore. Wire transfers are currently manual; building spreadsheet-driven mock ledger to prove demand before API automation.",
+        time: "Just now",
+        progress: 75,
+        audience: "Regional B2B import/export merchants",
+        stack: ["React", "FastAPI", "Stripe Connect", "Supabase"],
+        blocker: "Waiting on MAS regulatory guideline clarity for cross-border FX escrows.",
+        profile: "Maya is an ex-Stripe product engineer building automated cross-border treasury settlements. Focusing on manual concierge MVP execution.",
+        transcript: "Interviewed 5 importers today. All 5 are willing to pay a 15 bps spread if settlement settles in under 2 hours. Setting up manual concierge batch processing.",
+        note: "Cybrdeck Protocol: Enforce manual batch ledger before provisioning AWS payment microservices.",
+      },
+      {
+        id: `founder-liam-${Date.now()}`,
+        name: "Liam Chen",
+        startup: "RoboPick · Autonomous Warehouse Telemetry",
+        stream: "GTM",
+        lead: "James Sun (Mamba)",
+        status: "Blocked",
+        digest: "Shadowed 2 logistics operators in Jurong. Identified barcode scanner latency as the primary friction point. Currently blocked on site survey safety approvals.",
+        time: "Just now",
+        progress: 50,
+        audience: "Tier-2 3PL fulfillment hubs in SEA",
+        stack: ["Mobile Web App", "WebSockets", "Go"],
+        blocker: "Warehouse safety manager delayed the LiDAR telemetry sensor pilot by 1 week.",
+        profile: "Liam is validating camera-based stock tracking for logistics centers without requiring million-dollar robotics overhauls.",
+        transcript: "The warehouse walkthrough went well but safety compliance pushed back our camera install to next Tuesday. Need advice from Mamba on remote validation techniques.",
+        note: "Mamba GTM: Guide Liam on running manual time-motion surveys while waiting on hardware clearances.",
+      },
+    ];
+
+    const newCohort = {
+      id: tag,
+      name: "Mamba MVP Program",
+      tag: tag,
+      location: "Singapore · Next Sprint Batch",
+      founders: newFounders,
+    };
+
+    const userMsg: Message = {
+      id: `u-${Date.now()}`,
+      sender: "user",
+      text: `Please provision and initialize a new cohort: ${newCohort.name} · ${newCohort.tag} with starting founders.`,
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setIsProcessing(true);
+
+    setTimeout(() => {
+      setIsProcessing(false);
+      const aiReply: Message = {
+        id: `ai-${Date.now()}`,
+        sender: "ai",
+        text: `✅ **Cohort ${tag} Provisioned & Initialized!**\n\n` +
+          `• **Workspace**: Mamba MVP Program · ${tag}\n` +
+          `• **Location**: Singapore · Next Sprint Batch\n` +
+          `• **Starting Roster Minted** (${newFounders.length} Live Pokemon Cards):\n` +
+          `  1. **Maya Torres** (PayFlow · Cross-Border Clearing) · Tech Lead: Gwen & Ben\n` +
+          `  2. **Liam Chen** (RoboPick · Warehouse Telemetry) · GTM Lead: James Sun\n` +
+          `• **Protocol Check**: Pre-build demand validation verified for all incoming founders.\n\n` +
+          `The dashboard workspace has automatically switched to **${tag}**! You can toggle between SG#01 and ${tag} in the top header workspace dropdown at any time.`,
+      };
+      setMessages((prev) => [...prev, aiReply]);
+      if (onAddCohort) {
+        onAddCohort(newCohort);
+      }
+    }, 1100);
+  };
+
   const handleRunAction = (action: "triage" | "gate" | "reality" | "briefing" | "coordinator") => {
     let userPrompt = "";
     let aiResponse = "";
@@ -232,7 +309,10 @@ export function AiChatOverlay({ isOpen, onClose, role, onAddFounder }: AiChatOve
       setIsProcessing(false);
       let reply = "";
       const lower = inputCopy.toLowerCase();
-      if (lower.includes("founder") || lower.includes("onboard") || lower.includes("add")) {
+      if (lower.includes("cohort") || lower.includes("batch") || lower.includes("sg#02") || lower.includes("sg02")) {
+        handleProvisionCohort("SG#02");
+        return;
+      } else if (lower.includes("founder") || lower.includes("onboard") || lower.includes("add")) {
         reply = `📋 **Onboarding Protocol Triggered!**\n\nTo onboard a founder and generate their live card, I require the **3 Standard Intake Documents**:\n\n1. 📄 **Problem & Founder Thesis** (Sprint 1 Milestone)\n2. 🎙️ **At least 3 Customer Discovery Transcripts** (Validating demand before custom engineering)\n3. 🛠️ **Current Tech Stack & Slack User ID** (For autonomous telemetry)\n\nYou can click the quick demo buttons below to test-ingest pre-validated founder files!`;
       } else if (lower.includes("gwen") || lower.includes("ben")) {
         reply = `📣 **Slack Mentor Dispatch Prepared!**\n\n` +
@@ -332,6 +412,12 @@ export function AiChatOverlay({ isOpen, onClose, role, onAddFounder }: AiChatOve
             className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-foreground hover:bg-accent hover:border-primary/40 transition-colors cursor-pointer shadow-2xs"
           >
             60-Second Lead Briefing
+          </button>
+          <button
+            onClick={() => handleProvisionCohort("SG#02")}
+            className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-foreground hover:bg-accent hover:border-primary/40 transition-colors cursor-pointer shadow-2xs"
+          >
+            Provision Cohort SG#02
           </button>
         </div>
 
