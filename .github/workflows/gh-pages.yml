@@ -31,13 +31,13 @@ jobs:
         run: npm ci --legacy-peer-deps || npm install --legacy-peer-deps
 
       - name: Build Project
-        env:
-          NITRO_PRESET: static
         run: npm run build
 
-      - name: Locate Build Artifact and Setup Static Hosting
+      - name: Inspect and Prepare Artifact
         id: locate
         run: |
+          echo "=== Files in workspace ==="
+          ls -la
           if [ -d ".output/public" ]; then
             TARGET_DIR=".output/public"
           elif [ -d "dist" ]; then
@@ -45,15 +45,12 @@ jobs:
           else
             TARGET_DIR="."
           fi
-          echo "path=$TARGET_DIR" >> $GITHUB_OUTPUT
+          echo "Target directory is: $TARGET_DIR"
+          echo "=== Files in $TARGET_DIR ==="
+          ls -la "$TARGET_DIR"
 
-          # Disable Jekyll so underscore-prefixed folders (e.g. _build) are served
           touch "$TARGET_DIR/.nojekyll"
-
-          # Provide 404.html fallback for client-side routing
-          if [ -f "$TARGET_DIR/index.html" ]; then
-            cp "$TARGET_DIR/index.html" "$TARGET_DIR/404.html"
-          fi
+          echo "path=$TARGET_DIR" >> $GITHUB_OUTPUT
 
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v3
