@@ -1,0 +1,61 @@
+{
+  "studio_name": "Cybrdeck Studio OS (Eve Count Pte. Ltd.)",
+  "program_name": "Mamba MVP 12-Week Venture Track",
+  "timezone": "Asia/Singapore",
+  "leadership": {
+    "technical_leads": [
+      {
+        "name": "Gwen Lim",
+        "slack_id": "D0C94PG2R24",
+        "email": "gwen@evecount.com",
+        "role": "Co-Founder & Technical Architecture Lead"
+      },
+      {
+        "name": "Ben Lim",
+        "slack_id": "D0C74JVR813",
+        "email": "ben@evecount.com",
+        "role": "Co-Founder & Systems Lead"
+      }
+    ],
+    "program_lead": {
+      "name": "James Sun",
+      "slack_id": "D0C77UV5GT0",
+      "email": "james@mambapartners.com",
+      "role": "Mamba Program Lead"
+    },
+    "project_coordinator": {
+      "name": "Arthur Andre Pandaan",
+      "slack_id": "D0C8AC5G2SX",
+      "email": "arthur@mambapartners.com",
+      "role": "Project Coordinator"
+    }
+  },
+  "communication_channels": {
+    "platform": "slack",
+    "leads_channel": "#mamba-leads",
+    "coordination_channel": "gwen-ben"
+  },
+  "core_protocol": "Pre-Build Demand Validation Protocol (WoZ)",
+  "cohort_founders": [
+    {
+      "id": "matthew_lee",
+      "name": "Matthew Lee",
+      "venture": "SharedOut",
+      "cohort": "Cohort 1",
+      "slack_channel": "D0C94PG2R24",
+      "description": "Hyper-local P2P household utility & hardware rental network with 60-70 signups.",
+      "tactical_focus": "Wizard of Oz (WoZ) demand validation in single localized condo cluster; collect 3-5 paid rental transactions before writing backend code.",
+      "week_2_deliverable": "Selected Concept, Value Prop & Sprint 1 Evidence Pack (Due Friday Oct 16, 5:00 PM)"
+    },
+    {
+      "id": "takshma_patel",
+      "name": "Takshma Patel",
+      "venture": "WearMAInd",
+      "cohort": "Cohort 1",
+      "slack_channel": "D0C94PG2R24",
+      "description": "Mental wellness wearable AI solution.",
+      "tactical_focus": "Validate Top 10 critical assumptions via customer discovery interviews; gather proof of willingness to pay before hardware/sensor prototyping.",
+      "week_2_deliverable": "Selected Concept, Value Prop & Sprint 1 Evidence Pack (Due Friday Oct 16, 5:00 PM)"
+    }
+  ]
+}

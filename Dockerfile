@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application files and syllabus data
 COPY slack_bot.py .
+COPY studio_config.json .
 COPY src/data/syllabus.json ./src/data/syllabus.json
 COPY .env* .
 

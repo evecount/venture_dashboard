@@ -41,3 +41,5 @@ dist-ssr
 # Internal Team Playbooks & Confidential Client Vaults
 INTERNAL_WORKFLOW_PLAYBOOK.md
 clients/
+__pycache__/
+demo_assets/
