@@ -10,11 +10,11 @@ from openai import OpenAI
 # Load environment variables
 load_dotenv()
 
-SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN")
-SLACK_APP_TOKEN = os.environ.get("SLACK_APP_TOKEN")
-SUPABASE_URL = os.environ.get("VITE_SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-QWEN_API_KEY = os.environ.get("QWEN_API_KEY")
+SLACK_BOT_TOKEN = (os.environ.get("SLACK_BOT_TOKEN") or "").strip('"\'')
+SLACK_APP_TOKEN = (os.environ.get("SLACK_APP_TOKEN") or "").strip('"\'')
+SUPABASE_URL = (os.environ.get("VITE_SUPABASE_URL") or "").strip('"\'')
+SUPABASE_KEY = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip('"\'')
+QWEN_API_KEY = (os.environ.get("QWEN_API_KEY") or "").strip('"\'')
 
 qwen_client = OpenAI(
     api_key=QWEN_API_KEY,

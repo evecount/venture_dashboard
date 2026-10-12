@@ -21,17 +21,22 @@ except Exception as e:
     print(f"SSH connection failed: {e}")
     exit(1)
 
+import sys
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+
 def run_remote_command(cmd, wait_time=2):
     print(f"\n[REMOTE EXEC]: {cmd}")
     stdin, stdout, stderr = ssh.exec_command(cmd)
     # Stream output
     exit_status = stdout.channel.recv_exit_status()
-    out = stdout.read().decode('utf-8', errors='ignore')
-    err = stderr.read().decode('utf-8', errors='ignore')
+    out = stdout.read().decode('utf-8', errors='replace')
+    err = stderr.read().decode('utf-8', errors='replace')
     if out:
-        print(f"[STDOUT]: {out.strip()}")
+        summary_out = out.strip()[-500:] if len(out) > 500 else out.strip()
+        print(f"[STDOUT (summary)]:\n{summary_out}")
     if err and exit_status != 0:
-        print(f"[STDERR]: {err.strip()}")
+        print(f"[STDERR]:\n{err.strip()[-500:]}")
     return exit_status, out
 
 # 1. Update and install prerequisites
@@ -51,13 +56,13 @@ else
 fi
 """)
 
-# 4. Write .env on remote server
-env_content = f"""VITE_SUPABASE_URL="{os.environ.get('VITE_SUPABASE_URL', '')}"
-VITE_SUPABASE_ANON_KEY="{os.environ.get('VITE_SUPABASE_ANON_KEY', '')}"
-QWEN_API_KEY="{os.environ.get('QWEN_API_KEY', '')}"
-SUPABASE_SERVICE_ROLE_KEY="{os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')}"
-SLACK_BOT_TOKEN="{os.environ.get('SLACK_BOT_TOKEN', '')}"
-SLACK_APP_TOKEN="{os.environ.get('SLACK_APP_TOKEN', '')}"
+# 4. Write .env on remote server (unquoted for Docker --env-file)
+env_content = f"""VITE_SUPABASE_URL={os.environ.get('VITE_SUPABASE_URL', '').strip('"\'')}
+VITE_SUPABASE_ANON_KEY={os.environ.get('VITE_SUPABASE_ANON_KEY', '').strip('"\'')}
+QWEN_API_KEY={os.environ.get('QWEN_API_KEY', '').strip('"\'')}
+SUPABASE_SERVICE_ROLE_KEY={os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '').strip('"\'')}
+SLACK_BOT_TOKEN={os.environ.get('SLACK_BOT_TOKEN', '').strip('"\'')}
+SLACK_APP_TOKEN={os.environ.get('SLACK_APP_TOKEN', '').strip('"\'')}
 """
 
 sftp = ssh.open_sftp()
