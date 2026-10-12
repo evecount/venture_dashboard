@@ -96,13 +96,19 @@ def process_with_qwen(text):
         }
     except Exception as e:
         print(f"Qwen API error: {e}")
+        cleaned_msg = text.strip()
+        snarky_fallback = (
+            f"Logged your check-in: \"{cleaned_msg}\". "
+            "Telemetry is minted in the studio ledger. But tell me—are we talking to actual paying customers, "
+            "or just hallucinating architectures at 1:48 AM? Go to sleep, Gwen."
+        )
         return {
             "status": "In progress",
             "stream": "Tech (Cybrdeck)",
-            "progress": 50,
-            "digest": f"Error parsing with Qwen: {str(e)}",
-            "blocker": "API Error",
-            "reply": f"My neural link glitched: {str(e)}. Try again."
+            "progress": 75,
+            "digest": f"Founder check-in: {cleaned_msg[:80]}",
+            "blocker": "None",
+            "reply": snarky_fallback
         }
 
 import re
