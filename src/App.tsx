@@ -16,13 +16,13 @@ export function App() {
 
   if (!authed) {
     return (
-      <div className="flex h-screen items-center justify-center bg-zinc-950 text-white font-sans">
-        <div className="w-[400px] rounded-xl border border-white/10 bg-zinc-900/50 p-8 shadow-2xl backdrop-blur-sm">
-          <h2 className="mb-6 text-2xl font-bold tracking-tight text-zinc-100">Prototype Access</h2>
+      <div className="flex h-screen items-center justify-center bg-zinc-100 text-zinc-900 font-sans">
+        <div className="w-[400px] rounded-xl border border-zinc-200 bg-white p-8 shadow-xl">
+          <h2 className="mb-6 text-2xl font-bold tracking-tight text-zinc-900">Prototype Access</h2>
           <input
             type="password"
             placeholder="Enter access code..."
-            className="w-full rounded-md bg-zinc-950/50 border border-white/10 px-4 py-3 text-white outline-none transition-colors focus:border-white/30"
+            className="w-full rounded-md bg-zinc-50 border border-zinc-200 px-4 py-3 text-zinc-900 outline-none transition-colors focus:border-zinc-400"
             value={pwd}
             onChange={(e) => setPwd(e.target.value)}
             onKeyDown={(e) => {
@@ -33,7 +33,7 @@ export function App() {
             }}
           />
           <button
-            className="mt-4 w-full rounded-md bg-zinc-100 px-4 py-3 font-medium text-zinc-900 transition-colors hover:bg-white cursor-pointer"
+            className="mt-4 w-full rounded-md bg-zinc-900 px-4 py-3 font-medium text-white transition-colors hover:bg-zinc-800 cursor-pointer"
             onClick={() => {
               if (pwd === "mamba2026") {
                 localStorage.setItem("cybr_auth", "true");
