@@ -38,5 +38,6 @@ dist-ssr
 .env
 .lovable/
 
-# Internal Team Playbooks
+# Internal Team Playbooks & Confidential Client Vaults
 INTERNAL_WORKFLOW_PLAYBOOK.md
+clients/
