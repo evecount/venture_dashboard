@@ -22,6 +22,34 @@ The React dashboard updates in real-time for the Studio Mentors.
 
 ---
 
+## User Directions: How to Use
+
+### 🚀 For Founders (Zero Admin, Zero Forms)
+You never have to log into a tracking dashboard or update tickets.
+
+1. **Open Slack**: Go to your private founder channel or direct message with `@MVP_buddy`.
+2. **Drop your update naturally**:
+   - Send a **voice note** summarizing your day or discovery calls.
+   - Paste or upload a raw customer interview transcript (`.txt` / `.pdf`).
+   - Or send a quick message: *"Validated pricing with 3 prospects today, but Stripe KYC verification is delaying checkout deployment."*
+3. **You're done**: The bot automatically tabulates your sprint milestone, updates your status, and flags your blocker on the studio dashboard.
+
+---
+
+### 📊 For Studio Mentors & Leadership (Instant Command Center)
+No more chasing founders or digging through dozens of messy Slack threads.
+
+1. **Open the Dashboard**: Visit the live [Venture Dashboard](https://evecount.github.io/venture_dashboard/).
+2. **Read the Room in 10 Seconds**:
+   - **Cohort Health Overview**: See tabulated counts of active blockers, syllabus progress, and sprint momentum.
+   - **Founder Dossiers**: Glance at who is `In Progress` vs. `Blocked`.
+3. **Targeted Intervention**:
+   - Expand any blocked founder's card to read the AI-synthesized digest and exact blocker.
+   - Step in with high leverage where help is actually needed.
+4. **Autonomous Safeguard**: If any founder remains blocked for > 48 hours, `@MVP_buddy` autonomously reaches out in Slack to nudge them and schedule a sync with Gwen and Ben.
+
+---
+
 ## Ingestion vs. Synthesis: Why Slack + Ambient Dashboard?
 
 A common question is: *"Why not just keep everything inside Slack?"* 
