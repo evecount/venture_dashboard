@@ -37,3 +37,6 @@ dist-ssr
 # Secrets
 .env
 .lovable/
+
+# Internal Team Playbooks
+INTERNAL_WORKFLOW_PLAYBOOK.md
