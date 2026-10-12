@@ -321,12 +321,11 @@ export function CommandCenter() {
               </p>
             </div>
             <div className="date-label text-right">
-              <div className="mb-2 flex items-center justify-end gap-2 text-xs">
-                <CalendarDays size={13} className="text-muted-foreground" />
-                October 10, 2026
+              <div className="mb-1 text-xs font-semibold text-foreground">
+                {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
               </div>
               <span className="text-[10px] text-muted-foreground">
-                Simulated activity · No live sync
+                Real-time cohort telemetry
               </span>
             </div>
           </div>
