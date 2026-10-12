@@ -1,0 +1,12 @@
+services:
+  mvp-slack-bot:
+    build: .
+    container_name: mvp_slack_bot
+    restart: always
+    env_file:
+      - .env
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
