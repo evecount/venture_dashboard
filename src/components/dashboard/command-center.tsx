@@ -425,6 +425,59 @@ export function CommandCenter() {
                         </div>
                       </div>
 
+                      {/* Weekly Sprint Progress Bars */}
+                      <div className="rounded-lg border border-border/40 bg-muted/20 p-2.5 mb-3">
+                        <div className="flex items-center justify-between text-[10px] mb-1.5">
+                          <span className="font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                            <CalendarDays size={11} className="text-primary" />
+                            Weekly Sprint Track
+                          </span>
+                          <span className="font-mono font-medium text-foreground">
+                            Week 1 of 12 · <span className={isBlocked ? "text-amber-600 font-semibold" : "text-primary font-semibold"}>{f.progress}%</span>
+                          </span>
+                        </div>
+                        {/* 12-Week Segmented Progress Bar */}
+                        <div className="grid grid-cols-12 gap-1 mb-1.5">
+                          {Array.from({ length: 12 }).map((_, wIdx) => {
+                            const weekNum = wIdx + 1;
+                            const isCurrent = weekNum === 1;
+                            return (
+                              <div
+                                key={wIdx}
+                                className="group/pip relative flex flex-col items-center"
+                                title={`Week ${weekNum}: ${isCurrent ? `${f.progress}% complete (Sprint 1: Problem Thesis)` : "Upcoming Sprint Milestone"}`}
+                              >
+                                <div
+                                  className={`h-2 w-full rounded-xs transition-all ${
+                                    isCurrent
+                                      ? isBlocked
+                                        ? "bg-amber-500 animate-pulse"
+                                        : "bg-primary"
+                                      : "bg-muted/80"
+                                  }`}
+                                  style={
+                                    isCurrent
+                                      ? {
+                                          opacity: Math.max(0.5, f.progress / 100),
+                                        }
+                                      : {}
+                                  }
+                                />
+                                <span className="text-[8px] font-mono text-muted-foreground/70 mt-0.5 group-hover/pip:text-foreground">
+                                  W{weekNum}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="flex items-center justify-between text-[9px] text-muted-foreground pt-1 border-t border-border/30">
+                          <span>Current Milestone: Problem & Thesis</span>
+                          <span className={isBlocked ? "text-amber-600 font-medium" : "text-emerald-600 font-medium"}>
+                            {isBlocked ? "Blocked on OCR" : "Sprint 1 Velocity"}
+                          </span>
+                        </div>
+                      </div>
+
                       {/* Moves: What they're doing */}
                       <div className="rounded-lg bg-muted/40 p-2.5 mb-3 border border-border/30">
                         <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1 flex items-center gap-1">
