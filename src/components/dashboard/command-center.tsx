@@ -137,7 +137,7 @@ export function CommandCenter() {
   return (
     <div className="dashboard-shell">
       <aside className="side-rail" aria-label="Main navigation">
-        <div className="brand-mark" title="Adventure Studio · Live Coordinates">
+        <div className="brand-mark" title="Mamba MVP Program · SG#01">
           <LocateFixed size={20} strokeWidth={2.2} />
         </div>
         <div className="flex flex-col gap-3">
@@ -236,7 +236,7 @@ export function CommandCenter() {
               onClick={() => setWorkspaceOpen(!workspaceOpen)}
               aria-expanded={workspaceOpen}
             >
-              <span className="workspace-name font-semibold">Adventure Studio</span>
+              <span className="workspace-name font-semibold">Mamba MVP Program</span>
               <span className="cohort-tag">SG#01</span>
               <ChevronDown className="size-3! text-muted-foreground" />
             </Button>
@@ -244,7 +244,7 @@ export function CommandCenter() {
               <div className="absolute top-11 left-0 z-20 w-64 rounded-md border border-border bg-card p-3 shadow-sm">
                 <p className="mb-2 text-[10px] text-muted-foreground">WORKSPACES</p>
                 <div className="flex items-center justify-between text-xs">
-                  Adventure Studio · SG#01 <Check size={13} className="text-primary" />
+                  Mamba MVP Program · SG#01 <Check size={13} className="text-primary" />
                 </div>
                 <p className="mt-2 text-[10px] text-muted-foreground">Current cohort · Singapore</p>
               </div>
@@ -1035,7 +1035,7 @@ export function CommandCenter() {
           <footer className="page-footer">
             <span className="flex items-center gap-1.5">
               <Command size={11} />
-              Adventure Studio<span className="mx-2">/</span>Built for founder momentum.
+              Mamba MVP Program<span className="mx-2">/</span>Built for founder momentum.
             </span>
             <span className="flex items-center gap-1.5">
               <span className="live-dot" />
@@ -1217,7 +1217,7 @@ export function CommandCenter() {
       >
         <SheetContent className="detail-sheet">
           <SheetHeader>
-            <SheetTitle>Adventure Studio</SheetTitle>
+            <SheetTitle>Mamba MVP Program</SheetTitle>
             <SheetDescription>{notice}</SheetDescription>
           </SheetHeader>
         </SheetContent>

@@ -3,13 +3,13 @@ import { CommandCenter } from "@/components/dashboard/command-center";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Cohort Pulse · Adventure Studio SG#01" },
+      { title: "Cohort Pulse · Mamba MVP Program SG#01" },
       {
         name: "description",
         content:
-          "Adventure Studio’s command center for Cohort SG#01. Track sprint momentum, founder check-ins, deliverables and priority blockers.",
+          "Mamba MVP Program’s command center for Cohort SG#01. Track sprint momentum, founder check-ins, deliverables and priority blockers.",
       },
-      { property: "og:title", content: "Cohort Pulse · Adventure Studio SG#01" },
+      { property: "og:title", content: "Cohort Pulse · Mamba MVP Program SG#01" },
       {
         property: "og:description",
         content:
