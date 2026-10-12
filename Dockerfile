@@ -11,8 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application files
+# Copy application files and syllabus data
 COPY slack_bot.py .
+COPY src/data/syllabus.json ./src/data/syllabus.json
 COPY .env* .
 
 # Run Slack Bot in Socket Mode
