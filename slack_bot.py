@@ -174,13 +174,19 @@ def send_slack_message(channel: str, text: str, thread_ts: str = None) -> bool:
     Can be called directly from Python or triggered by the dashboard outbox.
     """
     # Channel alias mapping
+    if channel in ["gwen-ben", "gwen_ben", "@gwen_ben"]:
+        # Dispatch to BOTH Gwen and Ben simultaneously!
+        send_slack_message("D0C94PG2R24", text, thread_ts)
+        send_slack_message("D0C74JVR813", text, thread_ts)
+        return True
+
     target_channel = channel
-    if channel in ["james", "@james", "james_sun", "mamba"]:
-        target_channel = "D0C77UV5GT0"  # James (james@mambapartners.com)
+    if channel in ["ben", "@ben", "ben_lim"]:
+        target_channel = "D0C74JVR813"  # Ben (ben@evecount.com)
     elif channel in ["gwen", "@gwen", "gwen_lim"]:
-        target_channel = "D0C94PG2R24"  # Gwen Lim
-    elif channel in ["gwen-ben", "gwen_ben", "@gwen_ben", "ben"]:
-        target_channel = os.environ.get("SLACK_GWEN_BEN_CHANNEL", "#cybrdeck-leads")
+        target_channel = "D0C94PG2R24"  # Gwen Lim (gwen@evecount.com)
+    elif channel in ["james", "@james", "james_sun", "mamba"]:
+        target_channel = "D0C77UV5GT0"  # James (james@mambapartners.com)
     elif channel in ["leads", "mamba-leads"]:
         target_channel = os.environ.get("SLACK_LEADS_CHANNEL", "#mamba-leads")
 
