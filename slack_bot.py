@@ -203,6 +203,11 @@ def process_with_qwen(text):
       "stream": "Tech (Cybrdeck)" or "GTM",
       "blocker": "A short 1-sentence description of what they are stuck on (or 'None')",
       "digest": "A 1-sentence summary of progress and what the human mentors should do next",
+      "action_relay": {{
+        "has_cross_party_task": true or false,
+        "target": "gwen-ben" or "james" or "arthur" or "matthew" or "takshma" or null,
+        "directive": "Exact message to send to the counterparty telling them what to get done so the sender never has to ask or chase anyone."
+      }},
       "reply": "Your executive response as Chief of Staff. CRITICAL RULE: If asked to break down tasks, draft messages, or create plans, DO NOT just give commentary or tell the user to do it. ACTUALLY EXECUTE: output the complete, numbered task checklist with clear deliverables, and write out the exact draft message ready to send. Keep Gwen's sharp, high-agency, zero-fluff tone."
     }}
     
@@ -226,6 +231,7 @@ def process_with_qwen(text):
             "progress": 50,
             "digest": result.get("digest", "Processed by Qwen."),
             "blocker": result.get("blocker", "None"),
+            "action_relay": result.get("action_relay", {}),
             "reply": result.get("reply", "Telemetry logged. Now go talk to actual paying customers.")
         }
     except Exception as e:
@@ -802,6 +808,14 @@ def handle_founder_checkin(message, say):
     
     # 5. Reply with Gwen's witty/snarky personality directly in Slack
     say(extracted_data.get("reply", "Telemetry logged. Now go find a customer who actually wants to pay."))
+    
+    # 6. Relay cross-party action items if detected (Frictionless coordination)
+    action_relay = extracted_data.get("action_relay") or {}
+    if action_relay.get("has_cross_party_task") and action_relay.get("target") and action_relay.get("directive"):
+        target_dest = action_relay.get("target")
+        directive_text = action_relay.get("directive")
+        print(f"Relaying autonomous directive to {target_dest}: {directive_text}")
+        send_slack_message(target_dest, f"🔔 *Autonomous Directive from MVP_buddy:*\n{directive_text}")
     
     # 6. Save to Supabase (bypassing RLS with Service Role Key)
     try:
