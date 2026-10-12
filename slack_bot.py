@@ -172,15 +172,15 @@ def process_with_qwen(text):
         print(f"Qwen API error: {e}")
         cleaned_msg = text.strip()
         
-        # Check if the query is asking about the schedule/deliverable
+        # Check if the query is asking about the schedule/deliverable/team
         schedule_reply = check_schedule_query(cleaned_msg)
         if schedule_reply:
             snarky_fallback = schedule_reply
         else:
             snarky_fallback = (
                 f"Logged your check-in: \"{cleaned_msg}\". "
-                "Telemetry is minted in the studio ledger. But tell me—are we talking to actual paying customers, "
-                "or just hallucinating architectures at 1:48 AM? Go to sleep, Gwen."
+                "Telemetry is minted in the studio ledger. Pre-build demand validation is active—"
+                "make sure you are validating real customer willingness to pay before writing new code."
             )
         return {
             "status": "In progress",
@@ -193,10 +193,39 @@ def process_with_qwen(text):
 
 def check_schedule_query(query: str):
     """
-    Deterministically parses questions regarding the Mamba MVP 12-week schedule
-    and provides the exact deliverables, dates, and office hours.
+    Deterministically answers questions regarding the schedule, team directory,
+    and studio methodology so the bot is resolute even without an external LLM.
     """
     q = query.lower()
+    
+    # 1. Team & Identity Queries
+    if "gwen" in q:
+        return (
+            "Gwen Lim is the Co-Founder of Cybrdeck (Eve Count Pte. Ltd.) and Technical Architecture Lead for the Mamba MVP Program. "
+            "She builds quantum algorithms, designs studio systems, and enforces ruthless Pre-Build Demand Validation—making sure founders validate real customer willingness to pay before burning engineering hours."
+        )
+    elif "ben" in q:
+        return (
+            "Ben Lim is the Co-Founder of Cybrdeck alongside Gwen, leading systems engineering, cloud architecture, and automation infrastructure."
+        )
+    elif "james" in q:
+        return (
+            "James Sun is the Program Lead at Mamba Partners, steering the 12-week MVP Program, commercial milestones, and investment evaluation gates."
+        )
+    elif "arthur" in q:
+        return (
+            "Arthur Andre Pandaan is the Project Coordinator at Mamba Partners, managing cohort operations, scheduling, submissions, and founder logistics."
+        )
+    elif "cybrdeck" in q or "eve count" in q:
+        return (
+            "Cybrdeck (Eve Count Pte. Ltd.) is the venture studio and technical engineering partner for the Mamba MVP Program, founded by Gwen Lim and Ben Lim."
+        )
+    elif "mamba" in q:
+        return (
+            "Mamba Partners runs the 12-week MVP Track (Oct 5 – Dec 25, 2026), accelerating early-stage founders through 6 agile sprints from initial thesis to validated MVP demo."
+        )
+
+    # 2. Schedule & Deliverable Queries
     if any(k in q for k in ["schedule", "syllabus", "due", "deliverable", "milestone", "week", "wk"]):
         match = re.search(r"(?:week|wk)\s*(\d{1,2})", q)
         if match:
