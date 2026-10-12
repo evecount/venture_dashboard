@@ -216,6 +216,17 @@ def check_schedule_query(query: str):
         return (
             "Arthur Andre Pandaan is the Project Coordinator at Mamba Partners, managing cohort operations, scheduling, submissions, and founder logistics."
         )
+    elif "matthew" in q:
+        return (
+            "Matthew Lee (Cohort 1) is building SharedOut—a hyper-local P2P household utility & hardware rental network. "
+            "He has 60-70 registered sign-ups, but as his Marketing & Technical Lead, your mandate is to enforce the Wizard of Oz (WoZ) strategy: "
+            "do NOT build bespoke backend features until he proves actual paid rental transaction velocity in a localized condo/neighborhood cluster. "
+            "His Week 2 deliverable due this Friday (Oct 16) is the Selected Concept, Value Prop & Sprint 1 Evidence Pack."
+        )
+    elif "takshma" in q:
+        return (
+            "Takshma Patel (Cohort 1) is building WearMAInd. Her mandate is validating pre-build demand signals, ranking her top 10 assumptions, and locking her Sprint 1 Evidence Pack for Friday Oct 16."
+        )
     elif "cybrdeck" in q or "eve count" in q:
         return (
             "Cybrdeck (Eve Count Pte. Ltd.) is the venture studio and technical engineering partner for the Mamba MVP Program, founded by Gwen Lim and Ben Lim."
