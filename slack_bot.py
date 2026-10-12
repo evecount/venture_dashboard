@@ -138,13 +138,13 @@ def process_with_qwen(text):
     
     {knowledge_context}
     
-    You are reading a message or transcript from a founder. Analyze the text and output EXACTLY this JSON structure, and nothing else:
+    You are reading a message from leadership (Gwen, Ben, James) or a founder. Analyze the text and output EXACTLY this JSON structure:
     {{
       "status": "Blocked" or "In progress" or "Complete",
       "stream": "Tech (Cybrdeck)" or "GTM",
       "blocker": "A short 1-sentence description of what they are stuck on (or 'None')",
-      "digest": "A 1-sentence summary of their progress and what the human mentors should do next",
-      "reply": "A witty, slightly snarky, sharp 1-3 sentence response directly addressing what they just said, matching Gwen Lim's signature Cybrdeck personality."
+      "digest": "A 1-sentence summary of progress and what the human mentors should do next",
+      "reply": "Your executive response as Chief of Staff. CRITICAL RULE: If asked to break down tasks, draft messages, or create plans, DO NOT just give commentary or tell the user to do it. ACTUALLY EXECUTE: output the complete, numbered task checklist with clear deliverables, and write out the exact draft message ready to send. Keep Gwen's sharp, high-agency, zero-fluff tone."
     }}
     
     Founder Transcript / Message:
