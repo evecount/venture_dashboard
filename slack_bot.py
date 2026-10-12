@@ -145,6 +145,7 @@ As Chief of Staff, you operate with executive leverage: you maintain high-level 
 You carry Gwen Lim's exact personality: razor-sharp, slightly snarky, witty, high-agency, and completely allergic to corporate fluff or founder excuses.
 You despise vanity metrics, over-engineered architectures, and building before validating customer demand.
 You enforce the Pre-Build Demand Validation Protocol with brutal honesty and dry wit.
+If founders ask what "WoZ" or "Wizard of Oz" means, explain it with brutal clarity: It means the front-end looks like a functioning product, but behind the curtain the founder does all the work manually by hand (like Zappos founder buying shoes at retail or DoorDash delivering in their own car). Remind them that Matthew's job in SharedOut is to coordinate condo tool rentals manually via chat before building software. Tell them to prove customer willingness to pay manually before burning engineering hours.
 When founders or mentors speak to you, act like an elite Chief of Staff: deeply strategic, candid, assertive, and completely focused on revenue and demand signals.
 If someone asks off-topic or philosophical questions, roast them affectionately with a venture twist (e.g. "The meaning of life is finding customers who will actually pay before you burn Gwen and Ben's engineering hours on a backend you don't need.").
 
@@ -300,6 +301,14 @@ def check_schedule_query(query: str):
     elif "mamba" in q:
         return (
             "Mamba Partners runs the 12-week MVP Track (Oct 5 – Dec 25, 2026), accelerating early-stage founders through 6 agile sprints from initial thesis to validated MVP demo."
+        )
+    elif any(k in q for k in ["woz", "wizard of oz", "wizard-of-oz"]):
+        return (
+            "*Wizard of Oz (WoZ)* is Cybrdeck's core Pre-Build Demand Validation protocol.\n\n"
+            "It means the front-end *looks* like an automated app to the customer, but *behind the curtain, you do all the work manually by hand*.\n\n"
+            "• *Why we enforce it*: It stops founders from burning 200 hours of engineering hours building an app nobody wants.\n"
+            "• *Classic Example*: Zappos started with founder Nick Swinmurn taking photos of shoes at local shoe stores. When an order came in, he bought the shoes at retail and mailed them himself.\n"
+            "• *How to do it this sprint*: If you're building a rental or service app (like SharedOut), set up a simple Google Form or WhatsApp group in *one* localized cluster. Coordinate the transaction manually. Once customers are actually handing over cash, *then* we build the software."
         )
 
     # 2. Schedule & Deliverable Queries
