@@ -93,10 +93,29 @@ You have full, authoritative knowledge of the entire Mamba MVP 12-Week Syllabus 
 {SYLLABUS_SCHEDULE_CONTEXT}
 """
 
+def query_supabase_knowledge(query_text: str, limit: int = 2) -> str:
+    """
+    Retrieves relevant workplace documents and founder history from Supabase.
+    """
+    if not supabase:
+        return ""
+    try:
+        res = supabase.table("knowledge_documents").select("title, category, content").limit(limit).execute()
+        rows = res.data or []
+        if not rows:
+            return ""
+        snippets = ["--- RELEVANT STUDIO DOCUMENTS & MEMORY (SUPABASE) ---"]
+        for row in rows:
+            snippets.append(f"[{row['title']} - {row['category']}]:\n{row['content'][:800]}")
+        return "\n\n".join(snippets)
+    except Exception as e:
+        print(f"Supabase knowledge query error: {e}")
+        return ""
+
 def process_with_qwen(text):
     """
     Real API Call to Qwen (via OpenAI compatible endpoint).
-    Injects the CYBRDECK_SYSTEM_PROMPT and generates structured data + a snarky reply.
+    Injects the CYBRDECK_SYSTEM_PROMPT, Supabase workplace documents, and generates structured data + a snarky reply.
     """
     if not qwen_client:
         print("No QWEN_API_KEY found, falling back to simulated logic...")
@@ -111,8 +130,12 @@ def process_with_qwen(text):
         
     print(f"Sending context to Qwen LLM...")
     
+    knowledge_context = query_supabase_knowledge(text)
+    
     prompt = f"""
     {CYBRDECK_SYSTEM_PROMPT}
+    
+    {knowledge_context}
     
     You are reading a message or transcript from a founder. Analyze the text and output EXACTLY this JSON structure, and nothing else:
     {{
@@ -241,7 +264,7 @@ def handle_founder_checkin(message, say):
     text = message.get("text", "")
     files = message.get("files", [])
     
-    # Detect and download files (e.g. massive transcripts)
+    # Detect and download files (e.g. massive transcripts or workplace documents)
     if files:
         for file in files:
             url = file.get("url_private_download")
@@ -249,7 +272,21 @@ def handle_founder_checkin(message, say):
                 headers = {"Authorization": f"Bearer {SLACK_BOT_TOKEN}"}
                 response = requests.get(url, headers=headers)
                 if response.status_code == 200:
-                    text += f"\n\n[Transcript Content from {file.get('name')}]:\n{response.text}"
+                    file_content = response.text
+                    text += f"\n\n[Transcript Content from {file.get('name')}]:\n{file_content}"
+                    # Automatically index into Supabase knowledge_documents
+                    try:
+                        if supabase:
+                            supabase.table("knowledge_documents").insert({
+                                "title": file.get("name", "Slack Document"),
+                                "category": "slack_upload",
+                                "source": f"slack_file_{file.get('id', 'unknown')}",
+                                "content": file_content[:15000],
+                                "metadata": {"uploaded_by": user_id, "file_id": file.get("id")}
+                            }).execute()
+                            print(f"Indexed uploaded file '{file.get('name')}' to Supabase knowledge base.")
+                    except Exception as fe:
+                        print(f"Error indexing uploaded file: {fe}")
                     
     # 1. Process via real Qwen API with Gwen's signature personality
     extracted_data = process_with_qwen(text)
