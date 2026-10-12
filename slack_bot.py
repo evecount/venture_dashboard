@@ -30,16 +30,67 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and
 # Initialize Slack App
 app = App(token=SLACK_BOT_TOKEN)
 
+# --- SYLLABUS & SCHEDULE KNOWLEDGE BASE ---
+def load_syllabus_schedule():
+    """
+    Loads and compiles the official 12-week Mamba MVP syllabus schedule
+    from src/data/syllabus.json (derived from Mamba_MVP_Official_Syllabus_Schedule (2).xlsx).
+    """
+    possible_paths = [
+        os.path.join(os.path.dirname(__file__), "src", "data", "syllabus.json"),
+        os.path.join(os.getcwd(), "src", "data", "syllabus.json"),
+        r"D:\venture_dashboard\src\data\syllabus.json"
+    ]
+    syllabus_data = None
+    for p in possible_paths:
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    syllabus_data = json.load(f)
+                break
+            except Exception:
+                pass
+                
+    if not syllabus_data:
+        return "Syllabus schedule data currently offline."
+
+    schedule_items = syllabus_data.get("Mamba_MVP_Official_Syllabus_Sch", [])
+    lines = ["OFFICIAL MAMBA MVP 12-WEEK SYLLABUS & SCHEDULE (Oct 5 - Dec 25, 2026):"]
+    current_week = None
+    for item in schedule_items:
+        week = item.get("Week")
+        date_str = str(item.get("Date", ""))[:10]
+        day = item.get("Day", "")
+        phase = item.get("Sprint Phase", "")
+        module = item.get("Module / Tactical Focus", "")
+        deliverable = item.get("Weekly Deliverable / Milestone")
+        owner = item.get("Owner / Lead", "")
+        
+        if week != current_week:
+            current_week = week
+            lines.append(f"\n[{week} - {phase}]")
+        
+        desc = f"- {day} ({date_str}): {module} (Lead: {owner})"
+        if deliverable:
+            desc += f" -> [MILESTONE GATE: {deliverable}]"
+        lines.append(desc)
+        
+    return "\n".join(lines)
+
+SYLLABUS_SCHEDULE_CONTEXT = load_syllabus_schedule()
+
 # --- SYSTEM PROMPT & RESOURCES ---
-# The bot's identity and knowledge base. 
-# --- SYSTEM PROMPT & RESOURCES ---
-CYBRDECK_SYSTEM_PROMPT = """
+CYBRDECK_SYSTEM_PROMPT = f"""
 You are MVP_buddy, the autonomous technical architecture mentor AI for Cybrdeck (Eve Count Pte. Ltd.), created by Gwen Lim and Ben Lim for the Mamba MVP Program.
 You carry Gwen Lim's exact personality: razor-sharp, slightly snarky, witty, high-agency, and completely allergic to corporate fluff or founder excuses.
 You despise vanity metrics, over-engineered architectures, and building before validating customer demand.
 You enforce the Pre-Build Demand Validation Protocol with brutal honesty and dry wit.
 When founders speak to you, never sound like a polite corporate chatbot. Be sharp, clever, sarcastic when appropriate, and deeply insightful.
 If someone asks off-topic or philosophical questions (like "the meaning of life"), roast them affectionately with a venture twist (e.g. "The meaning of life is finding customers who will actually pay before you burn Gwen and Ben's engineering hours on a backend you don't need.").
+
+You have full, authoritative knowledge of the entire Mamba MVP 12-Week Syllabus and Schedule below (from Mamba_MVP_Official_Syllabus_Schedule). If a founder asks about deadlines, weekly deliverables, Wednesday anchor office hours, or milestone gates, cite the exact week, dates, and requirements with zero hesitation:
+
+{SYLLABUS_SCHEDULE_CONTEXT}
 """
 
 def process_with_qwen(text):
@@ -97,11 +148,17 @@ def process_with_qwen(text):
     except Exception as e:
         print(f"Qwen API error: {e}")
         cleaned_msg = text.strip()
-        snarky_fallback = (
-            f"Logged your check-in: \"{cleaned_msg}\". "
-            "Telemetry is minted in the studio ledger. But tell me—are we talking to actual paying customers, "
-            "or just hallucinating architectures at 1:48 AM? Go to sleep, Gwen."
-        )
+        
+        # Check if the query is asking about the schedule/deliverable
+        schedule_reply = check_schedule_query(cleaned_msg)
+        if schedule_reply:
+            snarky_fallback = schedule_reply
+        else:
+            snarky_fallback = (
+                f"Logged your check-in: \"{cleaned_msg}\". "
+                "Telemetry is minted in the studio ledger. But tell me—are we talking to actual paying customers, "
+                "or just hallucinating architectures at 1:48 AM? Go to sleep, Gwen."
+            )
         return {
             "status": "In progress",
             "stream": "Tech (Cybrdeck)",
@@ -110,6 +167,53 @@ def process_with_qwen(text):
             "blocker": "None",
             "reply": snarky_fallback
         }
+
+def check_schedule_query(query: str):
+    """
+    Deterministically parses questions regarding the Mamba MVP 12-week schedule
+    and provides the exact deliverables, dates, and office hours.
+    """
+    q = query.lower()
+    if any(k in q for k in ["schedule", "syllabus", "due", "deliverable", "milestone", "week", "wk"]):
+        match = re.search(r"(?:week|wk)\s*(\d{1,2})", q)
+        if match:
+            wk_num = int(match.group(1))
+            wk_tag = f"WK {wk_num:02d}"
+            possible_paths = [
+                os.path.join(os.path.dirname(__file__), "src", "data", "syllabus.json"),
+                os.path.join(os.getcwd(), "src", "data", "syllabus.json"),
+                r"D:\venture_dashboard\src\data\syllabus.json"
+            ]
+            for p in possible_paths:
+                if os.path.exists(p):
+                    try:
+                        with open(p, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                        items = [item for item in data.get("Mamba_MVP_Official_Syllabus_Sch", []) if item.get("Week") == wk_tag]
+                        if items:
+                            fri = next((item for item in items if item.get("Day") == "Fri"), items[-1])
+                            wed = next((item for item in items if item.get("Day") == "Wed"), None)
+                            milestone = fri.get("Weekly Deliverable / Milestone") or "Weekly Review"
+                            wed_info = f"\n- Wed ({str(wed.get('Date'))[:10]}): {wed.get('Module / Tactical Focus')}" if wed else ""
+                            return (
+                                f"Here is the official schedule for {wk_tag} ({items[0].get('Sprint Phase')}):\n"
+                                f"- Mon ({str(items[0].get('Date'))[:10]}): {items[0].get('Module / Tactical Focus')}"
+                                f"{wed_info}\n"
+                                f"- Fri ({str(fri.get('Date'))[:10]}): [MILESTONE GATE] -> {milestone}\n\n"
+                                f"Pre-build demand validation is non-negotiable. Don't build until assumptions are locked."
+                            )
+                    except Exception:
+                        pass
+        elif "office hour" in q or "anchor" in q:
+            return (
+                "Office Hours (The Anchor) are held every Wednesday with the Mamba Program Lead for dashboard review, block removal, and decision locking."
+            )
+        elif "schedule" in q or "syllabus" in q:
+            return (
+                "The Mamba MVP Program runs 12 weeks across 6 sprints (Oct 5 – Dec 25, 2026). "
+                "Ask me about any specific week (e.g. 'What is due in Week 2?' or 'Week 8 gate') and I'll pull the exact tactical focus and Friday milestone deliverable."
+            )
+    return None
 
 import re
 
