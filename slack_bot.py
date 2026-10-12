@@ -18,7 +18,7 @@ QWEN_API_KEY = (os.environ.get("QWEN_API_KEY") or "").strip('"\'')
 
 qwen_client = OpenAI(
     api_key=QWEN_API_KEY,
-    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
 ) if QWEN_API_KEY else None
 
 if not all([SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SUPABASE_URL, SUPABASE_KEY, QWEN_API_KEY]):
@@ -152,7 +152,7 @@ def process_with_qwen(text):
     
     try:
         response = qwen_client.chat.completions.create(
-            model="qwen-plus",
+            model="qwen-max",
             messages=[
                 {"role": "system", "content": "You are a JSON-only API. Only output valid JSON."},
                 {"role": "user", "content": prompt}
