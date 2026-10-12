@@ -58,48 +58,6 @@ export const founders: Founder[] = [
       "The frontend looks great, but my OCR script is randomly dropping the biomarker fields when the PDF formatting changes. Can Gwen or Ben look at my parsing logic?",
     note: "Cybrdeck Engineering: Review Jordan's parsing script and suggest a more robust regex or mapping library before we scale the backend.",
   },
-  {
-    id: "founder-gwen-03",
-    name: "Gwen Lim",
-    startup: "Cybrdeck · Autonomous Studio Infrastructure",
-    stream: "Tech",
-    lead: "Self / Ben Lim",
-    status: "In progress",
-    digest:
-      "Successfully wired the Qwen LLM into the Slack bot to autonomously parse massive meeting transcripts and push JSON to Supabase.",
-    time: "10m ago",
-    progress: 95,
-    audience: "Mamba Studio Mentors & Founders",
-    stack: ["Python", "Slack Bolt", "Qwen AI", "Supabase"],
-    blocker:
-      "Need to build out the GitHub PR automation pipeline. Setting up the GitHub Actions workflows next.",
-    profile:
-      "Gwen is the engineering lead for Cybrdeck, building out the stealth Venture OS layer to handle Mamba's cohort data at scale.",
-    transcript:
-      "I just got the Qwen API key hooked up. It's perfectly extracting the JSON block from 10-page transcripts. My next immediate blocker is setting up the automated PR generation since founders want code written for them directly from Slack.",
-    note: "Cybrdeck Strategy: Prioritize the GitHub Actions setup next to ensure seamless codebase scaffolding.",
-  },
-  {
-    id: "founder-ben-04",
-    name: "Ben Lim",
-    startup: "Cybrdeck · Autonomous Agent Architecture",
-    stream: "Tech",
-    lead: "Self / Gwen Lim",
-    status: "In progress",
-    digest:
-      "Architecting the autonomous background agent layer that will draft PRs and scaffold code directly from the founder transcripts parsed by Qwen.",
-    time: "5m ago",
-    progress: 40,
-    audience: "Accelerated Founders & Engineering Teams",
-    stack: ["Python", "Supabase", "Qwen LLM", "GitHub Actions"],
-    blocker:
-      "Waiting on Gwen to finalize the GitHub Actions pipeline before triggering the background codebase scaffolding.",
-    profile:
-      "Ben is the systems architect for Cybrdeck, turning the unstructured founder breadcrumbs into automated, executable engineering outcomes (the 'Stealth Tier').",
-    transcript:
-      "Gwen's Slack pipeline is working perfectly. Once she finishes the GitHub PR automation, we will have a unified code generation loop in Supabase. My next step is wiring up the background agents to actually start reading those JSON blobs and writing the boilerplate code for the founders.",
-    note: "Cybrdeck Engineering: Sync with Gwen once the GitHub workflow setup is done so we can map the data schemas into the autonomous code-writer.",
-  },
 ];
 export const studioRoles = [
   { id: "coordinator", title: "Program Coordinator", focus: "Program delivery", responsibility: "Coordinate the cohort calendar, office hours, deliverables and gate readiness.", task: "Prepare the demo office-hours agenda and follow up on two review requests." },
@@ -107,7 +65,7 @@ export const studioRoles = [
   { id: "marketing", title: "Marketing / Rollout / User Validation", focus: "Market validation", responsibility: "Support launch planning, user recruitment, validation experiments and activation feedback.", task: "Draft a fictional user-validation experiment for the supply chain concept." },
   { id: "technical", title: "Technical Advisor (Cybrdeck)", focus: "MVP development", responsibility: "Advise on MVP scope, architecture, technical feasibility and build blockers.", task: "Review Jordan's parsing script and suggest a more robust regex or mapping library before scaling the backend." },
 ] as const;
-export type DemoPerspective = typeof studioRoles[number]["id"] | "founder-alex-01" | "founder-jordan-02" | "founder-gwen-03" | "founder-ben-04";
+export type DemoPerspective = typeof studioRoles[number]["id"] | "founder-alex-01" | "founder-jordan-02";
 import syllabusData from "../../data/syllabus.json";
 
 const rawData = (syllabusData as any).Mamba_MVP_Official_Syllabus_Sch;

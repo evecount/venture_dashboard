@@ -1079,8 +1079,6 @@ export function CommandCenter() {
                               if (isWeek1) {
                                 if (f.id.includes("alex")) status = "done";
                                 else if (f.id.includes("jordan")) status = f.status === "Blocked" ? "blocked" : "in-progress";
-                                else if (f.id.includes("gwen")) status = "done";
-                                else if (f.id.includes("ben")) status = "in-progress";
                                 else status = "done";
                               } else {
                                 status = "pending";
