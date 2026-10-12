@@ -147,11 +147,19 @@ export function AiChatOverlay({ isOpen, onClose, role, onAddFounder }: AiChatOve
     }, 1200);
   };
 
-  const handleRunAction = (action: "triage" | "gate" | "reality" | "briefing") => {
+  const handleRunAction = (action: "triage" | "gate" | "reality" | "briefing" | "coordinator") => {
     let userPrompt = "";
     let aiResponse = "";
 
-    if (action === "triage") {
+    if (action === "coordinator") {
+      userPrompt = "Coordinator Hand-off: Review Jordan Lee milestone and ping engineering mentor";
+      aiResponse = `Sprint 1 Milestone Hand-Off (Ready for Mentor Action):\n\n` +
+        `• Venture: Jordan Lee (Vitals.co)\n` +
+        `• Status: Pre-Build Demand Validation Complete (3 clinic interviews logged; doctor willingness-to-pay confirmed manually before allocating backend engineering).\n` +
+        `• Active Bottleneck: PDF biomarker OCR parser drops hormone fields across clinical lab variations.\n\n` +
+        `AI Recommendation:\n` +
+        `Dispatch an immediate Slack notification to Gwen Lim (@gwen.lim) to review the parsing regex logic and clear Jordan's Sprint 1 milestone.`;
+    } else if (action === "triage") {
       userPrompt = "Run Cohort Triage";
       aiResponse = `Cohort Triage (Active Telemetry):\n\n` +
         `• Jordan Lee (Vitals.co): Stalled on OCR biomarker field extraction for 48 hours. Risk: Data schema handoff delay for backend engineering.\n` +
@@ -295,6 +303,12 @@ export function AiChatOverlay({ isOpen, onClose, role, onAddFounder }: AiChatOve
           <span className="text-[11px] font-semibold text-muted-foreground mr-1">
             Quick Actions:
           </span>
+          <button
+            onClick={() => handleRunAction("coordinator")}
+            className="rounded-md border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors cursor-pointer shadow-2xs"
+          >
+            Coordinator Hand-off
+          </button>
           <button
             onClick={() => handleRunAction("triage")}
             className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-foreground hover:bg-accent hover:border-primary/40 transition-colors cursor-pointer shadow-2xs"
