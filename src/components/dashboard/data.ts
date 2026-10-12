@@ -53,7 +53,7 @@ export const founders: Founder[] = [
     blocker:
       "The OCR script drops critical hormone biomarker fields randomly. Need a technical review on the parsing logic.",
     profile:
-      "Jordan is building a tool that extracts blood panel data into doctor-ready dossiers. Currently manually running the OCR script to test willingness-to-pay (Wizard of Oz).",
+      "Jordan is building a tool that extracts blood panel data into doctor-ready dossiers. Currently manually running the OCR script to test willingness-to-pay (pre-build manual validation).",
     transcript:
       "The frontend looks great, but my OCR script is randomly dropping the biomarker fields when the PDF formatting changes. Can Gwen or Ben look at my parsing logic?",
     note: "Cybrdeck Engineering: Review Jordan's parsing script and suggest a more robust regex or mapping library before we scale the backend.",

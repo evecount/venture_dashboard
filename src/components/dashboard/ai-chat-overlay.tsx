@@ -37,7 +37,7 @@ export function AiChatOverlay({ isOpen, onClose, role, onAddFounder }: AiChatOve
     {
       id: "m-1",
       sender: "ai",
-      text: `Hello! I am MVP_buddy, your resident Venture Studio AI. I orchestrate founder operations and enforce the Wizard-of-Oz protocol.\n\nWould you like to onboard a new founder to Cohort SG#01, log a sprint check-in, or audit active blockers?`,
+      text: `Hello! I am MVP_buddy, your resident Venture Studio AI. I orchestrate founder operations and enforce the pre-build demand validation protocol.\n\nWould you like to onboard a new founder to Cohort SG#01, log a sprint check-in, or audit active blockers?`,
     },
   ]);
 
@@ -102,7 +102,7 @@ export function AiChatOverlay({ isOpen, onClose, role, onAddFounder }: AiChatOve
         sender: "ai",
         text: `✅ **Onboarding Protocol Complete for ${founderData.name}!**\n\n` +
           `• **Intake Audit**: Ingested *Problem Thesis*, *3 Customer Transcripts*, and *Architecture Diagram*.\n` +
-          `• **Wizard-of-Oz Check**: Manual demand baseline verified (${founderData.stream === "Tech" ? "Concierge Ledger" : "Manual Surveys"}).\n` +
+          `• **Pre-Build Validation Check**: Manual customer demand baseline verified (${founderData.stream === "Tech" ? "Concierge Ledger" : "Manual Surveys"}).\n` +
           `• **Baseline Velocity**: Set to **${founderData.progress}%**.\n` +
           `• **Active Status**: ${founderData.status === "Blocked" ? "🔴 Blocked" : "🟢 In Progress"}.\n\n` +
           `I've minted ${founderData.name}'s **Pokemon Card** and added them to the live Cohort SG#01 roster! 🚀`,
@@ -112,6 +112,66 @@ export function AiChatOverlay({ isOpen, onClose, role, onAddFounder }: AiChatOve
         onAddFounder(founderData);
       }
     }, 1200);
+  };
+
+  const handleRunAction = (action: "triage" | "gate" | "reality" | "briefing") => {
+    let userPrompt = "";
+    let aiResponse = "";
+
+    if (action === "triage") {
+      userPrompt = "Run Cohort Triage";
+      aiResponse = `Cohort Triage (Active Telemetry):\n\n` +
+        `• Jordan Lee (Vitals.co): Stalled on OCR biomarker field extraction for 48 hours. Risk: Data schema handoff delay for backend engineering.\n` +
+        `  Suggested Intervention: Pair with Ben Lim for a 20-minute regex parsing review.\n\n` +
+        `• Alex Vance (Nexus Logistics): Discovery completed; waiting on copy feedback before LinkedIn ad rollout.\n` +
+        `  Suggested Intervention: Clear headline copy with James Sun today.\n\n` +
+        `• Summary: 1 critical path blocker flagged. Cohort momentum remains at 88%.`;
+    } else if (action === "gate") {
+      userPrompt = "Run Milestone Gate Check";
+      aiResponse = `Friday Milestone Gate Readiness:\n\n` +
+        `Upcoming Gate: 1-Page Venture Thesis & Top 10 Ranked Assumptions\n\n` +
+        `• Alex Vance: 80% ready. Problem thesis drafted and verified against 4 warehouse interviews. High probability of passing Friday evaluation.\n` +
+        `• Jordan Lee: 60% ready. Core clinical thesis verified, but deliverable delayed due to OCR data pipeline blocker. Conditional pass risk.\n\n` +
+        `• Advisory Recommendation: Dedicate today's 45-minute sync to Jordan's data pipeline so both ventures clear Friday gate.`;
+    } else if (action === "reality") {
+      userPrompt = "Run Pre-Build Reality Check";
+      aiResponse = `Pre-Build Demand Validation Status:\n\n` +
+        `Enforcing customer proof before custom engineering allocation:\n\n` +
+        `• Alex Vance (Nexus Logistics): COMPLIANT. Validated customer demand manually with 4 warehouse managers using spreadsheet matching before building automated routing.\n` +
+        `• Jordan Lee (Vitals.co): COMPLIANT. Manually running OCR parsing scripts with doctors to verify willingness-to-pay before requesting automated cloud infrastructure.\n\n` +
+        `• Audit Result: 100% of cohort ventures are adhering to pre-build demand validation. Zero premature engineering hours burned.`;
+    } else if (action === "briefing") {
+      userPrompt = "Generate 60-Second Lead Briefing";
+      aiResponse = `60-Second Lead Briefing:\n` +
+        `-----------------------------------------\n` +
+        `Mamba SG#01 Pulse (Oct 13):\n` +
+        `• Active Ventures: 2 (Nexus Logistics, Vitals.co)\n` +
+        `• Cohort Momentum: 88% on track\n` +
+        `• Priority Fire: Jordan Lee OCR parser bottleneck (>48h)\n` +
+        `• Today's Action: Ben Lim unblocking Jordan; James Sun copy review for Alex.\n` +
+        `-----------------------------------------\n` +
+        `(Ready to copy into leadership Slack)`;
+    }
+
+    const userMsg: Message = {
+      id: `u-${Date.now()}`,
+      sender: "user",
+      text: userPrompt,
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setIsProcessing(true);
+
+    setTimeout(() => {
+      setIsProcessing(false);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `ai-${Date.now()}`,
+          sender: "ai",
+          text: aiResponse,
+        },
+      ]);
+    }, 700);
   };
 
   const handleSend = () => {
@@ -131,7 +191,7 @@ export function AiChatOverlay({ isOpen, onClose, role, onAddFounder }: AiChatOve
       setIsProcessing(false);
       let reply = "";
       if (inputCopy.toLowerCase().includes("founder") || inputCopy.toLowerCase().includes("onboard") || inputCopy.toLowerCase().includes("add")) {
-        reply = `📋 **Onboarding Protocol Triggered!**\n\nTo onboard a founder and generate their live card, I require the **3 Standard Intake Documents**:\n\n1. 📄 **Problem & Founder Thesis** (Sprint 1 Milestone)\n2. 🎙️ **At least 3 Customer Discovery Transcripts** (Validating demand under Wizard-of-Oz)\n3. 🛠️ **Current Tech Stack & Slack User ID** (For autonomous telemetry)\n\nYou can click the quick demo buttons below to test-ingest pre-validated founder files!`;
+        reply = `📋 **Onboarding Protocol Triggered!**\n\nTo onboard a founder and generate their live card, I require the **3 Standard Intake Documents**:\n\n1. 📄 **Problem & Founder Thesis** (Sprint 1 Milestone)\n2. 🎙️ **At least 3 Customer Discovery Transcripts** (Validating demand before custom engineering)\n3. 🛠️ **Current Tech Stack & Slack User ID** (For autonomous telemetry)\n\nYou can click the quick demo buttons below to test-ingest pre-validated founder files!`;
       } else {
         reply = `Understood! I've noted this in the ambient ledger. If this impacts sprint milestones or introduces a blocker, I will update the cohort velocity and alert Gwen & Ben.`;
       }
@@ -163,7 +223,7 @@ export function AiChatOverlay({ isOpen, onClose, role, onAddFounder }: AiChatOve
                   Live Telemetry
                 </span>
               </div>
-              <p className="text-xs text-muted-foreground">Wizard-of-Oz Protocol & Cohort SG#01 Ingestion</p>
+              <p className="text-xs text-muted-foreground">Pre-Build Demand Validation & Cohort Ingestion</p>
             </div>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose} className="rounded-full">
@@ -171,24 +231,34 @@ export function AiChatOverlay({ isOpen, onClose, role, onAddFounder }: AiChatOve
           </Button>
         </div>
 
-        {/* Quick Action Bar */}
+        {/* Quick Action Chips (Clean Typography, No Icons) */}
         <div className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-muted/20 px-6 py-2.5">
-          <span className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
-            <Sparkles size={12} className="text-primary" /> Quick Protocols:
+          <span className="text-[11px] font-semibold text-muted-foreground mr-1">
+            Quick Actions:
           </span>
           <button
-            onClick={() => handleQuickOnboard("maya")}
-            className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/20 cursor-pointer"
+            onClick={() => handleRunAction("triage")}
+            className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-foreground hover:bg-accent hover:border-primary/40 transition-colors cursor-pointer shadow-2xs"
           >
-            <UserPlus size={12} />
-            + Onboard Maya Torres (PayFlow · Tech)
+            Cohort Triage
           </button>
           <button
-            onClick={() => handleQuickOnboard("liam")}
-            className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-500/20 cursor-pointer"
+            onClick={() => handleRunAction("gate")}
+            className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-foreground hover:bg-accent hover:border-primary/40 transition-colors cursor-pointer shadow-2xs"
           >
-            <UserPlus size={12} />
-            + Onboard Liam Chen (RoboPick · GTM)
+            Milestone Gate Check
+          </button>
+          <button
+            onClick={() => handleRunAction("reality")}
+            className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-foreground hover:bg-accent hover:border-primary/40 transition-colors cursor-pointer shadow-2xs"
+          >
+            Pre-Build Reality Check
+          </button>
+          <button
+            onClick={() => handleRunAction("briefing")}
+            className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-foreground hover:bg-accent hover:border-primary/40 transition-colors cursor-pointer shadow-2xs"
+          >
+            60-Second Lead Briefing
           </button>
         </div>
 
@@ -278,7 +348,7 @@ export function AiChatOverlay({ isOpen, onClose, role, onAddFounder }: AiChatOve
             </Button>
           </div>
           <p className="mt-2 text-center text-[10px] text-muted-foreground">
-            Enforces Cybrdeck Wizard-of-Oz demand validation before writing custom backend code.
+            Enforces Cybrdeck pre-build demand validation before allocating custom engineering hours.
           </p>
         </div>
       </div>
