@@ -399,14 +399,186 @@ def mark_playbook_executed(playbook_key: str):
     except Exception as e:
         print(f"Error marking playbook execution: {e}")
 
+# --- ACCOUNTABILITY & TASK AGING LEDGER ---
+def get_task_ledger():
+    """
+    Reads the persistent task ledger tracking who didn't do what and for how long.
+    """
+    log_dir = os.path.join(os.path.dirname(__file__), "logs")
+    ledger_path = os.path.join(log_dir, "task_accountability_ledger.json")
+    if os.path.exists(ledger_path):
+        try:
+            with open(ledger_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+            
+    # Default seed tasks for current cohort sprint
+    default_tasks = [
+        {
+            "id": "task_matthew_1",
+            "assignee": "Matthew Lee",
+            "venture": "SharedOut",
+            "task": "Set up manual Wizard of Oz (WoZ) rental flow in 1 condo cluster (No backend code)",
+            "assigned_at": "2026-10-11T09:00:00Z",
+            "due_at": "2026-10-14T17:00:00Z",
+            "status": "pending"
+        },
+        {
+            "id": "task_matthew_2",
+            "assignee": "Matthew Lee",
+            "venture": "SharedOut",
+            "task": "Capture first 3 paid rental transactions or verified customer deposits",
+            "assigned_at": "2026-10-11T09:00:00Z",
+            "due_at": "2026-10-15T17:00:00Z",
+            "status": "pending"
+        },
+        {
+            "id": "task_matthew_3",
+            "assignee": "Matthew Lee",
+            "venture": "SharedOut",
+            "task": "Submit Selected Concept, Value Prop & Sprint 1 Evidence Pack",
+            "assigned_at": "2026-10-11T09:00:00Z",
+            "due_at": "2026-10-16T17:00:00Z",
+            "status": "pending"
+        },
+        {
+            "id": "task_takshma_1",
+            "assignee": "Takshma Patel",
+            "venture": "WearMAInd",
+            "task": "Rank Top 10 Critical Assumptions for WearMAInd",
+            "assigned_at": "2026-10-11T09:00:00Z",
+            "due_at": "2026-10-12T17:00:00Z",
+            "status": "pending"
+        },
+        {
+            "id": "task_takshma_2",
+            "assignee": "Takshma Patel",
+            "venture": "WearMAInd",
+            "task": "Complete 5 problem-validation discovery interviews with target users",
+            "assigned_at": "2026-10-11T09:00:00Z",
+            "due_at": "2026-10-14T17:00:00Z",
+            "status": "pending"
+        },
+        {
+            "id": "task_arthur_1",
+            "assignee": "Arthur Andre Pandaan",
+            "venture": "Mamba Operations",
+            "task": "Confirm calendar invite & Zoom room for Wednesday 2 PM Office Hours with James Sun",
+            "assigned_at": "2026-10-12T09:00:00Z",
+            "due_at": "2026-10-13T12:00:00Z",
+            "status": "pending"
+        }
+    ]
+    save_task_ledger(default_tasks)
+    return default_tasks
+
+def save_task_ledger(tasks):
+    try:
+        log_dir = os.path.join(os.path.dirname(__file__), "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        ledger_path = os.path.join(log_dir, "task_accountability_ledger.json")
+        with open(ledger_path, "w", encoding="utf-8") as f:
+            json.dump(tasks, f, indent=2)
+    except Exception as e:
+        print(f"Error saving task ledger: {e}")
+
+def generate_task_aging_report() -> str:
+    """
+    Computes exactly who didn't do what, and how long each task has been pending or overdue.
+    Gwen never has to ask twice.
+    """
+    tasks = get_task_ledger()
+    now = datetime.now(timezone.utc)
+    
+    overdue_items = []
+    pending_items = []
+    
+    for t in tasks:
+        if t.get("status") == "completed":
+            continue
+            
+        assignee = t.get("assignee", "Unknown")
+        venture = f" ({t.get('venture')})" if t.get("venture") else ""
+        task_desc = t.get("task", "")
+        
+        assigned_dt = datetime.fromisoformat(t.get("assigned_at").replace("Z", "+00:00"))
+        due_dt = datetime.fromisoformat(t.get("due_at").replace("Z", "+00:00"))
+        
+        hours_pending = int((now - assigned_dt).total_seconds() / 3600)
+        
+        if now > due_dt:
+            hours_overdue = int((now - due_dt).total_seconds() / 3600)
+            overdue_items.append(
+                f"• *{assignee}*{venture}: \"{task_desc}\"\n"
+                f"  └ 🚨 *OVERDUE by {hours_overdue} hours* (Assigned {hours_pending}h ago)"
+            )
+        else:
+            hours_remaining = int((due_dt - now).total_seconds() / 3600)
+            pending_items.append(
+                f"• *{assignee}*{venture}: \"{task_desc}\"\n"
+                f"  └ ⏳ *Pending for {hours_pending} hours* (Due in {hours_remaining} hours)"
+            )
+            
+    lines = [
+        "📋 *Executive Accountability & Aging Ledger*",
+        "_Tracking who didn't do what and exactly how long it's been sitting undone._\n"
+    ]
+    
+    if overdue_items:
+        lines.append("*🚨 CRITICAL BOTTLENECKS (OVERDUE):*")
+        lines.extend(overdue_items)
+        lines.append("")
+        
+    if pending_items:
+        lines.append("*⏳ ACTIVE PENDING TASKS (ON THE CLOCK):*")
+        lines.extend(pending_items)
+        lines.append("")
+        
+    lines.append("*Chief of Staff Protocol:* You never have to ask twice. I am actively tracking their deadlines and will escalate non-delivery directly into Friday's Gatekeeper review.")
+    
+    return "\n".join(lines)
+
+# --- SLACK FORMATTER ---
+def format_for_slack(text: str) -> str:
+    """
+    Cleans and formats text specifically for Slack:
+    - Converts literal '\\n' and '\\r' to real newlines.
+    - Strips JSON escape artifacts (escaped quotes, stray trailing backslashes).
+    - Converts standard Markdown bold (**text**) to Slack bold (*text*).
+    - Converts Markdown headers (# Header) to Slack bold (*Header*).
+    - Normalizes paragraph spacing so messages are clean, crisp, and readable.
+    """
+    if not text:
+        return ""
+    # 1. Unescape literal \n and \r
+    text = text.replace("\\n", "\n").replace("\\r", "")
+    text = text.replace('\\"', '"')
+    
+    # 2. Convert standard markdown bold **text** to Slack *text*
+    text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)
+    
+    # 3. Convert markdown headers (#, ##, ###) to Slack bold *Header*
+    text = re.sub(r"^#{1,6}\s*(.+)$", r"*\1*", text, flags=re.MULTILINE)
+    
+    # 4. Strip stray trailing quotes or backslashes
+    text = re.sub(r'[\"\'\\]+$', '', text.strip())
+    
+    # 5. Normalize multi-newlines (max 2 consecutive newlines)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    
+    return text.strip()
+
 # --- OUTBOUND DISPATCH (DASHBOARD -> SLACK) ---
 def send_slack_message(channel: str, text: str, thread_ts: str = None) -> bool:
     """
     Sends an outbound message to a specified Slack channel or user DM.
     """
+    cleaned_text = format_for_slack(text)
+
     if channel in ["gwen-ben", "gwen_ben", "@gwen_ben"]:
-        send_slack_message("D0C94PG2R24", text, thread_ts)
-        send_slack_message("D0C74JVR813", text, thread_ts)
+        send_slack_message("D0C94PG2R24", cleaned_text, thread_ts)
+        send_slack_message("D0C74JVR813", cleaned_text, thread_ts)
         return True
 
     target_channel = channel
@@ -422,10 +594,10 @@ def send_slack_message(channel: str, text: str, thread_ts: str = None) -> bool:
         target_channel = os.environ.get("SLACK_LEADS_CHANNEL", "#mamba-leads")
 
     if not app or not SLACK_BOT_TOKEN:
-        print(f"[Simulated Slack Outbound to {target_channel}] Message: {text[:80]}...")
+        print(f"[Simulated Slack Outbound to {target_channel}] Message: {cleaned_text[:80]}...")
         return False
     try:
-        kwargs = {"channel": target_channel, "text": text}
+        kwargs = {"channel": target_channel, "text": cleaned_text}
         if thread_ts:
             kwargs["thread_ts"] = thread_ts
         res = app.client.chat_postMessage(**kwargs)
@@ -433,6 +605,7 @@ def send_slack_message(channel: str, text: str, thread_ts: str = None) -> bool:
         return True
     except Exception as e:
         print(f"Error sending Slack message to {target_channel}: {e}")
+        return False
         return False
 
 # --- 6 PROACTIVE AUTONOMOUS CHIEF OF STAFF PLAYBOOKS ---
@@ -761,8 +934,11 @@ def handle_founder_checkin(message, say):
     elif any(k in cleaned for k in ["!playbook 6", "run briefing", "run lead briefing", "run playbook 6"]):
         execute_sunday_briefing(say_fn=say)
         return
+    elif any(k in cleaned for k in ["who didn't do what", "who hasnt done", "who hasn't done", "what is overdue", "overdue", "aging", "accountability", "task ledger", "who is blocked", "status report", "overdue tasks", "tasks"]):
+        say(format_for_slack(generate_task_aging_report()))
+        return
     elif any(k in cleaned for k in ["!skills", "!playbooks"]):
-        say(
+        say(format_for_slack(
             f"🛠️ *Chief of Staff Autonomous Skillset (6 Playbooks Live):*\n"
             f"1. *Monday Kickoff (09:00 SGT)*: Sprint Task Deconstruction (`!playbook 1`)\n"
             f"2. *Wednesday Sweep (10:00 SGT)*: Pre-Office Hours Blocker Sweep (`!playbook 2`)\n"
@@ -770,8 +946,9 @@ def handle_founder_checkin(message, say):
             f"4. *Friday Gatekeeper (17:00 SGT)*: Milestone Gatekeeper Lock (`!playbook 4`)\n"
             f"5. *Demand Trap Interceptor (Continuous)*: Halts premature coding in real time\n"
             f"6. *Sunday Briefing (20:00 SGT)*: 60-Second Lead Briefing (`!playbook 6`)\n\n"
+            f"• *Accountability Ledger*: Ask *'who didn't do what'* or *'overdue'* anytime to see aging tasks.\n"
             f"All playbooks execute autonomously on schedule without human prompts."
-        )
+        ))
         return
 
     # 2. Continuous Playbook 5: Demand Trap Interceptor
@@ -806,8 +983,8 @@ def handle_founder_checkin(message, say):
     # 4. Process via real Qwen API with Gwen's signature personality
     extracted_data = process_with_qwen(text)
     
-    # 5. Reply with Gwen's witty/snarky personality directly in Slack
-    say(extracted_data.get("reply", "Telemetry logged. Now go find a customer who actually wants to pay."))
+    # 5. Reply with Gwen's witty/snarky personality directly in Slack (Clean Slack Mrkdwn)
+    say(format_for_slack(extracted_data.get("reply", "Telemetry logged. Now go find a customer who actually wants to pay.")))
     
     # 6. Relay cross-party action items if detected (Frictionless coordination)
     action_relay = extracted_data.get("action_relay") or {}
