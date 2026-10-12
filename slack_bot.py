@@ -1,5 +1,6 @@
 import os
 import json
+from datetime import datetime
 from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
@@ -348,6 +349,34 @@ def handle_founder_checkin(message, say):
             }).execute()
     except Exception as e:
         print(f"Database Error: {e}")
+
+    # 4. Save to local Linode disk (immutable backup)
+    log_conversation_locally(user_id, text, extracted_data.get("reply"), extracted_data)
+
+def log_conversation_locally(user_id: str, prompt: str, reply: str, metadata: dict = None):
+    """
+    Saves an immutable append-only JSONL record of every conversation to the local Linode disk.
+    """
+    try:
+        log_dir = os.path.join(os.path.dirname(__file__), "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, "conversations.jsonl")
+        
+        entry = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "user_id": user_id,
+            "prompt": prompt,
+            "reply": reply,
+            "status": (metadata or {}).get("status", "In progress"),
+            "stream": (metadata or {}).get("stream", "Tech (Cybrdeck)"),
+            "blocker": (metadata or {}).get("blocker", "None"),
+            "digest": (metadata or {}).get("digest", "")
+        }
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        print(f"Logged conversation to local Linode disk ({log_file})")
+    except Exception as e:
+        print(f"Local disk logging error: {e}")
 
 # --- OUTBOUND DISPATCH (DASHBOARD -> SLACK) ---
 def send_slack_message(channel: str, text: str, thread_ts: str = None) -> bool:
