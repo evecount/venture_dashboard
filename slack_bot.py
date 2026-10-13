@@ -945,37 +945,31 @@ def connect_blocks(founder_id: str, startup_id: str) -> list:
 
 
 def build_connections_blocks(founder_id: str, startup_id: str, rows: list) -> list:
-    """GitHub connections for the whole startup. Co-founders each appear, and anyone can fix any of them."""
-    blocks, buttons = [], []
-    lines = []
+    """GitHub connections for the whole startup, with the repo picker inline (no extra messages to hunt for)."""
+    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "*GitHub*"}}] if rows else []
     for row in rows:
         repos = integrations.monitored_repos(row)
         who = (row.get("founders") or {}).get("name") or "a founder"
         where = f" ({row['account']})" if row.get("account") else ""
         if repos:
-            lines.append(f"✅ *{who}*{where}: monitoring " + ", ".join(f"*{r}*" for r in repos))
+            head = f"✅ *{who}*{where} · tracking " + ", ".join(f"*{r}*" for r in repos)
+        elif len(row.get("repos") or []) > 1:
+            head = f"🟡 *{who}*{where} · connected. *Pick the repository to track below.*"
         else:
-            lines.append(f"🟡 *{who}*{where}: connected, no repository chosen yet")
-        if len(row.get("repos") or []) > 1:
-            button = {"type": "button", "text": {"type": "plain_text", "text": f"Repositories: {who}"[:75]},
-                      "action_id": "change_repos", "value": row["id"]}
-            if not repos:
-                button["style"] = "primary"
-            buttons.append(button)
-    if lines:
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Connections (GitHub)*" + chr(10) + chr(10).join(lines)}})
+            head = f"🟡 *{who}*{where} · connected, but no repositories were shared with me."
+        blocks += integrations.build_repo_selector(row, head, compact=True)
     mine = any(r.get("founder_id") == founder_id for r in rows)
     url = github_link(founder_id, startup_id)
     if url and not mine:
-        text = ("GitHub isn't connected yet, so I can only see what you tell me." if not rows
-                else "Your own GitHub isn't connected yet. Connect it so your work counts too.")
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": ("*Connections (GitHub)*" + chr(10) if not rows else "") + text}})
-        buttons.append({"type": "button", "style": "primary", "text": {"type": "plain_text", "text": "Connect GitHub"},
-                        "url": url, "action_id": "connect_github_home"})
-        buttons.append({"type": "button", "text": {"type": "plain_text", "text": "My code is in an organisation"},
-                        "action_id": "claim_org", "value": f"{founder_id}|{startup_id}"})
-    if buttons:
-        blocks.append({"type": "actions", "elements": buttons[:25]})
+        text = ("*GitHub*" + chr(10) if not rows else "") + (
+            "Not connected yet, so I can only see what you tell me." if not rows
+            else "Your own GitHub isn't connected yet. Connect it so your work counts too.")
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text}})
+        blocks.append({"type": "actions", "elements": [
+            {"type": "button", "style": "primary", "text": {"type": "plain_text", "text": "Connect GitHub"},
+             "url": url, "action_id": "connect_github_home"},
+            {"type": "button", "text": {"type": "plain_text", "text": "My code is in an organisation"},
+             "action_id": "claim_org", "value": f"{founder_id}|{startup_id}"}]})
     return blocks
 
 
@@ -1390,6 +1384,45 @@ def audit_deadlines_and_blockers():
         print(f"[Audit Error]: {e}")
 
 
+# --- KEEP HOME TABS FRESH ---
+
+_home_watch = {"since": datetime.now(timezone.utc).isoformat()}
+HOME_TABLES = (("signals", "created_at", "startup_id"), ("submissions", "created_at", "startup_id"),
+               ("milestones", "updated_at", "startup_id"), ("tasks", "created_at", "startup_id"),
+               ("integrations", "created_at", "startup_id"))
+
+
+def refresh_changed_homes():
+    """
+    Every few seconds: find startups with new activity (commits, check-ins, milestones, tasks, connections) and
+    republish the Home tab of their founders and of every mentor, so the page never goes stale.
+    """
+    if not (supabase and SLACK_BOT_TOKEN):
+        return
+    since, latest, startups = _home_watch["since"], _home_watch["since"], set()
+    for table, stamp, key in HOME_TABLES:
+        try:
+            rows = supabase.table(table).select(f"{key},{stamp}").gt(stamp, since).limit(200).execute().data or []
+        except Exception:
+            continue
+        for r in rows:
+            startups.add(r[key])
+            latest = max(latest, r[stamp])
+    _home_watch["since"] = latest
+    if not startups:
+        return
+    try:
+        slack_ids = {f["slack_user_id"] for f in (supabase.table("founders").select("slack_user_id,startup_id")
+                                                  .in_("startup_id", list(startups)).execute().data or []) if f.get("slack_user_id")}
+        slack_ids |= {m["slack_user_id"] for m in (supabase.table("mentors").select("slack_user_id").execute().data or [])
+                      if m.get("slack_user_id")}
+    except Exception as e:
+        print(f"[Home Refresh Warning] {e}")
+        return
+    for uid in slack_ids:
+        publish_home(uid, app.client)
+
+
 # --- GITHUB CONNECTION CONFIRMATION & REPO PICKER ---
 
 _poll_warned = False
@@ -1462,9 +1495,10 @@ def handle_select_repos(ack, body, client):
         names = ", ".join(f"*{r}*" for r in integrations.monitored_repos(row))
         headline = (f"✅ Now monitoring {names}. You can change this any time." if chosen
                     else "I'm not tracking any repository right now. Pick one below when you're ready.")
-        client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text="Repositories updated",
-                           blocks=integrations.build_repo_selector(row, headline))
-        publish_home(user_id, client)
+        if (body.get("container") or {}).get("type") == "message":  # picked from a DM: update that message
+            client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text="Repositories updated",
+                               blocks=integrations.build_repo_selector(row, headline))
+        publish_home(user_id, client)  # the Home tab always reflects the choice straight away
         if chosen:
             backfill_soon(row, user_id)
     except Exception as e:
@@ -1591,6 +1625,7 @@ if BackgroundScheduler:
     scheduler = BackgroundScheduler(timezone="Asia/Singapore")
     scheduler.add_job(audit_deadlines_and_blockers, "cron", hour=9, minute=0)
     scheduler.add_job(poll_new_connections, "interval", seconds=10, max_instances=1)
+    scheduler.add_job(refresh_changed_homes, "interval", seconds=15, max_instances=1)
     scheduler.add_job(link_org_claims, "interval", seconds=60, max_instances=1)
     if DAILY_CHECKIN:
         scheduler.add_job(run_daily_prompts, "cron", day_of_week="mon-fri", hour=DAILY_CHECKIN_HOUR, minute=0)

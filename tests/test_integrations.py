@@ -58,14 +58,14 @@ class RepoSelectorTests(unittest.TestCase):
 
     def test_nothing_is_preselected_before_the_founder_chooses(self):
         row = {"id": "i1", "repos": ["a/x", "a/y"], "selected_repos": None}
-        select = i.build_repo_selector(row, "hi")[1]["elements"][0]
+        select = i.build_repo_selector(row, "hi")[0]["accessory"]
         self.assertNotIn("initial_options", select)
         self.assertEqual(i.monitored_repos(row), [])
 
     def test_selector_preselects_the_monitored_repos(self):
         blocks = i.build_repo_selector(self.ROW, "hi")
-        select = blocks[1]["elements"][0]
-        self.assertEqual(blocks[1]["block_id"], "repos_i1")
+        select = blocks[0]["accessory"]
+        self.assertEqual(blocks[0]["block_id"], "repos_i1")
         self.assertEqual([o["value"] for o in select["initial_options"]], ["acme/web"])
         self.assertEqual(len(select["options"]), 3)
 

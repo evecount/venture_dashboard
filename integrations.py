@@ -140,21 +140,25 @@ def monitored_repos(row: dict) -> list:
     return chosen or (granted if len(granted) == 1 else [])
 
 
-def build_repo_selector(row: dict, headline: str) -> list:
-    """Message blocks with a multi-select of the granted repos (the monitored ones preselected)."""
+def build_repo_selector(row: dict, headline: str, compact: bool = False) -> list:
+    """
+    One section: the headline text with a multi-select of the granted repos beside it (the chosen ones preselected).
+    Slack allows multi-selects as a section accessory in messages AND the Home tab, but not inside an actions block.
+    """
     repos = list(row.get("repos") or [])
-    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": headline}}]
+    block = {"type": "section", "text": {"type": "mrkdwn", "text": headline}}
     if len(repos) < 2:
-        return blocks  # nothing to choose between
+        return [block]  # nothing to choose between
     options = [{"text": {"type": "plain_text", "text": r[:75]}, "value": r[:75]} for r in repos[:100]]
     chosen = set(row.get("selected_repos") or [])  # nothing is preselected: the founder picks deliberately
     initial = [o for o in options if o["value"] in chosen]
     element = {"type": "multi_static_select", "action_id": "select_repos", "options": options,
-               "placeholder": {"type": "plain_text", "text": "Search and pick your startup's repository"}}
+               "placeholder": {"type": "plain_text", "text": "Pick repository"}}
     if initial:
         element["initial_options"] = initial
-    blocks.append({"type": "actions", "block_id": f"repos_{row['id']}", "elements": [element]})
-    return blocks
+    block["block_id"] = f"repos_{row['id']}"
+    block["accessory"] = element
+    return [block]
 
 
 def connected_headline(row: dict, startup_name: str) -> str:

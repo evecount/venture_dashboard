@@ -177,6 +177,11 @@ class Agent:
         else:
             lines.append("No confirmed check-ins yet.")
         conn = integrations.connections(self.sb, c["startup_id"]) if self.sb else {}
+        for row in integrations.github_connections(self.sb, c["startup_id"]) if self.sb else []:
+            tracked = integrations.monitored_repos(row)
+            lines.append(f"GitHub connection ({(row.get('founders') or {}).get('name', 'a founder')}): "
+                         + (f"tracking {', '.join(tracked)}" if tracked else
+                            "connected but NO repository chosen yet (activity is not tracked until they pick one on their Home tab)"))
         lines.append("Work signals: " + integrations.activity_line(
             integrations.activity_summary(self.sb, c["startup_id"]) if self.sb else {"signals": 0}, "github" in conn))
         lines += self._milestone_lines(c["startup_id"], False)
