@@ -1,15 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { admin } from "@/lib/supabase-admin";
+import { identityFromRequest, json } from "@/lib/dash-auth";
 
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
-
-// "Mark handled" on the mentor dashboard. The browser only reads Supabase, so the write goes through here
-// with the service-role key. Body: { startup_id, handled }. handled=false clears the mark.
+// "Mark handled" on the mentor dashboard, for signed-in mentors only. Body: { startup_id, handled }.
+// handled=false clears the mark.
 export const Route = createFileRoute("/api/dash/handled")({
   server: {
     handlers: {
       POST: async ({ request }) => {
+        const identity = await identityFromRequest(request);
+        if (identity?.role !== "mentor") return json({ ok: false }, identity ? 403 : 401);
         let body: { startup_id?: unknown; handled?: unknown } = {};
         try {
           body = await request.json();

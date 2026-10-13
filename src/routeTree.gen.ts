@@ -14,9 +14,13 @@ import { Route as AboutRouteImport } from './routes/about'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as ApiDashClaimRouteImport } from './routes/api/dash/claim'
 import { Route as ApiDashHandledRouteImport } from './routes/api/dash/handled'
+import { Route as ApiDashSessionRouteImport } from './routes/api/dash/session'
+import { Route as ApiDashSnapshotRouteImport } from './routes/api/dash/snapshot'
 import { Route as ApiGithubCallbackRouteImport } from './routes/api/github/callback'
 import { Route as ApiGithubWebhookRouteImport } from './routes/api/github/webhook'
 import { Route as ApiGoogleCallbackRouteImport } from './routes/api/google/callback'
+import { Route as ApiAuthSlackIndexRouteImport } from './routes/api/auth/slack/index'
+import { Route as ApiAuthSlackCallbackRouteImport } from './routes/api/auth/slack/callback'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -43,6 +47,16 @@ const ApiDashHandledRoute = ApiDashHandledRouteImport.update({
   path: '/api/dash/handled',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiDashSessionRoute = ApiDashSessionRouteImport.update({
+  id: '/api/dash/session',
+  path: '/api/dash/session',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDashSnapshotRoute = ApiDashSnapshotRouteImport.update({
+  id: '/api/dash/snapshot',
+  path: '/api/dash/snapshot',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiGithubCallbackRoute = ApiGithubCallbackRouteImport.update({
   id: '/api/github/callback',
   path: '/api/github/callback',
@@ -58,6 +72,16 @@ const ApiGoogleCallbackRoute = ApiGoogleCallbackRouteImport.update({
   path: '/api/google/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAuthSlackIndexRoute = ApiAuthSlackIndexRouteImport.update({
+  id: '/api/auth/slack/',
+  path: '/api/auth/slack/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthSlackCallbackRoute = ApiAuthSlackCallbackRouteImport.update({
+  id: '/api/auth/slack/callback',
+  path: '/api/auth/slack/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -65,9 +89,13 @@ export interface FileRoutesByFullPath {
   '/privacy': typeof PrivacyRoute
   '/api/dash/claim': typeof ApiDashClaimRoute
   '/api/dash/handled': typeof ApiDashHandledRoute
+  '/api/dash/session': typeof ApiDashSessionRoute
+  '/api/dash/snapshot': typeof ApiDashSnapshotRoute
   '/api/github/callback': typeof ApiGithubCallbackRoute
   '/api/github/webhook': typeof ApiGithubWebhookRoute
   '/api/google/callback': typeof ApiGoogleCallbackRoute
+  '/api/auth/slack/callback': typeof ApiAuthSlackCallbackRoute
+  '/api/auth/slack/': typeof ApiAuthSlackIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -75,9 +103,13 @@ export interface FileRoutesByTo {
   '/privacy': typeof PrivacyRoute
   '/api/dash/claim': typeof ApiDashClaimRoute
   '/api/dash/handled': typeof ApiDashHandledRoute
+  '/api/dash/session': typeof ApiDashSessionRoute
+  '/api/dash/snapshot': typeof ApiDashSnapshotRoute
   '/api/github/callback': typeof ApiGithubCallbackRoute
   '/api/github/webhook': typeof ApiGithubWebhookRoute
   '/api/google/callback': typeof ApiGoogleCallbackRoute
+  '/api/auth/slack/callback': typeof ApiAuthSlackCallbackRoute
+  '/api/auth/slack': typeof ApiAuthSlackIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -86,9 +118,13 @@ export interface FileRoutesById {
   '/privacy': typeof PrivacyRoute
   '/api/dash/claim': typeof ApiDashClaimRoute
   '/api/dash/handled': typeof ApiDashHandledRoute
+  '/api/dash/session': typeof ApiDashSessionRoute
+  '/api/dash/snapshot': typeof ApiDashSnapshotRoute
   '/api/github/callback': typeof ApiGithubCallbackRoute
   '/api/github/webhook': typeof ApiGithubWebhookRoute
   '/api/google/callback': typeof ApiGoogleCallbackRoute
+  '/api/auth/slack/callback': typeof ApiAuthSlackCallbackRoute
+  '/api/auth/slack/': typeof ApiAuthSlackIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -98,9 +134,13 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/api/dash/claim'
     | '/api/dash/handled'
+    | '/api/dash/session'
+    | '/api/dash/snapshot'
     | '/api/github/callback'
     | '/api/github/webhook'
     | '/api/google/callback'
+    | '/api/auth/slack/callback'
+    | '/api/auth/slack/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -108,9 +148,13 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/api/dash/claim'
     | '/api/dash/handled'
+    | '/api/dash/session'
+    | '/api/dash/snapshot'
     | '/api/github/callback'
     | '/api/github/webhook'
     | '/api/google/callback'
+    | '/api/auth/slack/callback'
+    | '/api/auth/slack'
   id:
     | '__root__'
     | '/'
@@ -118,9 +162,13 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/api/dash/claim'
     | '/api/dash/handled'
+    | '/api/dash/session'
+    | '/api/dash/snapshot'
     | '/api/github/callback'
     | '/api/github/webhook'
     | '/api/google/callback'
+    | '/api/auth/slack/callback'
+    | '/api/auth/slack/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -129,9 +177,13 @@ export interface RootRouteChildren {
   PrivacyRoute: typeof PrivacyRoute
   ApiDashClaimRoute: typeof ApiDashClaimRoute
   ApiDashHandledRoute: typeof ApiDashHandledRoute
+  ApiDashSessionRoute: typeof ApiDashSessionRoute
+  ApiDashSnapshotRoute: typeof ApiDashSnapshotRoute
   ApiGithubCallbackRoute: typeof ApiGithubCallbackRoute
   ApiGithubWebhookRoute: typeof ApiGithubWebhookRoute
   ApiGoogleCallbackRoute: typeof ApiGoogleCallbackRoute
+  ApiAuthSlackCallbackRoute: typeof ApiAuthSlackCallbackRoute
+  ApiAuthSlackIndexRoute: typeof ApiAuthSlackIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -171,6 +223,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiDashHandledRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/dash/session': {
+      id: '/api/dash/session'
+      path: '/api/dash/session'
+      fullPath: '/api/dash/session'
+      preLoaderRoute: typeof ApiDashSessionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/dash/snapshot': {
+      id: '/api/dash/snapshot'
+      path: '/api/dash/snapshot'
+      fullPath: '/api/dash/snapshot'
+      preLoaderRoute: typeof ApiDashSnapshotRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/github/callback': {
       id: '/api/github/callback'
       path: '/api/github/callback'
@@ -192,6 +258,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiGoogleCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/auth/slack/': {
+      id: '/api/auth/slack/'
+      path: '/api/auth/slack'
+      fullPath: '/api/auth/slack/'
+      preLoaderRoute: typeof ApiAuthSlackIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/slack/callback': {
+      id: '/api/auth/slack/callback'
+      path: '/api/auth/slack/callback'
+      fullPath: '/api/auth/slack/callback'
+      preLoaderRoute: typeof ApiAuthSlackCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -201,9 +281,13 @@ const rootRouteChildren: RootRouteChildren = {
   PrivacyRoute: PrivacyRoute,
   ApiDashClaimRoute: ApiDashClaimRoute,
   ApiDashHandledRoute: ApiDashHandledRoute,
+  ApiDashSessionRoute: ApiDashSessionRoute,
+  ApiDashSnapshotRoute: ApiDashSnapshotRoute,
   ApiGithubCallbackRoute: ApiGithubCallbackRoute,
   ApiGithubWebhookRoute: ApiGithubWebhookRoute,
   ApiGoogleCallbackRoute: ApiGoogleCallbackRoute,
+  ApiAuthSlackCallbackRoute: ApiAuthSlackCallbackRoute,
+  ApiAuthSlackIndexRoute: ApiAuthSlackIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

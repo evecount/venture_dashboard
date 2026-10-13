@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { supabase } from "@/lib/supabase";
-import { useLiveRoster } from "@/hooks/use-live-roster";
-import { useLiveLedger, type SignalRow } from "@/hooks/use-live-ledger";
-import { useHandled } from "@/hooks/use-handled";
+import { DashDataProvider, useDashData, type SignalRow } from "@/hooks/use-dash-data";
+import { useAuth } from "@/components/auth/sign-in-gate";
+import type { Identity } from "@/lib/dash-auth";
 import {
   Activity,
   CalendarDays,
@@ -13,6 +12,7 @@ import {
   Flag,
   GitPullRequest,
   LayoutGrid,
+  LogOut,
   MessageSquare,
   Search,
   Sun,
@@ -21,6 +21,7 @@ import {
   Video,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Sheet,
   SheetContent,
@@ -129,29 +130,71 @@ function gateLabel(p: ProgramState): string {
   return `${p.daysToGate} day${p.daysToGate === 1 ? "" : "s"}`;
 }
 
-export function CommandCenter({
-  initialPerspective = "coordinator",
-  onPerspectiveChange,
-}: {
+type Props = {
   initialPerspective?: DemoPerspective;
   onPerspectiveChange?: (value: DemoPerspective) => void;
-} = {}) {
-  const [perspective, setPerspectiveState] = useState<DemoPerspective>(initialPerspective);
+};
+
+export function CommandCenter(props: Props = {}) {
+  return (
+    <DashDataProvider>
+      <Dashboard {...props} />
+    </DashDataProvider>
+  );
+}
+
+function AccountMenu({ identity, onSignOut }: { identity: Identity; onSignOut: () => void }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="avatar account"
+          aria-label={`Signed in as ${identity.name}`}
+        >
+          {initials(identity.name)}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-60 p-0">
+        <div className="border-b border-border px-4 py-3">
+          <p className="truncate text-sm font-semibold">{identity.name}</p>
+          <p className="text-xs text-muted-foreground">
+            {identity.role === "mentor"
+              ? "Mentor · sees the whole cohort"
+              : "Founder · sees your venture"}
+          </p>
+        </div>
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm hover:bg-secondary"
+          onClick={onSignOut}
+        >
+          <LogOut size={15} /> Sign out
+        </button>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function Dashboard({ initialPerspective = "coordinator", onPerspectiveChange }: Props) {
+  const { identity, signOut } = useAuth();
+  const { roster, snapshot, handled, setHandled, handledError, lastSync, error } = useDashData();
+  const isMentor = identity.role === "mentor";
+  // Mentors can preview a founder's layout; a founder always sees their own startup (the server only sends theirs).
+  const [preview, setPreview] = useState<DemoPerspective>(initialPerspective);
+  const perspective: DemoPerspective = isMentor ? preview : identity.startupId;
   const [founderList, setFounderList] = useState<Founder[]>([]);
-  const [signals, setSignals] = useState<SignalRow[]>([]);
+  const signals: SignalRow[] = snapshot?.signals ?? [];
   const [tab, setTab] = useState<Tab>("today");
   const [selected, setSelected] = useState<Founder | null>(null);
   const [sheetTab, setSheetTab] = useState<SheetTab>("Overview");
   const [now, setNow] = useState(() => new Date());
-  const [lastSync, setLastSync] = useState<Date | null>(null);
-  const roster = useLiveRoster();
-  const { handled, setMark, error: handledError } = useHandled();
   const searchRef = useRef<HTMLInputElement>(null);
 
   const memberRow = isStudioRole(perspective)
     ? undefined
     : founderList.find((f) => f.id === perspective || f.founderIds?.includes(perspective));
-  const isMember = memberRow !== undefined;
+  const isMember = !isMentor || memberRow !== undefined;
   const program = useMemo(() => programState(now), [now]);
 
   useEffect(() => {
@@ -162,7 +205,6 @@ export function CommandCenter({
   // Live ledger: load the real roster and pulse cards that just changed.
   useEffect(() => {
     if (!roster) return;
-    setLastSync(new Date());
     setFounderList((prev) =>
       roster.map((r) => {
         const old = prev.find((p) => p.id === r.id);
@@ -179,14 +221,6 @@ export function CommandCenter({
     return () => clearTimeout(t);
   }, [roster]);
 
-  const { connected: liveConnected } = useLiveLedger({
-    onSubmission: () => {}, // the roster refetches on submission changes
-    onSignals: (rows, live) => {
-      setLastSync(new Date());
-      setSignals((prev) => (live ? [...rows, ...prev] : rows));
-    },
-  });
-
   // ⌘K / Ctrl+K jumps to the cohort search.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -201,7 +235,7 @@ export function CommandCenter({
   }, [isMember]);
 
   function setPerspective(value: DemoPerspective) {
-    setPerspectiveState(value);
+    setPreview(value);
     onPerspectiveChange?.(value);
     setSelected(null);
     setTab("today");
@@ -227,11 +261,12 @@ export function CommandCenter({
         { id: "program", label: "Program", icon: <Flag size={16} /> },
       ];
 
-  const syncText = !supabase
-    ? "Not connected"
+  const liveConnected = !error && lastSync !== null;
+  const syncText = error
+    ? "Can't reach the server"
     : lastSync
       ? `Updated ${relativeTime(lastSync.toISOString(), now)}`
-      : "Connecting…";
+      : "Loading…";
 
   return (
     <div className="dash">
@@ -269,19 +304,28 @@ export function CommandCenter({
           <div className="flex items-center justify-end gap-2">
             <span
               className="sync-status"
-              title={liveConnected ? "Live updates on" : "Live updates off"}
+              title={liveConnected ? "Refreshes every 20 seconds" : "Not updating"}
             >
               <span className={`live-dot ${liveConnected ? "" : "off"}`} />
               <span className="hide-sm">{syncText}</span>
             </span>
             <TeamPopover perspective={perspective} />
-            <ViewAs perspective={perspective} members={founderList} onChange={setPerspective} />
+            {isMentor && (
+              <ViewAs perspective={perspective} members={founderList} onChange={setPerspective} />
+            )}
+            <AccountMenu identity={identity} onSignOut={() => void signOut()} />
           </div>
         </div>
       </header>
 
       <main className="dash-main">
-        {isMember && memberRow ? (
+        {isMember && !memberRow ? (
+          <p className="empty">
+            {roster
+              ? "Your startup isn't set up yet. Ask the studio team."
+              : "Loading your venture…"}
+          </p>
+        ) : isMember && memberRow ? (
           tab === "program" ? (
             <ProgramView program={program} now={now} />
           ) : (
@@ -296,9 +340,9 @@ export function CommandCenter({
                 now={now}
                 handled={handled}
                 handledError={handledError}
-                onHandle={setMark}
+                onHandle={setHandled}
                 openFounder={openFounder}
-                loaded={roster !== null || !supabase}
+                loaded={roster !== null}
               />
             )}
             {tab === "cohort" && (

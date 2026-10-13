@@ -9,7 +9,8 @@ import {
   Scripts,
   type ErrorComponentProps,
 } from "@tanstack/react-router";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
+import { SignInGate } from "@/components/auth/sign-in-gate";
 
 // ... [skipping to RootComponent replacement]
 
@@ -17,81 +18,17 @@ const PUBLIC_PATHS = ["/privacy", "/about"];
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
-  const [authed, setAuthed] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem("cybr_auth") === "true";
-    }
-    return false;
-  });
-  const [pwd, setPwd] = useState("");
   const path = useRouterState({ select: (state) => state.location.pathname });
-
-  // "Open dashboard" in Slack carries a signed personal pass (?k=...) that skips the access code.
-  useEffect(() => {
-    if (authed || typeof window === "undefined") return;
-    const url = new URL(window.location.href);
-    const pass = url.searchParams.get("k");
-    if (!pass) return;
-    fetch("/api/dash/claim", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ k: pass }),
-    })
-      .then((r) => r.json())
-      .then((res: { ok?: boolean }) => {
-        if (res.ok) {
-          localStorage.setItem("cybr_auth", "true");
-          setAuthed(true);
-        }
-      })
-      .catch(() => {})
-      .finally(() => {
-        url.searchParams.delete("k"); // keep the pass out of the address bar and browser history
-        window.history.replaceState(null, "", url.toString());
-      });
-  }, [authed]);
-
-  // These pages must be readable by anyone (Google shows their links on the consent screen).
-  if (!authed && !PUBLIC_PATHS.includes(path)) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-zinc-950 text-white font-sans">
-        <div className="w-[400px] rounded-xl border border-white/10 bg-zinc-900/50 p-8 shadow-2xl backdrop-blur-sm">
-          <h2 className="mb-6 text-2xl font-bold tracking-tight text-zinc-100">Prototype Access</h2>
-          <input 
-            type="password" 
-            placeholder="Enter access code..."
-            className="w-full rounded-md bg-zinc-950/50 border border-white/10 px-4 py-3 text-white outline-none transition-colors focus:border-white/30"
-            value={pwd}
-            onChange={(e) => setPwd(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && pwd === "mamba2026") {
-                localStorage.setItem("cybr_auth", "true");
-                setAuthed(true);
-              }
-            }}
-          />
-          <button 
-            className="mt-4 w-full rounded-md bg-zinc-100 px-4 py-3 font-medium text-zinc-900 transition-colors hover:bg-white"
-            onClick={() => {
-              if (pwd === "mamba2026") {
-                localStorage.setItem("cybr_auth", "true");
-                setAuthed(true);
-              }
-            }}
-          >
-            Enter Dashboard
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
+  const page = (
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
     </QueryClientProvider>
   );
+
+  // These pages must be readable by anyone (Google shows their links on the consent screen).
+  // Everything else is for people on the program roster, signed in through Slack.
+  return PUBLIC_PATHS.includes(path) ? page : <SignInGate>{page}</SignInGate>;
 }
 
 import appCss from "../styles.css?url";

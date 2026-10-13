@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { studioRoles, type DemoPerspective, type Founder } from "./data";
 
-/** "View as" switcher. Presentation only: it changes the layout, never what data is allowed. */
+/** Mentors only: preview the layout a founder sees. Presentation only; access comes from the signed-in role. */
 export function ViewAs({
   perspective,
   members,
@@ -17,8 +17,8 @@ export function ViewAs({
     (founder) => founder.id === perspective || founder.founderIds?.includes(perspective),
   );
   return (
-    <label className="view-as" title="View as · No sign-in or access control">
-      <span className="sr-only">View as · No sign-in or access control</span>
+    <label className="view-as" title="Preview the dashboard as a founder sees it">
+      <span className="sr-only">Preview as</span>
       <select
         id="demo-perspective"
         value={member?.id ?? perspective}

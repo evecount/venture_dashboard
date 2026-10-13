@@ -6,19 +6,26 @@ import perspectivesSource from "@/components/dashboard/studio-perspectives.tsx?r
 describe("Dashboard shows live data only", () => {
   it("ships no simulation or fictional placeholder content", () => {
     const content = `${dashboardSource} ${perspectivesSource}`;
-    expect(content).not.toMatch(/simulat|fictional|invented|PROTOTYPE|Demo Founder|demo-founder|AiChatOverlay/i);
+    expect(content).not.toMatch(
+      /simulat|fictional|invented|PROTOTYPE|Demo Founder|demo-founder|AiChatOverlay/i,
+    );
   });
 
   it("hard-codes no real people or ventures in the UI source", () => {
     const content = `${JSON.stringify(studioRoles)} ${dashboardSource} ${perspectivesSource}`;
-    expect(content).not.toMatch(/benjamin|\bben\b|arthur|james|gwen|logistics|enterprise studio|supabase auth|auth loop/i);
+    expect(content).not.toMatch(
+      /benjamin|\bben\b|arthur|james|gwen|logistics|enterprise studio|supabase auth|auth loop/i,
+    );
   });
 
   it("models the studio team roles separately from cohort members", () => {
     expect(studioRoles.map((role) => role.title)).toEqual([
-      "Program Coordinator", "GTM Venture Advisor", "Marketing / Rollout / User Validation", "Technical Advisor",
+      "Program Coordinator",
+      "GTM Venture Advisor",
+      "Marketing / Rollout / User Validation",
+      "Technical Advisor",
     ]);
-    expect(perspectivesSource).toContain("No sign-in or access control");
+    expect(perspectivesSource).toContain("Presentation only; access comes from the signed-in role");
     expect(perspectivesSource).toContain("Cohort members");
   });
 });

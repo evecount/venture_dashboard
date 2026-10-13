@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { useMemo } from "react";
+import { useDashData } from "@/hooks/use-dash-data";
 
 export type TimelineEntry = {
   id: string;
@@ -62,43 +62,14 @@ export function mergeTimeline(subs: SubRow[], sigs: SigRow[]): TimelineEntry[] {
   return entries.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 }
 
-/** Loads the timeline for a founder/startup; refetches whenever `refreshKey` changes (live ledger updates). */
-export function useTimeline(startupId: string | undefined, refreshKey: string) {
-  const [entries, setEntries] = useState<TimelineEntry[] | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!supabase || !startupId) {
-      setEntries(null);
-      return;
-    }
-    const client = supabase;
-    let cancelled = false;
-    setLoading(true);
-    (async () => {
-      const [subs, sigs] = await Promise.all([
-        client
-          .from("submissions")
-          .select("id,status,progress,blocker,digest,created_at")
-          .eq("startup_id", startupId)
-          .eq("confirmed", true)
-          .order("created_at", { ascending: false })
-          .limit(40),
-        client
-          .from("signals")
-          .select("id,type,headline,detail,created_at")
-          .eq("startup_id", startupId)
-          .order("created_at", { ascending: false })
-          .limit(40),
-      ]);
-      if (cancelled) return;
-      setEntries(mergeTimeline((subs.data ?? []) as SubRow[], (sigs.data ?? []) as SigRow[]));
-      setLoading(false);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [startupId, refreshKey]);
-
-  return { entries, loading };
+/** The timeline for one startup, from the dashboard snapshot (newest 40 check-ins and signals). */
+export function useTimeline(startupId: string | undefined, _refreshKey?: string) {
+  const { snapshot } = useDashData();
+  const entries = useMemo(() => {
+    if (!snapshot || !startupId) return null;
+    const subs = snapshot.submissions.filter((s) => s.startup_id === startupId).slice(0, 40);
+    const sigs = snapshot.signals.filter((s) => s.startup_id === startupId).slice(0, 40);
+    return mergeTimeline(subs, sigs);
+  }, [snapshot, startupId]);
+  return { entries, loading: snapshot === null };
 }

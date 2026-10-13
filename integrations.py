@@ -31,25 +31,26 @@ def sign_state(payload: dict, secret: str, now: float | None = None, ttl: int = 
     return f"{encoded}.{sig}"
 
 
-DASHBOARD_LINK_TTL = 90 * 24 * 60 * 60  # a Slack dashboard link works for 90 days, on any device
+DASHBOARD_LINK_TTL = 60 * 60  # single-use and short-lived; the Home tab makes a fresh one every time it opens
 
 
-def dashboard_url(base: str | None, secret: str | None, founder_id: str | None) -> str | None:
+def dashboard_url(base: str | None, secret: str | None, founder_id: str | None,
+                  slack_user_id: str | None = None) -> str | None:
     """
-    Link for Slack's "Open dashboard" button. It carries a signed personal pass (`k`) that skips the access code.
-    Anyone who just pastes the bare dashboard address (no pass) still has to enter the code.
+    Link for Slack's "Open dashboard" button: a signed, single-use pass (`k`) naming the person, valid for an hour.
+    The website checks the person against the mentors/founders tables and signs them in; their role decides the view.
+    Without a person (or a secret) it's the bare address, where they use Sign in with Slack instead.
     """
     if not base:
         return None
-    url = base
-    if founder_id:
-        url += ("&" if "?" in url else "?") + "as=" + quote(founder_id)
-    if secret:
-        token = sign_state({"f": founder_id or "mentor", "s": "dash", "p": "dash", "j": secrets.token_urlsafe(12)},
-                           secret, ttl=DASHBOARD_LINK_TTL)
-        url += ("&" if "?" in url else "?") + "k=" + token
-    return url
-
+    who = slack_user_id or founder_id
+    if not secret or not who:
+        return base
+    payload = {"f": who, "s": "dash", "p": "dash", "j": secrets.token_urlsafe(12)}
+    if slack_user_id:
+        payload["u"] = slack_user_id
+    token = sign_state(payload, secret, ttl=DASHBOARD_LINK_TTL)
+    return base + ("&" if "?" in base else "?") + "k=" + token
 
 def github_connect_url(app_slug: str | None, secret: str | None, founder_id: str, startup_id: str) -> str | None:
     """Link to GitHub's install screen, or None when the GitHub App isn't configured."""
@@ -100,8 +101,26 @@ def valid_org_login(value: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}", (value or "").strip()))
 
 
-def activity_summary(sb, startup_id: str, days: int = 7, now: datetime | None = None) -> dict:
-    """Counts of real work signals for a startup over the last `days` days."""
+GITHUB_TYPES = ("commit", "pull_request", "issue")
+
+
+def monitored_for_startup(sb, startup_id: str) -> set:
+    """Repos currently monitored across the startup's GitHub connections (follows the founder's latest choice)."""
+    try:
+        rows = (sb.table("integrations").select("repos,selected_repos").eq("startup_id", startup_id)
+                .eq("provider", "github").execute().data) or []
+    except Exception as e:  # noqa: BLE001
+        print(f"[Activity Warning] {e}")
+        rows = []
+    return {repo for row in rows for repo in monitored_repos(row)}
+
+
+def activity_summary(sb, startup_id: str, days: int = 7, now: datetime | None = None,
+                     monitored: set | list | None = None) -> dict:
+    """
+    Counts of real work signals for a startup over the last `days` days. GitHub work only counts for the repos
+    monitored right now: older signals from a repo the founder has since deselected are ignored, not deleted.
+    """
     now = now or datetime.now(timezone.utc)
     since = (now - timedelta(days=days)).isoformat()
     try:
@@ -111,6 +130,8 @@ def activity_summary(sb, startup_id: str, days: int = 7, now: datetime | None = 
     except Exception as e:  # noqa: BLE001
         print(f"[Activity Warning] {e}")
         rows = []
+    watched = set(monitored_for_startup(sb, startup_id) if monitored is None else monitored)
+    rows = [r for r in rows if r["type"] not in GITHUB_TYPES or (r.get("meta") or {}).get("repo") in watched]
     out = {"commits": 0, "prs_opened": 0, "prs_merged": 0, "issues_closed": 0, "meetings": 0, "external_meetings": 0,
            "last_activity": None, "signals": len(rows)}
     for r in rows:

@@ -337,6 +337,13 @@ html {
   align-items: center;
   justify-content: center;
 }
+.avatar.account {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--primary);
+}
 .avatar.lg {
   width: 44px;
   height: 44px;

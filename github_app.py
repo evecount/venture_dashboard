@@ -12,6 +12,8 @@ from datetime import datetime, timedelta, timezone
 
 import jwt  # PyJWT, RS256 via cryptography
 
+from integrations import monitored_repos
+
 API = "https://api.github.com"
 BACKFILL_DAYS = 14
 
@@ -111,7 +113,7 @@ def backfill_signals(gh: GitHubApp, sb, integration: dict, now: datetime | None 
     now = now or datetime.now(timezone.utc)
     connected_at = datetime.fromisoformat(integration["created_at"].replace("Z", "+00:00"))
     since = now - timedelta(days=BACKFILL_DAYS)
-    repos = list(integration.get("selected_repos") or integration.get("repos") or [])
+    repos = monitored_repos(integration)  # same rule as live webhooks: only what the founder chose
     startup_id, installation_id = integration["startup_id"], integration["external_id"]
 
     old = (sb.table("signals").select("id,meta").eq("startup_id", startup_id).in_("type", ["commit", "pull_request"])

@@ -40,16 +40,28 @@ class IntegrationTests(unittest.TestCase):
 
     def test_activity_summary_counts_real_work(self):
         rows = [
-            {"type": "commit", "meta": {"commits": 3}, "created_at": "2026-10-13T10:00:00+00:00"},
-            {"type": "commit", "meta": {"commits": 2}, "created_at": "2026-10-12T10:00:00+00:00"},
-            {"type": "pull_request", "meta": {"merged": True}, "created_at": "2026-10-12T09:00:00+00:00"},
-            {"type": "pull_request", "meta": {"merged": False}, "created_at": "2026-10-11T09:00:00+00:00"},
-            {"type": "issue", "meta": {"action": "closed"}, "created_at": "2026-10-11T08:00:00+00:00"},
+            {"type": "commit", "meta": {"commits": 3, "repo": "a/web"}, "created_at": "2026-10-13T10:00:00+00:00"},
+            {"type": "commit", "meta": {"commits": 2, "repo": "a/web"}, "created_at": "2026-10-12T10:00:00+00:00"},
+            {"type": "pull_request", "meta": {"merged": True, "repo": "a/web"}, "created_at": "2026-10-12T09:00:00+00:00"},
+            {"type": "pull_request", "meta": {"merged": False, "repo": "a/web"}, "created_at": "2026-10-11T09:00:00+00:00"},
+            {"type": "issue", "meta": {"action": "closed", "repo": "a/web"}, "created_at": "2026-10-11T08:00:00+00:00"},
         ]
-        a = i.activity_summary(SB(rows), "s", now=datetime(2026, 10, 13, 12, tzinfo=timezone.utc))
+        a = i.activity_summary(SB(rows), "s", now=datetime(2026, 10, 13, 12, tzinfo=timezone.utc), monitored=["a/web"])
         self.assertEqual((a["commits"], a["prs_opened"], a["prs_merged"], a["issues_closed"]), (5, 1, 1, 1))
         self.assertIn("5 commits", i.activity_line(a, True))
         self.assertEqual(i.activity_line(a, False), "GitHub not connected")
+
+    def test_activity_only_counts_the_repos_monitored_now(self):
+        rows = [
+            {"type": "commit", "meta": {"commits": 3, "repo": "a/web"}, "created_at": "2026-10-13T10:00:00+00:00"},
+            {"type": "commit", "meta": {"commits": 9, "repo": "a/old"}, "created_at": "2026-10-13T09:00:00+00:00"},
+            {"type": "meeting", "meta": {"meetings": 2, "external": 1}, "created_at": "2026-10-13T08:00:00+00:00"},
+        ]
+        now = datetime(2026, 10, 13, 12, tzinfo=timezone.utc)
+        a = i.activity_summary(SB(rows), "s", now=now, monitored=["a/web"])
+        self.assertEqual((a["commits"], a["meetings"]), (3, 2))
+        # Switching the selection to the other repo flips what counts, without touching stored rows.
+        self.assertEqual(i.activity_summary(SB(rows), "s", now=now, monitored=["a/old"])["commits"], 9)
 
 
 
@@ -96,14 +108,16 @@ class OrgAndCofounderTests(unittest.TestCase):
 
 
 class DashboardLinkTests(unittest.TestCase):
-    def test_link_carries_a_pass_and_the_deep_link(self):
+    def test_link_carries_a_personal_single_use_pass(self):
         url = i.dashboard_url("https://dash.example/", "secret", "founder-x")
-        self.assertIn("as=founder-x", url)
-        self.assertIn("&k=", url)
+        self.assertTrue(url.startswith("https://dash.example/?k="))
+        self.assertNotIn("as=", url)  # the view comes from the signed-in role, not the URL
         self.assertNotEqual(url, i.dashboard_url("https://dash.example/", "secret", "founder-x"))  # fresh pass each time
+        self.assertIn("?k=", i.dashboard_url("https://dash.example/", "secret", None, slack_user_id="U123"))
 
-    def test_without_a_secret_the_plain_link_still_works(self):
-        self.assertEqual(i.dashboard_url("https://dash.example/", None, None), "https://dash.example/")
+    def test_without_a_person_or_secret_it_is_the_plain_link(self):
+        self.assertEqual(i.dashboard_url("https://dash.example/", None, "founder-x"), "https://dash.example/")
+        self.assertEqual(i.dashboard_url("https://dash.example/", "secret", None), "https://dash.example/")
         self.assertIsNone(i.dashboard_url(None, "secret", None))
 
 
