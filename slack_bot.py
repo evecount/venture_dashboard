@@ -1437,6 +1437,14 @@ def _owns_integration(user_id: str, integration_id: str):
     return rows[0] if mine else None
 
 
+def _stale_connection(client, user_id: str):
+    """Old Home tab or message pointing at a connection that no longer exists (or isn't theirs): say so and refresh."""
+    client.chat_postMessage(channel=user_id, text=(
+        "That GitHub connection no longer exists (it may have been removed), so I can't change it. "
+        "I've refreshed your Home tab. Press *Connect GitHub* there to link it again."))
+    publish_home(user_id, client)
+
+
 @app.action("select_repos")
 def handle_select_repos(ack, body, client):
     ack()
@@ -1446,6 +1454,7 @@ def handle_select_repos(ack, body, client):
     try:
         row = _owns_integration(user_id, integration_id)
         if not row:
+            _stale_connection(client, user_id)
             return
         chosen = [o["value"] for o in action.get("selected_options", [])]
         supabase.table("integrations").update({"selected_repos": chosen or None}).eq("id", integration_id).execute()
@@ -1468,7 +1477,9 @@ def handle_change_repos(ack, body, client):
     user_id = body["user"]["id"]
     try:
         row = _owns_integration(user_id, body["actions"][0]["value"])
-        if row:
+        if not row:
+            _stale_connection(client, user_id)
+        else:
             row = refresh_repos(row)
             client.chat_postMessage(channel=user_id, text="Choose repositories",
                                     blocks=integrations.build_repo_selector(row, "Which repositories should I monitor?"))
