@@ -1,0 +1,189 @@
+"""
+Google Calendar as a work signal (read-only, opt-in per founder).
+
+What it is used for
+  - Weekly rhythm: how many meetings a founder had, and how many were with people OUTSIDE their team
+    (a good proxy for customer interviews and advisor sessions). Stored as one aggregated `meeting` signal per day:
+    counts only, never titles, descriptions or attendee emails.
+  - On-demand answers for the founder themself ("what's on my calendar tomorrow?"): fetched live, never stored.
+
+Scopes: calendar.events.readonly + openid/email (to know which Google account was connected).
+The refresh token is encrypted at rest (Fernet, key derived from STATE_SECRET) and only the bot can read it.
+HTTP is injectable so everything is testable offline.
+"""
+
+import base64
+import hashlib
+import json
+from datetime import datetime, timedelta, timezone
+from urllib.parse import urlencode
+
+from cryptography.fernet import Fernet, InvalidToken
+
+import integrations
+
+AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+TOKEN_URL = "https://oauth2.googleapis.com/token"
+USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
+EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
+SCOPES = "openid email https://www.googleapis.com/auth/calendar.events.readonly"
+SYNC_DAYS = 14
+
+
+# ---------- connect link & token handling ----------
+
+def connect_url(client_id: str | None, redirect_uri: str | None, secret: str | None, founder_id: str, startup_id: str) -> str | None:
+    """Google's consent screen, carrying a signed state that ties the result to this founder."""
+    if not (client_id and redirect_uri and secret):
+        return None
+    state = integrations.sign_state({"f": founder_id, "s": startup_id, "p": "google"}, secret)
+    return AUTH_URL + "?" + urlencode({
+        "client_id": client_id, "redirect_uri": redirect_uri, "response_type": "code", "scope": SCOPES,
+        "access_type": "offline", "prompt": "consent", "state": state, "include_granted_scopes": "true",
+    })
+
+
+def _fernet(secret: str) -> Fernet:
+    return Fernet(base64.urlsafe_b64encode(hashlib.sha256((secret + ":google-calendar").encode()).digest()))
+
+
+def encrypt_token(token: str, secret: str) -> str:
+    return _fernet(secret).encrypt(token.encode()).decode()
+
+
+def decrypt_token(blob: str, secret: str) -> str | None:
+    try:
+        return _fernet(secret).decrypt(blob.encode()).decode()
+    except (InvalidToken, ValueError):
+        return None
+
+
+def _default_http(method: str, url: str, headers: dict | None = None, data: dict | None = None, params: dict | None = None):
+    import requests
+    r = requests.request(method, url, headers=headers, data=data, params=params, timeout=20)
+    r.raise_for_status()
+    return r.json()
+
+
+class GoogleCalendar:
+    def __init__(self, client_id: str, client_secret: str, redirect_uri: str, state_secret: str, http=_default_http):
+        self.client_id, self.client_secret, self.redirect_uri = client_id, client_secret, redirect_uri
+        self.state_secret, self.http = state_secret, http
+
+    def exchange_code(self, code: str) -> dict:
+        """code -> {refresh_token, access_token, email}."""
+        tok = self.http("POST", TOKEN_URL, data={
+            "code": code, "client_id": self.client_id, "client_secret": self.client_secret,
+            "redirect_uri": self.redirect_uri, "grant_type": "authorization_code"})
+        info = self.http("GET", USERINFO_URL, headers={"Authorization": f"Bearer {tok['access_token']}"})
+        return {"refresh_token": tok.get("refresh_token"), "access_token": tok["access_token"], "email": info.get("email", "")}
+
+    def access_token(self, encrypted_refresh: str) -> str | None:
+        refresh = decrypt_token(encrypted_refresh, self.state_secret)
+        if not refresh:
+            return None
+        data = self.http("POST", TOKEN_URL, data={
+            "client_id": self.client_id, "client_secret": self.client_secret,
+            "refresh_token": refresh, "grant_type": "refresh_token"})
+        return data["access_token"]
+
+    def events(self, encrypted_refresh: str, since: datetime, until: datetime) -> list:
+        token = self.access_token(encrypted_refresh)
+        if not token:
+            return []
+        out, page = [], None
+        while True:
+            params = {"timeMin": since.isoformat(), "timeMax": until.isoformat(), "singleEvents": "true",
+                      "orderBy": "startTime", "maxResults": 250,
+                      "fields": "nextPageToken,items(summary,start,end,status,attendees(email,self,responseStatus),visibility)"}
+            if page:
+                params["pageToken"] = page
+            data = self.http("GET", EVENTS_URL, headers={"Authorization": f"Bearer {token}"}, params=params)
+            out += data.get("items", [])
+            page = data.get("nextPageToken")
+            if not page:
+                return out
+
+
+# ---------- turning events into counts ----------
+
+def _domain(email: str) -> str:
+    return email.rsplit("@", 1)[-1].lower() if "@" in email else ""
+
+
+def _event_day(ev: dict) -> str | None:
+    start = ev.get("start", {})
+    stamp = start.get("dateTime") or start.get("date")
+    return stamp[:10] if stamp else None
+
+
+def classify(events: list, team_emails: set, my_email: str) -> dict:
+    """
+    {day: {'meetings': n, 'external': m}}. A meeting is an accepted-or-pending event with at least one other attendee.
+    External = at least one attendee who isn't on the founder's team (other founders, mentors) and doesn't share the
+    founder's email domain unless that domain is a public mail provider.
+    """
+    public = {"gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "yahoo.com", "icloud.com", "proton.me", "protonmail.com"}
+    team = {e.lower() for e in team_emails} | {my_email.lower()}
+    mine = _domain(my_email)
+    days: dict = {}
+    for ev in events:
+        if ev.get("status") == "cancelled":
+            continue
+        attendees = ev.get("attendees") or []
+        others = [a for a in attendees if not a.get("self") and (a.get("email") or "").lower() != my_email.lower()]
+        me = next((a for a in attendees if a.get("self") or (a.get("email") or "").lower() == my_email.lower()), None)
+        if not others or (me and me.get("responseStatus") == "declined"):
+            continue
+        day = _event_day(ev)
+        if not day:
+            continue
+        external = any((a.get("email") or "").lower() not in team
+                       and (_domain(a.get("email") or "") != mine or mine in public) for a in others)
+        d = days.setdefault(day, {"meetings": 0, "external": 0})
+        d["meetings"] += 1
+        d["external"] += 1 if external else 0
+    return days
+
+
+def sync_signals(gc: GoogleCalendar, sb, integration: dict, team_emails: set, now: datetime | None = None) -> int:
+    """Replaces this startup's last-14-days calendar signals with fresh per-day counts. Returns rows written."""
+    now = now or datetime.now(timezone.utc)
+    since = now - timedelta(days=SYNC_DAYS)
+    my_email = integration.get("account") or ""
+    events = gc.events(integration["refresh_token"], since, now)
+    days = classify(events, team_emails, my_email)
+
+    old = (sb.table("signals").select("id,meta").eq("startup_id", integration["startup_id"]).eq("type", "meeting")
+           .gte("created_at", since.isoformat()).limit(500).execute().data) or []
+    for r in old:
+        m = r.get("meta") or {}
+        if m.get("source") == "google" and m.get("founder_id") == integration["founder_id"]:
+            sb.table("signals").delete().eq("id", r["id"]).execute()
+    rows = [{
+        "startup_id": integration["startup_id"], "type": "meeting", "stream": "GTM", "actor": "Google Calendar",
+        "headline": f"{v['meetings']} meeting{'s' if v['meetings'] != 1 else ''} on {day}"
+                    + (f" ({v['external']} with people outside the team)" if v["external"] else ""),
+        "detail": "", "created_at": f"{day}T12:00:00+00:00",
+        "meta": {"source": "google", "founder_id": integration["founder_id"], "meetings": v["meetings"], "external": v["external"]},
+    } for day, v in sorted(days.items())]
+    if rows:
+        sb.table("signals").insert(rows).execute()
+    return len(rows)
+
+
+# ---------- on-demand, private to the founder ----------
+
+def upcoming_text(gc: GoogleCalendar, encrypted_refresh: str, days: int = 2, now: datetime | None = None) -> str:
+    """Titles and times for the founder's own eyes only; fetched live and never stored."""
+    now = now or datetime.now(timezone.utc)
+    events = [e for e in gc.events(encrypted_refresh, now, now + timedelta(days=days))
+              if e.get("status") != "cancelled" and e.get("visibility") not in ("private", "confidential")]
+    if not events:
+        return f"Nothing on your calendar in the next {days} day{'s' if days != 1 else ''}."
+    lines = []
+    for e in events[:15]:
+        start = e.get("start", {})
+        when = (start.get("dateTime") or start.get("date") or "")[:16].replace("T", " ")
+        lines.append(f"- {when}: {e.get('summary', '(no title)')}")
+    return chr(10).join(lines)

@@ -62,6 +62,9 @@ MENTOR_CODE = os.environ.get("MENTOR_CODE")
 # Work-signal integrations: signed connect links + the GitHub App's slug
 STATE_SECRET = os.environ.get("STATE_SECRET")
 GITHUB_APP_SLUG = os.environ.get("GITHUB_APP_SLUG")
+# Google Calendar (OAuth client from Google Cloud Console; leave empty to disable the integration)
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET")
 # Public URL of the deployed dashboard; enables "Open dashboard" buttons in Slack
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -97,6 +100,8 @@ from mentor_home import build_mentor_blocks as mentor_blocks, summarize_startups
 import threading
 
 import github_app
+import syllabus
+import google_calendar
 import integrations
 from profile_rules import match_person, looks_like_email, norm_name
 from daily_checkin import send_daily_prompts, send_nudges
@@ -154,11 +159,32 @@ def backfill_in_background(row: dict, slack_id: str | None):
     threading.Thread(target=run, daemon=True).start()
 
 
+GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI") or (
+    (DASHBOARD_URL or "").rstrip("/") + "/api/google/callback" if DASHBOARD_URL else None)
+gcal = (google_calendar.GoogleCalendar(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI, STATE_SECRET)
+        if (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI and STATE_SECRET) else None)
+
+
+def google_link(founder_id: str, startup_id: str) -> str | None:
+    return google_calendar.connect_url(GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI, STATE_SECRET, founder_id, startup_id) if gcal else None
+
+
+def my_calendar_text(founder_id: str, days: int) -> str:
+    """Live, private view of this founder's own calendar (titles stay out of the database)."""
+    if not gcal:
+        return "Google Calendar isn't set up for this workspace yet."
+    rows = supabase.table("integrations").select("refresh_token").eq("provider", "google").eq("founder_id", founder_id).execute().data
+    if not rows:
+        return "Your Google Calendar isn't connected yet. Press *Connect Google Calendar* on your Home tab."
+    return google_calendar.upcoming_text(gcal, rows[0]["refresh_token"], days)
+
+
 def github_link(founder_id: str, startup_id: str) -> str | None:
     return integrations.github_connect_url(GITHUB_APP_SLUG, STATE_SECRET, founder_id, startup_id)
 
 
-agent = Agent(ai_client, AI_MODEL, supabase, memory, connect_url=github_link) if (ai_client and supabase) else None
+agent = (Agent(ai_client, AI_MODEL, supabase, memory, connect_url=github_link, calendar_link=google_link, calendar_text=my_calendar_text)
+         if (ai_client and supabase) else None)
 
 # Initialize Slack Bolt App
 app = None
@@ -234,15 +260,17 @@ def resolve_founder_context(slack_user_id: str) -> dict:
             if res.data:
                 founder = res.data[0]
                 startup = founder.get("startups", {})
-                del_res = (
-                    supabase.table("deliverables")
-                    .select("*")
-                    .gte("due_date", datetime.now(timezone.utc).isoformat())
-                    .order("due_date")
-                    .limit(1)
-                    .execute()
-                )
-                active_del = del_res.data[0] if del_res.data else DEFAULT_DELIVERABLE
+                active_del = syllabus.current_deliverable(datetime.now(timezone(timedelta(hours=8))).date())
+                if not active_del:
+                    del_res = (
+                        supabase.table("deliverables")
+                        .select("*")
+                        .gte("due_date", datetime.now(timezone.utc).isoformat())
+                        .order("due_date")
+                        .limit(1)
+                        .execute()
+                    )
+                    active_del = del_res.data[0] if del_res.data else DEFAULT_DELIVERABLE
                 return {
                     "founder_id": founder.get("id"),
                     "name": founder.get("name"),
@@ -923,11 +951,36 @@ def handle_open_dashboard(ack):
     ack()  # link buttons still send an interaction event
 
 
+def calendar_connect_blocks(founder_id: str, startup_id: str, with_divider: bool = False) -> list:
+    url = google_link(founder_id, startup_id)
+    if not url:
+        return []
+    return ([{"type": "divider"}] if with_divider else []) + [
+        {"type": "section", "text": {"type": "mrkdwn", "text": (
+            "*Google Calendar* 📅" + chr(10) +
+            "Share your calendar (read-only) and I'll count your meetings and how many were with people outside your team, "
+            "a good sign of customer conversations. I never store titles, descriptions or who was invited. You can disconnect any time.")}},
+        {"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": "Connect Google Calendar"},
+                                          "url": url, "action_id": "connect_google"}]},
+    ]
+
+
+def build_calendar_blocks(founder_id: str, startup_id: str, rows: list) -> list:
+    """Home tab: who has shared a calendar, and a connect button for founders who haven't."""
+    blocks = []
+    if rows:
+        lines = [f"✅ *{(r.get('founders') or {}).get('name', 'a founder')}* · {r.get('account', '')}" for r in rows]
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Google Calendar*" + chr(10) + chr(10).join(lines)}})
+    if not any(r.get("founder_id") == founder_id for r in rows):
+        blocks += calendar_connect_blocks(founder_id, startup_id)
+    return blocks
+
+
 def connect_blocks(founder_id: str, startup_id: str) -> list:
     """Optional 'connect your work' step shown right after profile setup."""
     url = github_link(founder_id, startup_id)
     if not url:
-        return []
+        return calendar_connect_blocks(founder_id, startup_id, with_divider=True)
     return [
         {"type": "divider"},
         {"type": "section", "text": {"type": "mrkdwn", "text": (
@@ -941,12 +994,12 @@ def connect_blocks(founder_id: str, startup_id: str) -> list:
              "url": url, "action_id": "connect_github"},
             {"type": "button", "text": {"type": "plain_text", "text": "My code is in an organisation"},
              "action_id": "claim_org", "value": f"{founder_id}|{startup_id}"}]},
-    ]
+    ] + calendar_connect_blocks(founder_id, startup_id)
 
 
 def build_connections_blocks(founder_id: str, startup_id: str, rows: list) -> list:
     """GitHub connections for the whole startup, with the repo picker inline (no extra messages to hunt for)."""
-    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "*GitHub*"}}] if rows else []
+    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "*Connected work (GitHub)*"}}] if rows else []
     for row in rows:
         repos = integrations.monitored_repos(row)
         who = (row.get("founders") or {}).get("name") or "a founder"
@@ -973,18 +1026,33 @@ def build_connections_blocks(founder_id: str, startup_id: str, rows: list) -> li
     return blocks
 
 
-def build_milestone_blocks(milestones: list) -> list:
-    if not milestones:
-        return [{"type": "section", "text": {"type": "mrkdwn", "text":
-                 "*Milestones*" + chr(10) + "None yet. Tell me what you're aiming for, e.g. _\"Set a milestone: 10 customer interviews by Oct 23\"_."}}]
-    nl, lines = chr(10), []
-    for m in milestones[:4]:
+def _milestone_lines(items: list) -> list:
+    lines = []
+    for m in items[:4]:
         goals = m.get("goals") or []
         done = sum(1 for g in goals if g.get("done"))
         due = f" · due {m['due_date']}" if m.get("due_date") else ""
         lines.append(f"🎯 *{m['title']}*{due} · {done}/{len(goals)} goals")
         lines += [("      ✅ " if g.get("done") else "      ⬜ ") + g["title"] for g in goals[:6]]
-    return [{"type": "section", "text": {"type": "mrkdwn", "text": "*Milestones*" + nl + nl.join(lines)}}]
+    return lines
+
+
+def build_milestone_blocks(milestones: list) -> list:
+    """Two kinds: ones the founder set for themselves, and ones issued by mentors/advisors."""
+    nl = chr(10)
+    issued = [m for m in milestones if m.get("created_by_role") == "mentor"]
+    own = [m for m in milestones if m.get("created_by_role") != "mentor"]
+    blocks = []
+    if issued:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text":
+                       "*Set by your mentors*" + nl + nl.join(_milestone_lines(issued))}})
+    if own:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Your own milestones*" + nl + nl.join(_milestone_lines(own))}})
+    else:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text":
+                       "*Your own milestones*" + nl + "None yet. Tell me a goal in your own words, e.g. "
+                       "_\"Set a milestone: 10 customer interviews by Oct 23\"_."}})
+    return blocks
 
 
 def build_task_blocks(tasks: list) -> list:
@@ -995,44 +1063,51 @@ def build_task_blocks(tasks: list) -> list:
     return [{"type": "section", "text": {"type": "mrkdwn", "text": "*Follow-ups*" + nl + nl.join(lines)}}]
 
 
-def build_home_view(context: dict | None, latest: dict | None, tasks: list | None = None, milestones: list | None = None, conns: list | None = None) -> dict:
+def build_home_view(context: dict | None, latest: dict | None, tasks: list | None = None, milestones: list | None = None, conns: list | None = None, gcal_rows: list | None = None) -> dict:
     """Founder's personal sprint radar. context=None means the user isn't on the roster yet."""
-    blocks = [{"type": "header", "text": {"type": "plain_text", "text": "Your sprint radar"}}]
     if context is None:
-        blocks += build_onboarding_card()
-        return {"type": "home", "blocks": blocks}
+        return {"type": "home", "blocks": [{"type": "header", "text": {"type": "plain_text", "text": "Your sprint radar"}}] + build_onboarding_card()}
+    nl = chr(10)
+    blocks = [{"type": "header", "text": {"type": "plain_text", "text": f"Your sprint radar – {context['startup_name']}"[:150]}}]
+
+    today = datetime.now(timezone(timedelta(hours=8))).date()
+    cur = syllabus.current(today)
+    bits = []
+    if cur:
+        bits.append(f"Week {int(cur['week'].split()[-1])} of 12 · {cur['phase']}")
+    if context.get("stream") not in (None, "", "Unassigned", "General"):
+        bits.append(f"{context['stream']} stream")
+    if context.get("lead") not in (None, "", "Unassigned"):
+        bits.append(f"Advisor: {context['lead']}")
+    if bits:
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(bits)}]})
 
     d = context["deliverable"]
-    due = str(d.get("due_date", ""))
-    if re.match(r"\d{4}-\d{2}-\d{2}", due):
-        due = due[:10]  # ISO timestamp from Supabase -> date only
-    blocks.append({
-        "type": "section",
-        "text": {
-            "type": "mrkdwn",
-            "text": (
-                f"*{context['startup_name']}* · {context['stream']} stream · lead: {context['lead']}\n"
-                f"*This week:* {d['week']} - {d['title']}" + (f"\n*Due:* {due}" if due else "")
-            ),
-        },
-    })
+    due = str(d.get("due_date", ""))[:10]
+    try:
+        due_text = syllabus.long_date(datetime.strptime(due, "%Y-%m-%d").date())
+    except ValueError:
+        due_text = due
+    blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": (
+        f"*Due this week*{nl}{d['title']}" + (f"{nl}📅 Due {due_text}" if due_text else ""))}})
+
     if latest:
         emoji = STATUS_EMOJI.get(latest["status"], "⚪")
-        text = f"{emoji} *{latest['status']}* · {latest.get('progress', 0)}%\n_{latest['digest']}_"
+        text = f"{emoji} *{latest['status']}* · {latest.get('progress', 0)}%{nl}_{latest['digest']}_"
         blocker = latest.get("blocker")
         if blocker and blocker != "None":
-            text += f"\n*Blocker:* {blocker}"
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Your latest check-in*\n" + text}})
+            text += f"{nl}*Blocker:* {blocker}"
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Your last check-in*" + nl + text}})
     else:
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*No check-ins yet.* Send me a message in this app's Messages tab to log your first one."}})
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": (
+            "*You haven't checked in yet*" + nl +
+            "Message me what you worked on (a line or two is fine, or a voice-note transcript) and I'll turn it into a check-in for you to confirm.")}})
     blocks += build_milestone_blocks(milestones or [])
     blocks += build_connections_blocks(context["founder_id"], context["startup_id"], conns or [])
+    blocks += build_calendar_blocks(context["founder_id"], context["startup_id"], gcal_rows or [])
     blocks += build_task_blocks(tasks or [])
     blocks.append({"type": "divider"})
-    blocks.append({
-        "type": "context",
-        "elements": [{"type": "mrkdwn", "text": "Check in any time by messaging me: text, a blocker, or a voice note transcript. You confirm before anything is saved."}],
-    })
+    blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "Chat with me any time in the *Messages* tab: updates, blockers, goals or questions. You confirm before anything is saved."}]})
     blocks += dashboard_button_blocks(context["founder_id"])
     return {"type": "home", "blocks": blocks}
 
@@ -1060,7 +1135,8 @@ def publish_home(slack_user_id: str, client=None):
                 .execute()
             )
             latest = res.data[0] if res.data else None
-        client.views_publish(user_id=slack_user_id, view=build_home_view(context, latest, memory.open_tasks(context["startup_id"]) if context else [], memory.milestones(context["startup_id"]) if context else [], integrations.github_connections(supabase, context["startup_id"]) if context else []))
+        client.views_publish(user_id=slack_user_id, view=build_home_view(context, latest, memory.open_tasks(context["startup_id"]) if context else [], memory.milestones(context["startup_id"]) if context else [], integrations.github_connections(supabase, context["startup_id"]) if context else [],
+                                               integrations.google_connections(supabase, context["startup_id"]) if context else []))
     except Exception as e:
         print(f"[Home Tab Error] {e}")
 
@@ -1384,6 +1460,79 @@ def audit_deadlines_and_blockers():
         print(f"[Audit Error]: {e}")
 
 
+# --- GOOGLE CALENDAR ---
+
+@app.action("connect_google")
+def handle_connect_google(ack):
+    ack()  # link button
+
+
+def team_emails_for(startup_id: str) -> set:
+    """Everyone whose meetings with the founder are NOT 'outside the team': co-founders and all mentors."""
+    emails = set()
+    for table, filt in (("founders", {"startup_id": startup_id}), ("mentors", {})):
+        q = supabase.table(table).select("email")
+        for k, v in filt.items():
+            q = q.eq(k, v)
+        emails |= {r["email"].lower() for r in (q.execute().data or []) if r.get("email")}
+    return emails
+
+
+def sync_calendar(row: dict):
+    try:
+        n = google_calendar.sync_signals(gcal, supabase, row, team_emails_for(row["startup_id"]))
+        print(f"[Calendar] synced {n} day(s) for {row.get('account')}")
+    except Exception as e:
+        print(f"[Calendar Sync Warning] {row.get('account')}: {e}")
+
+
+def sync_all_calendars():
+    if not (gcal and supabase):
+        return
+    try:
+        rows = supabase.table("integrations").select("*").eq("provider", "google").execute().data or []
+    except Exception as e:
+        print(f"[Calendar Warning] {e}")
+        return
+    for row in rows:
+        sync_calendar(row)
+
+
+def process_google_pending():
+    """Exchanges the one-time codes our website parked for tokens, stores them encrypted, and confirms in Slack."""
+    if not (gcal and supabase and SLACK_BOT_TOKEN):
+        return
+    try:
+        pending = supabase.table("google_pending").select("*").execute().data or []
+    except Exception as e:
+        print(f"[Calendar Pending Warning] {e}")
+        return
+    for item in pending:
+        try:
+            supabase.table("google_pending").delete().eq("id", item["id"]).execute()  # single use, whatever happens next
+            got = gcal.exchange_code(item["code"])
+            if not got.get("refresh_token"):
+                raise RuntimeError("Google returned no refresh token")
+            row = {"startup_id": item["startup_id"], "founder_id": item["founder_id"], "provider": "google",
+                   "external_id": got["email"], "account": got["email"],
+                   "refresh_token": google_calendar.encrypt_token(got["refresh_token"], STATE_SECRET),
+                   "notified_at": datetime.now(timezone.utc).isoformat()}
+            supabase.table("integrations").upsert(row, on_conflict="provider,external_id").execute()
+            founder = supabase.table("founders").select("slack_user_id").eq("id", item["founder_id"]).execute().data
+            slack_id = founder[0]["slack_user_id"] if founder else None
+            if slack_id:
+                app.client.chat_postMessage(channel=slack_id, text=(
+                    f"✅ *Google Calendar connected* ({got['email']}). I'll count your meetings and how many were with people "
+                    "outside your team. I never store titles, descriptions or who was invited, and you can ask me "
+                    "\"what's on my calendar tomorrow?\" any time. Syncing the last 2 weeks now..."))
+            full = supabase.table("integrations").select("*").eq("provider", "google").eq("external_id", got["email"]).execute().data
+            if full:
+                threading.Thread(target=lambda r=full[0], sid=slack_id: (sync_calendar(r), sid and publish_home(sid, app.client)),
+                                 daemon=True).start()
+        except Exception as e:
+            print(f"[Calendar Connect Error] {e}")
+
+
 # --- KEEP HOME TABS FRESH ---
 
 _home_watch = {"since": datetime.now(timezone.utc).isoformat()}
@@ -1626,6 +1775,8 @@ if BackgroundScheduler:
     scheduler.add_job(audit_deadlines_and_blockers, "cron", hour=9, minute=0)
     scheduler.add_job(poll_new_connections, "interval", seconds=10, max_instances=1)
     scheduler.add_job(refresh_changed_homes, "interval", seconds=15, max_instances=1)
+    scheduler.add_job(process_google_pending, "interval", seconds=10, max_instances=1)
+    scheduler.add_job(sync_all_calendars, "interval", minutes=60, max_instances=1)
     scheduler.add_job(link_org_claims, "interval", seconds=60, max_instances=1)
     if DAILY_CHECKIN:
         scheduler.add_job(run_daily_prompts, "cron", day_of_week="mon-fri", hour=DAILY_CHECKIN_HOUR, minute=0)

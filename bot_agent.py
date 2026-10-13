@@ -35,7 +35,8 @@ FOUNDER_RULES = """
 You are talking to a FOUNDER. Their startup is fixed; you can only work with their own startup.
 - If they report progress, a blocker, or finished work, call propose_checkin with a faithful structured summary. The founder confirms it before it is saved. If the update is too vague to score, ask one question first.
 - Founders cannot see mentor notes. Never mention or hint at them.
-- If they ask to connect GitHub or share their work, call connect_github. "Work signals" in CONTEXT are real activity (commits, PRs); mention them when relevant and never invent any.
+- If they ask to connect GitHub or share their work, call connect_github. For their calendar: connect_google_calendar to link it, my_calendar to read their own upcoming events. "Work signals" in CONTEXT are real activity (commits, PRs); mention them when relevant and never invent any.
+- Milestones are either self-set by the founder or issued by a mentor/advisor ("set by a mentor"). Founders can tick goals off on mentor-issued milestones but cannot rename, drop or add/remove goals on them; tell them to ask their mentor.
 - Founders set their own milestones and the goals inside them (add_milestone, add_goal, update_goal...). A milestone's progress is goals done out of total.
 - When an update clearly finishes a goal, tick it with update_goal in the same turn and say so. If they describe a deliverable or target with no milestone for it yet, offer to create one.
 """
@@ -106,6 +107,9 @@ def build_tools(role: str) -> list:
                   {"new_name": {"type": "string"}}, ["new_name"]),
             *_milestone_tools("founder"),
             _tool("connect_github", "Give the founder a link to connect their GitHub so progress can be tracked from real work.", {}, []),
+            _tool("connect_google_calendar", "Give the founder a link to share their Google Calendar (read-only meeting counts).", {}, []),
+            _tool("my_calendar", "Show the founder their OWN upcoming calendar events (titles and times), e.g. for 'what's on tomorrow?'.", {
+                "days": {"type": "integer", "description": "How many days ahead, 1-7, default 2"}}, []),
             remember,
         ]
     return [
@@ -138,8 +142,9 @@ def _label(startup):
 
 
 class Agent:
-    def __init__(self, ai_client, model: str, sb, memory: Memory | None = None, connect_url=None):
+    def __init__(self, ai_client, model: str, sb, memory: Memory | None = None, connect_url=None, calendar_link=None, calendar_text=None):
         self.ai, self.model, self.sb = ai_client, model, sb
+        self.calendar_link, self.calendar_text = calendar_link, calendar_text
         self.connect_url = connect_url  # (founder_id, startup_id) -> GitHub install link or None
         self.memory = memory or Memory(sb)
 
@@ -153,7 +158,8 @@ class Agent:
             goals = m.get("goals") or []
             done = sum(1 for g in goals if g.get("done"))
             who = f"{_label(m.get('startups'))} · " if show_startup else ""
-            lines.append(f"- [{m['id'][:6]}] {who}{m['title']} (due {m.get('due_date') or 'no date'}) · {done}/{len(goals)} goals done")
+            kind = "set by a mentor" if m.get("created_by_role") == "mentor" else "self-set"
+            lines.append(f"- [{m['id'][:6]}] {who}{m['title']} ({kind}, due {m.get('due_date') or 'no date'}) · {done}/{len(goals)} goals done")
             lines += [f"    · [{g['id'][:6]}] {'done' if g.get('done') else 'todo'}: {g['title']}" for g in goals]
         return lines
 
@@ -343,6 +349,15 @@ class Agent:
                 return "🧭 Updated " + ", ".join(f"{k} → {v}" for k, v in patch.items()) + "."
             if name in ("add_milestone", "update_milestone", "add_goal", "update_goal", "remove_goal"):
                 return self._milestone_tool(ident, name, args, startup_id)
+            if name == "connect_google_calendar" and role == "founder":
+                url = self.calendar_link(ident["context"]["founder_id"], ident["context"]["startup_id"]) if self.calendar_link else None
+                return (f"🔗 <{url}|Connect Google Calendar>. It's read-only, and I only count meetings, never store titles or invitees."
+                        if url else "Google Calendar isn't set up for this workspace yet. Ask a mentor to finish the setup.")
+            if name == "my_calendar" and role == "founder":
+                if not self.calendar_text:
+                    return "Google Calendar isn't set up for this workspace yet."
+                days = max(1, min(7, int(args.get("days") or 2)))
+                return "📅 Your calendar:" + chr(10) + self.calendar_text(ident["context"]["founder_id"], days)
             if name == "connect_github" and role == "founder":
                 url = self.connect_url(ident["context"]["founder_id"], ident["context"]["startup_id"]) if self.connect_url else None
                 return (f"🔗 <{url}|Connect GitHub>. GitHub lets you pick all repositories or just your startup's. I only get read access."
@@ -394,10 +409,13 @@ class Agent:
             for g in goals:
                 mem.add_goal(mid, g, me)
             return f"🎯 Milestone added: {title}" + (f" (due {due})" if due else "") + (f" with {len(goals)} goal{'s' if len(goals) != 1 else ''}." if goals else ".")
+        locked = "🔒 That milestone was set by your mentor, so only they can change it. You can still tick its goals off as you finish them."
         if name in ("update_milestone", "add_goal"):
             m = self._find(ident, args.get("milestone_ref"), "m")
             if not m:
                 return "⚠️ I couldn't find that milestone."
+            if role == "founder" and m.get("created_by_role") == "mentor":
+                return locked
             if name == "add_goal":
                 title = str(args.get("title", "")).strip()
                 return f"➕ Goal added to {m['title']}: {title}" if title and mem.add_goal(m["id"], title, me) else "⚠️ I couldn't add that goal."
@@ -416,6 +434,9 @@ class Agent:
         g = self._find(ident, args.get("goal_ref"), "g")
         if not g:
             return "⚠️ I couldn't find that goal."
+        issued = (g.get("milestone") or {}).get("created_by_role") == "mentor"
+        if role == "founder" and issued and (name == "remove_goal" or args.get("title")):
+            return locked
         if name == "remove_goal":
             return f"🗑 Removed goal: {g['title']}" if mem.remove_goal(g["id"]) else "⚠️ I couldn't remove that goal."
         patch = {}

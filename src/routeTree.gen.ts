@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiDashClaimRouteImport } from './routes/api/dash/claim'
 import { Route as ApiGithubCallbackRouteImport } from './routes/api/github/callback'
 import { Route as ApiGithubWebhookRouteImport } from './routes/api/github/webhook'
+import { Route as ApiGoogleCallbackRouteImport } from './routes/api/google/callback'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -34,18 +35,25 @@ const ApiGithubWebhookRoute = ApiGithubWebhookRouteImport.update({
   path: '/api/github/webhook',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiGoogleCallbackRoute = ApiGoogleCallbackRouteImport.update({
+  id: '/api/google/callback',
+  path: '/api/google/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/api/dash/claim': typeof ApiDashClaimRoute
   '/api/github/callback': typeof ApiGithubCallbackRoute
   '/api/github/webhook': typeof ApiGithubWebhookRoute
+  '/api/google/callback': typeof ApiGoogleCallbackRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/dash/claim': typeof ApiDashClaimRoute
   '/api/github/callback': typeof ApiGithubCallbackRoute
   '/api/github/webhook': typeof ApiGithubWebhookRoute
+  '/api/google/callback': typeof ApiGoogleCallbackRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -53,19 +61,30 @@ export interface FileRoutesById {
   '/api/dash/claim': typeof ApiDashClaimRoute
   '/api/github/callback': typeof ApiGithubCallbackRoute
   '/api/github/webhook': typeof ApiGithubWebhookRoute
+  '/api/google/callback': typeof ApiGoogleCallbackRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/api/dash/claim' | '/api/github/callback' | '/api/github/webhook'
+    | '/'
+    | '/api/dash/claim'
+    | '/api/github/callback'
+    | '/api/github/webhook'
+    | '/api/google/callback'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/dash/claim' | '/api/github/callback' | '/api/github/webhook'
+  to:
+    | '/'
+    | '/api/dash/claim'
+    | '/api/github/callback'
+    | '/api/github/webhook'
+    | '/api/google/callback'
   id:
     | '__root__'
     | '/'
     | '/api/dash/claim'
     | '/api/github/callback'
     | '/api/github/webhook'
+    | '/api/google/callback'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -73,6 +92,7 @@ export interface RootRouteChildren {
   ApiDashClaimRoute: typeof ApiDashClaimRoute
   ApiGithubCallbackRoute: typeof ApiGithubCallbackRoute
   ApiGithubWebhookRoute: typeof ApiGithubWebhookRoute
+  ApiGoogleCallbackRoute: typeof ApiGoogleCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -105,6 +125,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiGithubWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/google/callback': {
+      id: '/api/google/callback'
+      path: '/api/google/callback'
+      fullPath: '/api/google/callback'
+      preLoaderRoute: typeof ApiGoogleCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -113,6 +140,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiDashClaimRoute: ApiDashClaimRoute,
   ApiGithubCallbackRoute: ApiGithubCallbackRoute,
   ApiGithubWebhookRoute: ApiGithubWebhookRoute,
+  ApiGoogleCallbackRoute: ApiGoogleCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

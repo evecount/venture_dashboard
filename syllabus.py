@@ -73,3 +73,18 @@ def schedule_lines(today: date) -> list:
 def has_session(d: date) -> bool:
     """True if the program schedule has anything on this date (so weekends and off days are skipped)."""
     return any(e["date"] == d for e in EVENTS)
+
+
+def current_deliverable(today: date) -> dict | None:
+    """This week's deliverable straight from the schedule (id matches the deliverables table: del-wkNN)."""
+    cur = current(today) or (EVENTS[0] if EVENTS else None)
+    due = week_deliverable(cur["week"]) if cur else None
+    if not due:
+        return None
+    n = int(cur["week"].split()[-1])
+    return {"id": f"del-wk{n:02d}", "week": cur["week"], "title": due["deliverable"],
+            "due_date": due["date"].isoformat(), "sprint_phase": cur["phase"]}
+
+
+def long_date(d: date) -> str:
+    return f"{d.strftime('%A, %b')} {d.day}"

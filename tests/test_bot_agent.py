@@ -191,6 +191,25 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(mem.updates, [])
         self.assertIn("couldn't find", out["text"])
 
+    def test_founder_cannot_edit_a_mentor_issued_milestone_but_can_tick_its_goals(self):
+        agent, mem = self.agent([("update_milestone", {"milestone_ref": "mmmmmm0", "status": "dropped"}),
+                                 ("add_goal", {"milestone_ref": "mmmmmm0", "title": "extra"}),
+                                 ("update_goal", {"goal_ref": "gggggg0", "title": "renamed"}),
+                                 ("remove_goal", {"goal_ref": "gggggg0"}),
+                                 ("update_goal", {"goal_ref": "gggggg0", "done": True})])
+        mem.ms.append({"id": "mmmmmm0", "startup_id": "startup-auvira", "title": "M", "created_by_role": "mentor",
+                       "goals": [{"id": "gggggg0-x", "title": "G", "done": False}], "startups": {"name": "S"}})
+        out = agent.respond(FOUNDER, "x")
+        self.assertEqual(mem.updates, [("g", "gggggg0-x", {"done": True})])  # only the tick went through
+        self.assertEqual(out["text"].count("set by your mentor"), 4)
+
+    def test_mentor_can_edit_any_milestone(self):
+        agent, mem = self.agent([("update_milestone", {"milestone_ref": "mmmmmm0", "status": "done"})])
+        mem.ms.append({"id": "mmmmmm0", "startup_id": "startup-auvira", "title": "M", "created_by_role": "founder",
+                       "goals": [], "startups": {"name": "S"}})
+        agent.respond(MENTOR, "x")
+        self.assertEqual(mem.updates[0][2], {"status": "done"})
+
 
 if __name__ == "__main__":
     unittest.main()

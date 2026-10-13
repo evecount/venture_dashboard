@@ -111,7 +111,8 @@ def activity_summary(sb, startup_id: str, days: int = 7, now: datetime | None = 
     except Exception as e:  # noqa: BLE001
         print(f"[Activity Warning] {e}")
         rows = []
-    out = {"commits": 0, "prs_opened": 0, "prs_merged": 0, "issues_closed": 0, "last_activity": None, "signals": len(rows)}
+    out = {"commits": 0, "prs_opened": 0, "prs_merged": 0, "issues_closed": 0, "meetings": 0, "external_meetings": 0,
+           "last_activity": None, "signals": len(rows)}
     for r in rows:
         meta = r.get("meta") or {}
         if r["type"] == "commit":
@@ -120,17 +121,36 @@ def activity_summary(sb, startup_id: str, days: int = 7, now: datetime | None = 
             out["prs_merged" if meta.get("merged") else "prs_opened"] += 1
         elif r["type"] == "issue" and meta.get("action") == "closed":
             out["issues_closed"] += 1
+        elif r["type"] == "meeting":
+            out["meetings"] += int(meta.get("meetings", 0))
+            out["external_meetings"] += int(meta.get("external", 0))
     out["last_activity"] = rows[0]["created_at"] if rows else None
     return out
 
 
 def activity_line(a: dict, connected: bool) -> str:
+    """One line of real work signals: GitHub activity (if connected) plus calendar meetings (if shared)."""
+    parts = []
+    code = a["commits"] or a["prs_opened"] or a["prs_merged"] or a["issues_closed"]
     if not connected:
-        return "GitHub not connected"
-    if not a["signals"]:
-        return "GitHub connected, no activity in the last 7 days"
-    return (f"{a['commits']} commits, {a['prs_opened']} PRs opened, {a['prs_merged']} PRs merged, "
-            f"{a['issues_closed']} issues closed (last 7 days)")
+        parts.append("GitHub not connected")
+    elif not code:
+        parts.append("GitHub connected, no activity in the last 7 days")
+    else:
+        parts.append(f"{a['commits']} commits, {a['prs_opened']} PRs opened, {a['prs_merged']} PRs merged, "
+                     f"{a['issues_closed']} issues closed (last 7 days)")
+    if a.get("meetings"):
+        parts.append(f"{a['meetings']} meetings, {a['external_meetings']} with people outside the team (last 7 days)")
+    return "; ".join(parts)
+
+
+def google_connections(sb, startup_id: str) -> list:
+    try:
+        return (sb.table("integrations").select("id,account,founder_id,founders(name)")
+                .eq("startup_id", startup_id).eq("provider", "google").order("created_at").execute().data) or []
+    except Exception as e:  # noqa: BLE001
+        print(f"[Integrations Warning] {e}")
+        return []
 
 
 def monitored_repos(row: dict) -> list:

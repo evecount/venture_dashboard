@@ -111,7 +111,7 @@ class Memory:
         """Open milestones with their goals nested (id, title, done)."""
         def run():
             q = self.sb.table("milestones").select(
-                "id,startup_id,title,due_date,status,startups(name),goals(id,title,done)").eq("status", "open")
+                "id,startup_id,title,due_date,status,created_by_role,startups(name),goals(id,title,done)").eq("status", "open")
             if startup_id:
                 q = q.eq("startup_id", startup_id)
             return q.order("due_date", desc=False, nullsfirst=False).limit(limit).execute().data or []
