@@ -4,6 +4,7 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
+  useRouterState,
   HeadContent,
   Scripts,
   type ErrorComponentProps,
@@ -11,6 +12,8 @@ import {
 import { useEffect, useState, type ReactNode } from "react";
 
 // ... [skipping to RootComponent replacement]
+
+const PUBLIC_PATHS = ["/privacy", "/about"];
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
@@ -21,6 +24,7 @@ function RootComponent() {
     return false;
   });
   const [pwd, setPwd] = useState("");
+  const path = useRouterState({ select: (state) => state.location.pathname });
 
   // "Open dashboard" in Slack carries a signed personal pass (?k=...) that skips the access code.
   useEffect(() => {
@@ -47,7 +51,8 @@ function RootComponent() {
       });
   }, [authed]);
 
-  if (!authed) {
+  // These pages must be readable by anyone (Google shows their links on the consent screen).
+  if (!authed && !PUBLIC_PATHS.includes(path)) {
     return (
       <div className="flex h-screen items-center justify-center bg-zinc-950 text-white font-sans">
         <div className="w-[400px] rounded-xl border border-white/10 bg-zinc-900/50 p-8 shadow-2xl backdrop-blur-sm">
