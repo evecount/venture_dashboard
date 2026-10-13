@@ -1,0 +1,17 @@
+[Unit]
+Description=Venture Studio Slack bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=venturebot
+WorkingDirectory=/opt/venturebot
+ExecStart=/opt/venturebot/.venv/bin/python -u slack_bot.py
+Restart=always
+RestartSec=5
+# Secrets live in /opt/venturebot/.env (chmod 600), loaded by the bot itself
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

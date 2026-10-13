@@ -10,33 +10,69 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiDashClaimRouteImport } from './routes/api/dash/claim'
+import { Route as ApiGithubCallbackRouteImport } from './routes/api/github/callback'
+import { Route as ApiGithubWebhookRouteImport } from './routes/api/github/webhook'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiDashClaimRoute = ApiDashClaimRouteImport.update({
+  id: '/api/dash/claim',
+  path: '/api/dash/claim',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGithubCallbackRoute = ApiGithubCallbackRouteImport.update({
+  id: '/api/github/callback',
+  path: '/api/github/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGithubWebhookRoute = ApiGithubWebhookRouteImport.update({
+  id: '/api/github/webhook',
+  path: '/api/github/webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/dash/claim': typeof ApiDashClaimRoute
+  '/api/github/callback': typeof ApiGithubCallbackRoute
+  '/api/github/webhook': typeof ApiGithubWebhookRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/dash/claim': typeof ApiDashClaimRoute
+  '/api/github/callback': typeof ApiGithubCallbackRoute
+  '/api/github/webhook': typeof ApiGithubWebhookRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/dash/claim': typeof ApiDashClaimRoute
+  '/api/github/callback': typeof ApiGithubCallbackRoute
+  '/api/github/webhook': typeof ApiGithubWebhookRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    '/' | '/api/dash/claim' | '/api/github/callback' | '/api/github/webhook'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/api/dash/claim' | '/api/github/callback' | '/api/github/webhook'
+  id:
+    | '__root__'
+    | '/'
+    | '/api/dash/claim'
+    | '/api/github/callback'
+    | '/api/github/webhook'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiDashClaimRoute: typeof ApiDashClaimRoute
+  ApiGithubCallbackRoute: typeof ApiGithubCallbackRoute
+  ApiGithubWebhookRoute: typeof ApiGithubWebhookRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +84,35 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/dash/claim': {
+      id: '/api/dash/claim'
+      path: '/api/dash/claim'
+      fullPath: '/api/dash/claim'
+      preLoaderRoute: typeof ApiDashClaimRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/github/callback': {
+      id: '/api/github/callback'
+      path: '/api/github/callback'
+      fullPath: '/api/github/callback'
+      preLoaderRoute: typeof ApiGithubCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/github/webhook': {
+      id: '/api/github/webhook'
+      path: '/api/github/webhook'
+      fullPath: '/api/github/webhook'
+      preLoaderRoute: typeof ApiGithubWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiDashClaimRoute: ApiDashClaimRoute,
+  ApiGithubCallbackRoute: ApiGithubCallbackRoute,
+  ApiGithubWebhookRoute: ApiGithubWebhookRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

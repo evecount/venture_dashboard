@@ -22,6 +22,31 @@ function RootComponent() {
   });
   const [pwd, setPwd] = useState("");
 
+  // "Open dashboard" in Slack carries a signed personal pass (?k=...) that skips the access code.
+  useEffect(() => {
+    if (authed || typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const pass = url.searchParams.get("k");
+    if (!pass) return;
+    fetch("/api/dash/claim", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ k: pass }),
+    })
+      .then((r) => r.json())
+      .then((res: { ok?: boolean }) => {
+        if (res.ok) {
+          localStorage.setItem("cybr_auth", "true");
+          setAuthed(true);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        url.searchParams.delete("k"); // keep the pass out of the address bar and browser history
+        window.history.replaceState(null, "", url.toString());
+      });
+  }, [authed]);
+
   if (!authed) {
     return (
       <div className="flex h-screen items-center justify-center bg-zinc-950 text-white font-sans">
@@ -132,10 +157,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Mamba MVP Program" },
-      { name: "description", content: "The Mamba MVP Program cohort command center." },
-      { property: "og:title", content: "Mamba MVP Program" },
-      { property: "og:description", content: "The Mamba MVP Program cohort command center." },
+      { title: "Adventure Studio" },
+      { name: "description", content: "The Adventure Studio cohort command center." },
+      { property: "og:title", content: "Adventure Studio" },
+      { property: "og:description", content: "The Adventure Studio cohort command center." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],

@@ -1,1073 +1,1630 @@
-import os
-import json
-import time
-import threading
-from datetime import datetime, timezone, timedelta
-import re
-import requests
-from dotenv import load_dotenv
-from slack_bolt import App
-from slack_bolt.adapter.socket_mode import SocketModeHandler
-from supabase import create_client, Client
-from openai import OpenAI
-
-# Load environment variables
-load_dotenv()
-
-SLACK_BOT_TOKEN = (os.environ.get("SLACK_BOT_TOKEN") or "").strip('"\'')
-SLACK_APP_TOKEN = (os.environ.get("SLACK_APP_TOKEN") or "").strip('"\'')
-SUPABASE_URL = (os.environ.get("VITE_SUPABASE_URL") or "").strip('"\'')
-SUPABASE_KEY = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip('"\'')
-QWEN_API_KEY = (os.environ.get("QWEN_API_KEY") or "").strip('"\'')
-
-SGT = timezone(timedelta(hours=8))
-
-qwen_client = OpenAI(
-    api_key=QWEN_API_KEY,
-    base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-) if QWEN_API_KEY else None
-
-if not all([SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SUPABASE_URL, SUPABASE_KEY, QWEN_API_KEY]):
-    print("Missing API Keys! Please ensure SLACK_BOT_TOKEN, SLACK_APP_TOKEN and QWEN_API_KEY are set in .env")
-
-# Initialize Supabase Admin Client
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
-
-# Initialize Slack App
-app = App(token=SLACK_BOT_TOKEN)
-
-# --- STUDIO CONFIGURATION & WHITE-LABEL CAPABILITY ---
-def load_studio_config():
-    """
-    Loads white-label studio configuration from studio_config.json.
-    Falls back to default Cybrdeck & Mamba MVP settings if file missing.
-    """
-    possible_paths = [
-        os.path.join(os.path.dirname(__file__), "studio_config.json"),
-        os.path.join(os.getcwd(), "studio_config.json"),
-        r"D:\venture_dashboard\studio_config.json"
-    ]
-    for p in possible_paths:
-        if os.path.exists(p):
-            try:
-                with open(p, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception as e:
-                print(f"Error loading studio_config.json: {e}")
-    
-    # Default fallback
-    return {
-        "studio_name": "Cybrdeck Studio OS",
-        "program_name": "Mamba MVP 12-Week Venture Track",
-        "timezone": "Asia/Singapore",
-        "communication_channels": {
-            "platform": "slack",
-            "leads_channel": "#mamba-leads",
-            "coordination_channel": "gwen-ben"
-        },
-        "cohort_founders": [
-            {
-                "id": "matthew_lee",
-                "name": "Matthew Lee",
-                "venture": "SharedOut",
-                "cohort": "Cohort 1",
-                "slack_channel": "D0C94PG2R24",
-                "tactical_focus": "Wizard of Oz (WoZ) demand validation in single localized condo cluster; collect 3-5 paid rental transactions before writing backend code.",
-                "week_2_deliverable": "Selected Concept, Value Prop & Sprint 1 Evidence Pack (Due Friday Oct 16, 5:00 PM)"
-            },
-            {
-                "id": "takshma_patel",
-                "name": "Takshma Patel",
-                "venture": "WearMAInd",
-                "cohort": "Cohort 1",
-                "slack_channel": "D0C94PG2R24",
-                "tactical_focus": "Validate Top 10 critical assumptions via customer discovery interviews; gather proof of willingness to pay before hardware/sensor prototyping.",
-                "week_2_deliverable": "Selected Concept, Value Prop & Sprint 1 Evidence Pack (Due Friday Oct 16, 5:00 PM)"
-            }
-        ]
-    }
-
-STUDIO_CONFIG = load_studio_config()
-
-# --- SYLLABUS & SCHEDULE KNOWLEDGE BASE ---
-def load_syllabus_schedule():
-    """
-    Loads and compiles the official 12-week Mamba MVP syllabus schedule
-    from src/data/syllabus.json (derived from Mamba_MVP_Official_Syllabus_Schedule (2).xlsx).
-    """
-    possible_paths = [
-        os.path.join(os.path.dirname(__file__), "src", "data", "syllabus.json"),
-        os.path.join(os.getcwd(), "src", "data", "syllabus.json"),
-        r"D:\venture_dashboard\src\data\syllabus.json"
-    ]
-    syllabus_data = None
-    for p in possible_paths:
-        if os.path.exists(p):
-            try:
-                with open(p, "r", encoding="utf-8") as f:
-                    syllabus_data = json.load(f)
-                break
-            except Exception:
-                pass
-                
-    if not syllabus_data:
-        return "Syllabus schedule data currently offline."
-
-    schedule_items = syllabus_data.get("Mamba_MVP_Official_Syllabus_Sch", [])
-    lines = ["OFFICIAL MAMBA MVP 12-WEEK SYLLABUS & SCHEDULE (Oct 5 - Dec 25, 2026):"]
-    current_week = None
-    for item in schedule_items:
-        week = item.get("Week")
-        date_str = str(item.get("Date", ""))[:10]
-        day = item.get("Day", "")
-        phase = item.get("Sprint Phase", "")
-        module = item.get("Module / Tactical Focus", "")
-        deliverable = item.get("Weekly Deliverable / Milestone")
-        owner = item.get("Owner / Lead", "")
-        
-        if week != current_week:
-            current_week = week
-            lines.append(f"\n[{week} - {phase}]")
-        
-        desc = f"- {day} ({date_str}): {module} (Lead: {owner})"
-        if deliverable:
-            desc += f" -> [MILESTONE GATE: {deliverable}]"
-        lines.append(desc)
-        
-    return "\n".join(lines)
-
-SYLLABUS_SCHEDULE_CONTEXT = load_syllabus_schedule()
-
-# --- SYSTEM PROMPT & RESOURCES ---
-CYBRDECK_SYSTEM_PROMPT = f"""
-You are MVP_buddy, the Autonomous Chief of Staff for Cybrdeck (Eve Count Pte. Ltd.) and the Mamba MVP Program, created by Gwen Lim and Ben Lim.
-As Chief of Staff, you operate with executive leverage: you maintain high-level operational clarity across all founders and cohorts, coordinate between the human leadership team (James Sun [Program Lead], Gwen Lim & Ben Lim [Cybrdeck Tech & Product], Arthur Andre Pandaan [Project Coordinator]), and ruthlessly protect Gwen and Ben's engineering hours from premature building.
-You carry Gwen Lim's exact personality: razor-sharp, slightly snarky, witty, high-agency, and completely allergic to corporate fluff or founder excuses.
-You despise vanity metrics, over-engineered architectures, and building before validating customer demand.
-You enforce the Pre-Build Demand Validation Protocol with brutal honesty and dry wit.
-If founders ask what "WoZ" or "Wizard of Oz" means, explain it with brutal clarity: It means the front-end looks like a functioning product, but behind the curtain the founder does all the work manually by hand (like Zappos founder buying shoes at retail or DoorDash delivering in their own car). Remind them that Matthew's job in SharedOut is to coordinate condo tool rentals manually via chat before building software. Tell them to prove customer willingness to pay manually before burning engineering hours.
-When founders or mentors speak to you, act like an elite Chief of Staff: deeply strategic, candid, assertive, and completely focused on revenue and demand signals.
-If someone asks off-topic or philosophical questions, roast them affectionately with a venture twist (e.g. "The meaning of life is finding customers who will actually pay before you burn Gwen and Ben's engineering hours on a backend you don't need.").
-
-You have full, authoritative knowledge of the entire Mamba MVP 12-Week Syllabus and Schedule below (from Mamba_MVP_Official_Syllabus_Schedule). If a founder asks about deadlines, weekly deliverables, Wednesday anchor office hours, or milestone gates, cite the exact week, dates, and requirements with zero hesitation:
-
-{SYLLABUS_SCHEDULE_CONTEXT}
+"""
+Venture Studio OS: Autonomous Slack Bot & Pulse Engine
+Ingests founder voice notes & transcripts, maps deliverables, posts Block Kit confirmations,
+commits to Supabase Realtime, and proactively chases 48h blockers.
 """
 
-def query_supabase_knowledge(query_text: str, limit: int = 2) -> str:
-    """
-    Retrieves relevant workplace documents and founder history from Supabase.
-    """
-    if not supabase:
-        return ""
-    try:
-        res = supabase.table("knowledge_documents").select("title, category, content").limit(limit).execute()
-        rows = res.data or []
-        if not rows:
-            return ""
-        snippets = ["--- RELEVANT STUDIO DOCUMENTS & MEMORY (SUPABASE) ---"]
-        for row in rows:
-            snippets.append(f"[{row['title']} - {row['category']}]:\n{row['content'][:800]}")
-        return "\n\n".join(snippets)
-    except Exception as e:
-        print(f"Supabase knowledge query error: {e}")
-        return ""
+import os
+import hmac
+import re
+import secrets
+import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+import json
+from urllib.parse import quote
+from datetime import datetime, timedelta, timezone
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
-def process_with_qwen(text):
-    """
-    Real API Call to Qwen (via OpenAI compatible endpoint).
-    Injects the CYBRDECK_SYSTEM_PROMPT, Supabase workplace documents, and generates structured data + an executive reply.
-    """
-    if not qwen_client:
-        print("No QWEN_API_KEY found, falling back to simulated logic...")
-        return {
-            "status": "In progress",
-            "stream": "Tech (Cybrdeck)",
-            "progress": 50,
-            "digest": f"Simulated digest (No API Key): {text[:60]}...",
-            "blocker": "Missing Qwen API Key.",
-            "reply": "Missing API Key, but nice try. Tell Gwen to check .env."
-        }
-        
-    print(f"Sending context to Qwen LLM...")
-    
-    knowledge_context = query_supabase_knowledge(text)
-    
-    prompt = f"""
-    {CYBRDECK_SYSTEM_PROMPT}
-    
-    {knowledge_context}
-    
-    You are reading a message from leadership (Gwen, Ben, James) or a founder. Analyze the text and output EXACTLY this JSON structure:
-    {{
-      "status": "Blocked" or "In progress" or "Complete",
-      "stream": "Tech (Cybrdeck)" or "GTM",
-      "blocker": "A short 1-sentence description of what they are stuck on (or 'None')",
-      "digest": "A 1-sentence summary of progress and what the human mentors should do next",
-      "action_relay": {{
-        "has_cross_party_task": true or false,
-        "target": "gwen-ben" or "james" or "arthur" or "matthew" or "takshma" or null,
-        "directive": "Exact message to send to the counterparty telling them what to get done so the sender never has to ask or chase anyone."
-      }},
-      "reply": "Your executive response as Chief of Staff. CRITICAL RULE: If asked to break down tasks, draft messages, or create plans, DO NOT just give commentary or tell the user to do it. ACTUALLY EXECUTE: output the complete, numbered task checklist with clear deliverables, and write out the exact draft message ready to send. Keep Gwen's sharp, high-agency, zero-fluff tone."
-    }}
-    
-    Founder Transcript / Message:
-    {text}
-    """
-    
+try:
+    from slack_bolt import App
+    from slack_bolt.adapter.socket_mode import SocketModeHandler
+except ImportError:
+    App = None
+    SocketModeHandler = None
+
+# Optional dependencies with graceful fallbacks
+try:
+    from supabase import create_client, Client
+except ImportError:
+    Client = None
+    create_client = None
+
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
+
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+except ImportError:
+    BackgroundScheduler = None
+
+# Load environment configuration
+try:
+    if "load_dotenv" in globals() and callable(load_dotenv):
+        load_dotenv()
+except Exception:
+    pass
+
+SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN")
+SLACK_APP_TOKEN = os.environ.get("SLACK_APP_TOKEN")
+SUPABASE_URL = os.environ.get("VITE_SUPABASE_URL") or os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY")
+# Optional shared secret founders must enter when self-onboarding (leave unset to disable the check)
+ONBOARDING_CODE = os.environ.get("ONBOARDING_CODE")
+# Secret code mentors enter in the profile form to verify they are mentors (share only with the studio team)
+MENTOR_CODE = os.environ.get("MENTOR_CODE")
+# Work-signal integrations: signed connect links + the GitHub App's slug
+STATE_SECRET = os.environ.get("STATE_SECRET")
+GITHUB_APP_SLUG = os.environ.get("GITHUB_APP_SLUG")
+# Public URL of the deployed dashboard; enables "Open dashboard" buttons in Slack
+DASHBOARD_URL = os.environ.get("DASHBOARD_URL")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+QWEN_API_KEY = os.environ.get("QWEN_API_KEY") or os.environ.get("OPENAI_API_KEY")
+# Gemini is used when GEMINI_API_KEY is set (via Google's OpenAI-compatible endpoint); otherwise Qwen/OpenAI.
+AI_API_KEY = GEMINI_API_KEY or QWEN_API_KEY
+AI_BASE_URL = (
+    os.environ.get("AI_BASE_URL")
+    or os.environ.get("QWEN_BASE_URL")
+    or (
+        "https://generativelanguage.googleapis.com/v1beta/openai/"
+        if GEMINI_API_KEY
+        else "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    )
+)
+AI_MODEL = os.environ.get("AI_MODEL") or ("gemini-3.8-flash" if GEMINI_API_KEY else "qwen-plus")
+
+# Initialize AI Client
+ai_client = (
+    OpenAI(api_key=AI_API_KEY, base_url=AI_BASE_URL)
+    if (OpenAI and AI_API_KEY)
+    else None
+)
+
+# Initialize Supabase Client
+supabase: Client = (
+    create_client(SUPABASE_URL, SUPABASE_KEY)
+    if (create_client and SUPABASE_URL and SUPABASE_KEY)
+    else None
+)
+
+from mentor_home import build_mentor_blocks as mentor_blocks, summarize_startups
+import threading
+
+import github_app
+import integrations
+from profile_rules import match_person, looks_like_email, norm_name
+from daily_checkin import send_daily_prompts, send_nudges
+from bot_agent import Agent
+from bot_memory import Memory
+
+# Persistent memory + conversational agent (needs both an LLM and the database)
+memory = Memory(supabase)
+gh = github_app.GitHubApp.from_env()  # None until GITHUB_APP_ID + a private key are configured
+
+
+def refresh_repos(row: dict) -> dict:
+    """Re-reads the granted repos from GitHub itself (no webhook or founder action needed)."""
+    if not gh:
+        return row
     try:
-        response = qwen_client.chat.completions.create(
-            model="qwen-max",
+        repos = gh.list_repos(row["external_id"])
+        account = row.get("account") or gh.account(row["external_id"])
+        supabase.table("integrations").update({"repos": repos, "account": account}).eq("id", row["id"]).execute()
+        return {**row, "repos": repos, "account": account}
+    except Exception as e:
+        print(f"[GitHub Refresh Warning] {e}")
+        return row
+
+
+_backfill_timers: dict = {}
+
+
+def backfill_soon(row: dict, slack_id: str | None, delay: float = 6.0):
+    """Waits for the founder to finish picking (each pick restarts the timer), then backfills once."""
+    previous = _backfill_timers.pop(row["id"], None)
+    if previous:
+        previous.cancel()
+    timer = threading.Timer(delay, backfill_in_background, args=(row, slack_id))
+    timer.daemon = True
+    _backfill_timers[row["id"]] = timer
+    timer.start()
+
+
+def backfill_in_background(row: dict, slack_id: str | None):
+    """Pulls the last two weeks of activity for the monitored repos, then tells the founder."""
+    if not gh:
+        return
+
+    def run():
+        try:
+            n = github_app.backfill_signals(gh, supabase, row)
+            if slack_id:
+                app.client.chat_postMessage(channel=slack_id, text=(
+                    f"📈 I pulled in {n} recent activity item{'s' if n != 1 else ''} from the last 14 days, so your timeline isn't empty."
+                    if n else "📈 I checked the last 14 days and found no commits or merged pull requests in those repos."))
+        except Exception as e:
+            print(f"[GitHub Backfill Error] {e}")
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+def github_link(founder_id: str, startup_id: str) -> str | None:
+    return integrations.github_connect_url(GITHUB_APP_SLUG, STATE_SECRET, founder_id, startup_id)
+
+
+agent = Agent(ai_client, AI_MODEL, supabase, memory, connect_url=github_link) if (ai_client and supabase) else None
+
+# Initialize Slack Bolt App
+app = None
+if App:
+    app = App(token=SLACK_BOT_TOKEN) if SLACK_BOT_TOKEN else App(token="xoxb-placeholder")
+else:
+    class DummyApp:
+        def message(self, *args, **kwargs):
+            return lambda f: f
+        def event(self, *args, **kwargs):
+            return lambda f: f
+        def action(self, *args, **kwargs):
+            return lambda f: f
+        def view(self, *args, **kwargs):
+            return lambda f: f
+    app = DummyApp()
+
+# Fallback in-memory roster & syllabus for offline/dry-run execution
+OFFLINE_ROSTER = {
+    "U_NEXUS_LEAD": {
+        "founder_id": "demo-founder-01",
+        "name": "Demo Founder A",
+        "startup_id": "startup-auvira",
+        "startup_name": "Auvira",
+        "stream": "GTM",
+        "lead": "GTM Venture Advisor"
+    },
+    "U_VITALS_LEAD": {
+        "founder_id": "demo-founder-02",
+        "name": "Demo Founder B",
+        "startup_id": "startup-sharedout",
+        "startup_name": "SharedOut",
+        "stream": "Tech",
+        "lead": "Technical Advisor"
+    }
+}
+
+DEFAULT_DELIVERABLE = {
+    "id": "del-wk01",
+    "week": "WK 01",
+    "title": "1-page venture thesis & Top 10 assumptions ranked",
+    "due_date": "Friday 18:00 SGT",
+    "sprint_phase": "Sprint 1: Problem, Founder Thesis & Opportunity"
+}
+
+# --- SYSTEM PROMPT ---
+SYSTEM_PROMPT = """
+You are MVP_buddy, the autonomous venture studio AI mentor.
+Your role is to extract structured, actionable milestone progress from unstructured founder messages,
+voice note transcripts, and meeting summaries.
+
+Rules:
+1. Always evaluate the update in the context of the team's ACTIVE DELIVERABLE.
+2. Determine realistic percentage progress (0 to 100).
+3. If the founder mentions something impeding progress, flag status as 'Blocked' and articulate the blocker concisely.
+4. If on schedule with no blockers, status is 'In progress' or 'On Track'.
+5. If the deliverable is finished, status is 'Completed' with 100% progress.
+6. Return STRICT JSON with no markdown wrapping.
+"""
+
+def resolve_founder_context(slack_user_id: str) -> dict:
+    """
+    Maps Slack User ID to their Startup, Founder profile, and current active deliverable.
+    """
+    if supabase:
+        try:
+            res = (
+                supabase.table("founders")
+                .select("*, startups(*)")
+                .eq("slack_user_id", slack_user_id)
+                .execute()
+            )
+            if res.data:
+                founder = res.data[0]
+                startup = founder.get("startups", {})
+                del_res = (
+                    supabase.table("deliverables")
+                    .select("*")
+                    .gte("due_date", datetime.now(timezone.utc).isoformat())
+                    .order("due_date")
+                    .limit(1)
+                    .execute()
+                )
+                active_del = del_res.data[0] if del_res.data else DEFAULT_DELIVERABLE
+                return {
+                    "founder_id": founder.get("id"),
+                    "name": founder.get("name"),
+                    "startup_id": startup.get("id"),
+                    "startup_name": startup.get("name"),
+                    "stream": startup.get("stream", "General"),
+                    "lead": startup.get("lead", "Studio Lead"),
+                    "deliverable": active_del,
+                }
+        except Exception as e:
+            print(f"[Lookup Warning] Supabase lookup failed: {e}. Falling back to roster.")
+
+    # Fallback lookup
+    roster_entry = OFFLINE_ROSTER.get(
+        slack_user_id,
+        {
+            "founder_id": f"founder-{slack_user_id[:6]}",
+            "name": f"Founder ({slack_user_id})",
+            "startup_id": "startup-general",
+            "startup_name": "Demo Venture",
+            "stream": "Tech",
+            "lead": "Studio Lead",
+        },
+    )
+    roster_entry["deliverable"] = DEFAULT_DELIVERABLE
+    return roster_entry
+
+
+def extract_update_with_ai(text: str, context: dict) -> dict:
+    """
+    Sends the transcript and milestone context to the LLM for structured extraction.
+    """
+    deliverable = context["deliverable"]
+    prompt = f"""
+{SYSTEM_PROMPT}
+
+Team: {context['startup_name']} ({context['name']})
+Stream: {context['stream']}
+Current Active Deliverable: {deliverable['week']} - {deliverable['title']} (Sprint: {deliverable['sprint_phase']})
+
+Founder Message / Transcript:
+"{text}"
+
+Output JSON format:
+{{
+  "status": "In progress" | "Blocked" | "On Track" | "Completed",
+  "progress": 0 to 100,
+  "stream": "{context['stream']}",
+  "blocker": "1-sentence blocker description or 'None'",
+  "digest": "1-2 sentence executive summary of what was accomplished and next step"
+}}
+"""
+    if not ai_client:
+        # High-fidelity heuristic fallback when running without LLM API key
+        is_blocked = any(w in text.lower() for w in ["stuck", "blocked", "bug", "failing", "cannot", "issue", "problem"])
+        is_complete = any(w in text.lower() for w in ["finished", "done", "completed", "submitted", "ready"])
+        return {
+            "status": "Blocked" if is_blocked else ("Completed" if is_complete else "In progress"),
+            "progress": 100 if is_complete else (35 if is_blocked else 75),
+            "stream": context["stream"],
+            "blocker": "Reported issue in recent update" if is_blocked else "None",
+            "digest": f"Analyzed update: {text[:100]}...",
+        }
+
+    try:
+        response = ai_client.chat.completions.create(
+            model=AI_MODEL,
             messages=[
                 {"role": "system", "content": "You are a JSON-only API. Only output valid JSON."},
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": prompt},
             ],
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            temperature=0.2,
         )
-        result = json.loads(response.choices[0].message.content)
+        data = json.loads(response.choices[0].message.content)
         return {
-            "status": result.get("status", "In progress"),
-            "stream": result.get("stream", "Tech (Cybrdeck)"),
-            "progress": 50,
-            "digest": result.get("digest", "Processed by Qwen."),
-            "blocker": result.get("blocker", "None"),
-            "action_relay": result.get("action_relay", {}),
-            "reply": result.get("reply", "Telemetry logged. Now go talk to actual paying customers.")
+            "status": data.get("status", "In progress"),
+            "progress": int(data.get("progress", 50)),
+            "stream": data.get("stream", context["stream"]),
+            "blocker": data.get("blocker", "None"),
+            "digest": data.get("digest", "Progress recorded."),
         }
     except Exception as e:
-        print(f"Qwen API error: {e}")
-        cleaned_msg = text.strip()
-        
-        # Check if the query is asking about the schedule/deliverable/team
-        schedule_reply = check_schedule_query(cleaned_msg)
-        if schedule_reply:
-            snarky_fallback = schedule_reply
-        else:
-            snarky_fallback = (
-                f"Logged your check-in: \"{cleaned_msg}\". "
-                "Telemetry is minted in the studio ledger. Pre-build demand validation is active—"
-                "make sure you are validating real customer willingness to pay before writing new code."
-            )
+        print(f"[LLM Extraction Error]: {e}")
         return {
             "status": "In progress",
-            "stream": "Tech (Cybrdeck)",
-            "progress": 75,
-            "digest": f"Founder check-in: {cleaned_msg[:80]}",
+            "progress": 50,
+            "stream": context["stream"],
             "blocker": "None",
-            "reply": snarky_fallback
+            "digest": f"Transcript received: {text[:80]}",
         }
 
-def check_schedule_query(query: str):
-    """
-    Deterministically answers questions regarding the schedule, team directory,
-    and studio methodology so the bot is resolute even without an external LLM.
-    """
-    q = query.lower()
-    
-    # 1. Team & Identity Queries
-    if "gwen" in q:
-        return (
-            "Gwen Lim is the Co-Founder of Cybrdeck (Eve Count Pte. Ltd.) and Technical Architecture Lead for the Mamba MVP Program. "
-            "She builds quantum algorithms, designs studio systems, and enforces ruthless Pre-Build Demand Validation—making sure founders validate real customer willingness to pay before burning engineering hours."
-        )
-    elif "ben" in q:
-        return (
-            "Ben Lim is the Co-Founder of Cybrdeck alongside Gwen, leading systems engineering, cloud architecture, and automation infrastructure."
-        )
-    elif "james" in q:
-        return (
-            "James Sun is the Program Lead at Mamba Partners, steering the 12-week MVP Program, commercial milestones, and investment evaluation gates."
-        )
-    elif "arthur" in q:
-        return (
-            "Arthur Andre Pandaan is the Project Coordinator at Mamba Partners, managing cohort operations, scheduling, submissions, and founder logistics."
-        )
-    elif "matthew" in q:
-        return (
-            "Matthew Lee (Cohort 1) is building SharedOut—a hyper-local P2P household utility & hardware rental network. "
-            "He has 60-70 registered sign-ups, but as his Marketing & Technical Lead, your mandate is to enforce the Wizard of Oz (WoZ) strategy: "
-            "do NOT build bespoke backend features until he proves actual paid rental transaction velocity in a localized condo/neighborhood cluster. "
-            "His Week 2 deliverable due this Friday (Oct 16) is the Selected Concept, Value Prop & Sprint 1 Evidence Pack."
-        )
-    elif "takshma" in q:
-        return (
-            "Takshma Patel (Cohort 1) is building WearMAInd. Her mandate is validating pre-build demand signals, ranking her top 10 assumptions, and locking her Sprint 1 Evidence Pack for Friday Oct 16."
-        )
-    elif "cybrdeck" in q or "eve count" in q:
-        return (
-            "Cybrdeck (Eve Count Pte. Ltd.) is the venture studio and technical engineering partner for the Mamba MVP Program, founded by Gwen Lim and Ben Lim."
-        )
-    elif "mamba" in q:
-        return (
-            "Mamba Partners runs the 12-week MVP Track (Oct 5 – Dec 25, 2026), accelerating early-stage founders through 6 agile sprints from initial thesis to validated MVP demo."
-        )
-    elif any(k in q for k in ["woz", "wizard of oz", "wizard-of-oz"]):
-        return (
-            "*Wizard of Oz (WoZ)* is Cybrdeck's core Pre-Build Demand Validation protocol.\n\n"
-            "It means the front-end *looks* like an automated app to the customer, but *behind the curtain, you do all the work manually by hand*.\n\n"
-            "• *Why we enforce it*: It stops founders from burning 200 hours of engineering hours building an app nobody wants.\n"
-            "• *Classic Example*: Zappos started with founder Nick Swinmurn taking photos of shoes at local shoe stores. When an order came in, he bought the shoes at retail and mailed them himself.\n"
-            "• *How to do it this sprint*: If you're building a rental or service app (like SharedOut), set up a simple Google Form or WhatsApp group in *one* localized cluster. Coordinate the transaction manually. Once customers are actually handing over cash, *then* we build the software."
-        )
 
-    # 2. Schedule & Deliverable Queries
-    if any(k in q for k in ["schedule", "syllabus", "due", "deliverable", "milestone", "week", "wk"]):
-        match = re.search(r"(?:week|wk)\s*(\d{1,2})", q)
-        if match:
-            wk_num = int(match.group(1))
-            wk_tag = f"WK {wk_num:02d}"
-            possible_paths = [
-                os.path.join(os.path.dirname(__file__), "src", "data", "syllabus.json"),
-                os.path.join(os.getcwd(), "src", "data", "syllabus.json"),
-                r"D:\venture_dashboard\src\data\syllabus.json"
-            ]
-            for p in possible_paths:
-                if os.path.exists(p):
-                    try:
-                        with open(p, "r", encoding="utf-8") as f:
-                            data = json.load(f)
-                        items = [item for item in data.get("Mamba_MVP_Official_Syllabus_Sch", []) if item.get("Week") == wk_tag]
-                        if items:
-                            fri = next((item for item in items if item.get("Day") == "Fri"), items[-1])
-                            wed = next((item for item in items if item.get("Day") == "Wed"), None)
-                            milestone = fri.get("Weekly Deliverable / Milestone") or "Weekly Review"
-                            wed_info = f"\n- Wed ({str(wed.get('Date'))[:10]}): {wed.get('Module / Tactical Focus')}" if wed else ""
-                            return (
-                                f"Here is the official schedule for {wk_tag} ({items[0].get('Sprint Phase')}):\n"
-                                f"- Mon ({str(items[0].get('Date'))[:10]}): {items[0].get('Module / Tactical Focus')}"
-                                f"{wed_info}\n"
-                                f"- Fri ({str(fri.get('Date'))[:10]}): [MILESTONE GATE] -> {milestone}\n\n"
-                                f"Pre-build demand validation is non-negotiable. Don't build until assumptions are locked."
-                            )
-                    except Exception:
-                        pass
-        elif "office hour" in q or "anchor" in q:
-            return (
-                "Office Hours (The Anchor) are held every Wednesday with the Mamba Program Lead for dashboard review, block removal, and decision locking."
-            )
-        elif "schedule" in q or "syllabus" in q:
-            return (
-                "The Mamba MVP Program runs 12 weeks across 6 sprints (Oct 5 – Dec 25, 2026). "
-                "Ask me about any specific week (e.g. 'What is due in Week 2?' or 'Week 8 gate') and I'll pull the exact tactical focus and Friday milestone deliverable."
-            )
-    return None
+def build_confirmation_card(context: dict, parsed: dict, raw_text: str) -> list:
+    """
+    Constructs an interactive Slack Block Kit confirmation card.
+    Founders verify the data before it commits to the dashboard ledger.
+    """
+    deliverable = context["deliverable"]
+    payload_to_store = {
+        "startup_id": context["startup_id"],
+        "founder_id": context["founder_id"],
+        "deliverable_id": deliverable.get("id", "del-wk01"),
+        "status": parsed["status"],
+        "progress": parsed["progress"],
+        "blocker": parsed["blocker"],
+        "digest": parsed["digest"],
+        "stream": parsed["stream"],
+        "raw_transcript": raw_text[:500],
+    }
 
-# --- LOCAL IMMUTABLE PERSISTENCE & PLAYBOOK LEDGER ---
-def log_conversation_locally(user_id: str, prompt: str, reply: str, metadata: dict = None):
-    """
-    Saves an immutable append-only JSONL record of every conversation to the local Linode disk.
-    """
-    try:
-        log_dir = os.path.join(os.path.dirname(__file__), "logs")
-        os.makedirs(log_dir, exist_ok=True)
-        log_file = os.path.join(log_dir, "conversations.jsonl")
-        
-        entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "user_id": user_id,
-            "prompt": prompt,
-            "reply": reply,
-            "status": (metadata or {}).get("status", "In progress"),
-            "stream": (metadata or {}).get("stream", "Tech (Cybrdeck)"),
-            "blocker": (metadata or {}).get("blocker", "None"),
-            "digest": (metadata or {}).get("digest", "")
-        }
-        with open(log_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        print(f"Logged conversation to local Linode disk ({log_file})")
-    except Exception as e:
-        print(f"Local disk logging error: {e}")
+    status_emoji = "🔴" if parsed["status"] == "Blocked" else ("🟢" if parsed["status"] == "Completed" else "🟡")
 
-def get_executed_playbooks():
-    """
-    Reads the history of fired playbooks to prevent double-firing in a given time window.
-    """
-    log_dir = os.path.join(os.path.dirname(__file__), "logs")
-    ledger_path = os.path.join(log_dir, "playbook_executions.json")
-    if os.path.exists(ledger_path):
-        try:
-            with open(ledger_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
-
-def mark_playbook_executed(playbook_key: str):
-    """
-    Marks a playbook as executed for the date.
-    """
-    try:
-        log_dir = os.path.join(os.path.dirname(__file__), "logs")
-        os.makedirs(log_dir, exist_ok=True)
-        ledger_path = os.path.join(log_dir, "playbook_executions.json")
-        history = get_executed_playbooks()
-        history[playbook_key] = datetime.utcnow().isoformat() + "Z"
-        with open(ledger_path, "w", encoding="utf-8") as f:
-            json.dump(history, f, indent=2)
-    except Exception as e:
-        print(f"Error marking playbook execution: {e}")
-
-# --- ACCOUNTABILITY & TASK AGING LEDGER ---
-def get_task_ledger():
-    """
-    Reads the persistent task ledger tracking who didn't do what and for how long.
-    """
-    log_dir = os.path.join(os.path.dirname(__file__), "logs")
-    ledger_path = os.path.join(log_dir, "task_accountability_ledger.json")
-    if os.path.exists(ledger_path):
-        try:
-            with open(ledger_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-            
-    # Default seed tasks for current cohort sprint
-    default_tasks = [
+    blocks = [
         {
-            "id": "task_matthew_1",
-            "assignee": "Matthew Lee",
-            "venture": "SharedOut",
-            "task": "Set up manual Wizard of Oz (WoZ) rental flow in 1 condo cluster (No backend code)",
-            "assigned_at": "2026-10-11T09:00:00Z",
-            "due_at": "2026-10-14T17:00:00Z",
-            "status": "pending"
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": "🎯 Dashboard Check-In Preview",
+                "emoji": True,
+            },
         },
         {
-            "id": "task_matthew_2",
-            "assignee": "Matthew Lee",
-            "venture": "SharedOut",
-            "task": "Capture first 3 paid rental transactions or verified customer deposits",
-            "assigned_at": "2026-10-11T09:00:00Z",
-            "due_at": "2026-10-15T17:00:00Z",
-            "status": "pending"
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"Hey *{context['name']}* ({context['startup_name']}), I've prepared your update for the Venture Command Center.",
+            },
         },
         {
-            "id": "task_matthew_3",
-            "assignee": "Matthew Lee",
-            "venture": "SharedOut",
-            "task": "Submit Selected Concept, Value Prop & Sprint 1 Evidence Pack",
-            "assigned_at": "2026-10-11T09:00:00Z",
-            "due_at": "2026-10-16T17:00:00Z",
-            "status": "pending"
+            "type": "section",
+            "fields": [
+                {"type": "mrkdwn", "text": f"*Deliverable:*\n{deliverable['week']} · {deliverable['title']}"},
+                {"type": "mrkdwn", "text": f"*Status:*\n{status_emoji} {parsed['status']} ({parsed['progress']}%)"},
+                {"type": "mrkdwn", "text": f"*Workstream:*\n{parsed['stream']} · Lead: {context['lead']}"},
+                {"type": "mrkdwn", "text": f"*Blocker Flag:*\n{parsed['blocker']}"},
+            ],
         },
         {
-            "id": "task_takshma_1",
-            "assignee": "Takshma Patel",
-            "venture": "WearMAInd",
-            "task": "Rank Top 10 Critical Assumptions for WearMAInd",
-            "assigned_at": "2026-10-11T09:00:00Z",
-            "due_at": "2026-10-12T17:00:00Z",
-            "status": "pending"
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*AI Synthesis for Mentors:*\n> _{parsed['digest']}_",
+            },
         },
         {
-            "id": "task_takshma_2",
-            "assignee": "Takshma Patel",
-            "venture": "WearMAInd",
-            "task": "Complete 5 problem-validation discovery interviews with target users",
-            "assigned_at": "2026-10-11T09:00:00Z",
-            "due_at": "2026-10-14T17:00:00Z",
-            "status": "pending"
+            "type": "actions",
+            "block_id": "confirmation_actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "✅ Confirm & Sync Dashboard", "emoji": True},
+                    "style": "primary",
+                    "action_id": "confirm_checkin",
+                    "value": json.dumps(payload_to_store),
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "✏️ Adjust Details", "emoji": True},
+                    "action_id": "edit_checkin",
+                    "value": json.dumps(payload_to_store),
+                },
+            ],
         },
-        {
-            "id": "task_arthur_1",
-            "assignee": "Arthur Andre Pandaan",
-            "venture": "Mamba Operations",
-            "task": "Confirm calendar invite & Zoom room for Wednesday 2 PM Office Hours with James Sun",
-            "assigned_at": "2026-10-12T09:00:00Z",
-            "due_at": "2026-10-13T12:00:00Z",
-            "status": "pending"
-        }
     ]
-    save_task_ledger(default_tasks)
-    return default_tasks
+    return blocks
 
-def save_task_ledger(tasks):
+
+
+# --- SELF-ONBOARDING ---
+
+def get_role(slack_user_id: str) -> str | None:
+    """
+    Deterministic role lookup from the database (never guessed by the LLM):
+    'mentor' (mentors table), 'founder' (founders table) or None (unknown).
+    Offline / DB failure fails open to 'founder' so nobody is locked out.
+    """
+    if not supabase:
+        return "founder"
     try:
-        log_dir = os.path.join(os.path.dirname(__file__), "logs")
-        os.makedirs(log_dir, exist_ok=True)
-        ledger_path = os.path.join(log_dir, "task_accountability_ledger.json")
-        with open(ledger_path, "w", encoding="utf-8") as f:
-            json.dump(tasks, f, indent=2)
+        res = supabase.table("mentors").select("id").eq("slack_user_id", slack_user_id).limit(1).execute()
+        if res.data:
+            return "mentor"
     except Exception as e:
-        print(f"Error saving task ledger: {e}")
+        print(f"[Role Warning] Mentor lookup failed (is the mentors table created?): {e}")
+    try:
+        res = supabase.table("founders").select("id").eq("slack_user_id", slack_user_id).limit(1).execute()
+        return "founder" if res.data else None
+    except Exception as e:
+        print(f"[Role Warning] Roster lookup failed: {e}")
+        return "founder"
 
-def generate_task_aging_report() -> str:
-    """
-    Computes exactly who didn't do what, and how long each task has been pending or overdue.
-    Gwen never has to ask twice.
-    """
-    tasks = get_task_ledger()
-    now = datetime.now(timezone.utc)
-    
-    overdue_items = []
-    pending_items = []
-    
-    for t in tasks:
-        if t.get("status") == "completed":
-            continue
-            
-        assignee = t.get("assignee", "Unknown")
-        venture = f" ({t.get('venture')})" if t.get("venture") else ""
-        task_desc = t.get("task", "")
-        
-        assigned_dt = datetime.fromisoformat(t.get("assigned_at").replace("Z", "+00:00"))
-        due_dt = datetime.fromisoformat(t.get("due_at").replace("Z", "+00:00"))
-        
-        hours_pending = int((now - assigned_dt).total_seconds() / 3600)
-        
-        if now > due_dt:
-            hours_overdue = int((now - due_dt).total_seconds() / 3600)
-            overdue_items.append(
-                f"• *{assignee}*{venture}: \"{task_desc}\"\n"
-                f"  └ 🚨 *OVERDUE by {hours_overdue} hours* (Assigned {hours_pending}h ago)"
-            )
-        else:
-            hours_remaining = int((due_dt - now).total_seconds() / 3600)
-            pending_items.append(
-                f"• *{assignee}*{venture}: \"{task_desc}\"\n"
-                f"  └ ⏳ *Pending for {hours_pending} hours* (Due in {hours_remaining} hours)"
-            )
-            
-    lines = [
-        "📋 *Executive Accountability & Aging Ledger*",
-        "_Tracking who didn't do what and exactly how long it's been sitting undone._\n"
+
+def is_registered(slack_user_id: str) -> bool:
+    return get_role(slack_user_id) is not None
+
+
+def cohort_overview() -> list:
+    """Per-startup health summaries (see mentor_home.summarize_startups)."""
+    if not supabase:
+        return []
+    startups = supabase.table("startups").select("id,name,stream,lead").execute().data or []
+    founders = supabase.table("founders").select("name,startup_id").execute().data or []
+    subs = (
+        supabase.table("submissions")
+        .select("startup_id,founder_id,status,progress,blocker,digest,created_at")
+        .eq("confirmed", True).order("created_at", desc=True).limit(300).execute().data or []
+    )
+    summaries = summarize_startups(startups, founders, subs)
+    for sm in summaries:
+        conn = integrations.connections(supabase, sm["id"])
+        sm["work"] = integrations.activity_line(integrations.activity_summary(supabase, sm["id"]), "github" in conn)
+    return summaries
+
+
+def safe_snapshot() -> list:
+    try:
+        return cohort_overview()
+    except Exception as e:
+        print(f"[Snapshot Error] {e}")
+        return []
+
+
+def build_mentor_blocks(summaries: list, title: str = "Cohort pulse", tasks: list | None = None) -> list:
+    return mentor_blocks(summaries, tasks=tasks, title=title, footer=dashboard_button_blocks())
+
+
+def link_mentor_by_email(slack_user_id: str, email: str):
+    """Links a pre-registered mentor to their Slack account by profile email. Returns the mentor row or None."""
+    if not (supabase and email):
+        return None
+    try:
+        res = (
+            supabase.table("mentors").select("*")
+            .ilike("email", email.strip()).is_("slack_user_id", "null").limit(1).execute()
+        )
+        if not res.data:
+            return None
+        mentor = res.data[0]
+        supabase.table("mentors").update({"slack_user_id": slack_user_id}).eq("id", mentor["id"]).execute()
+        return mentor
+    except Exception as e:
+        print(f"[Onboarding Warning] Mentor link failed: {e}")
+        return None
+
+
+def build_onboarding_card() -> list:
+    return [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    "👋 Welcome to the cohort! I don't have your profile yet. Set it up (it takes 20 seconds) "
+                    "and then you can check in just by messaging me."
+                ),
+            },
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "text": {"type": "plain_text", "text": "Set up my profile"},
+                    "action_id": "start_onboarding",
+                    "value": "onboard",
+                }
+            ],
+        },
     ]
-    
-    if overdue_items:
-        lines.append("*🚨 CRITICAL BOTTLENECKS (OVERDUE):*")
-        lines.extend(overdue_items)
-        lines.append("")
-        
-    if pending_items:
-        lines.append("*⏳ ACTIVE PENDING TASKS (ON THE CLOCK):*")
-        lines.extend(pending_items)
-        lines.append("")
-        
-    lines.append("*Chief of Staff Protocol:* You never have to ask twice. I am actively tracking their deadlines and will escalate non-delivery directly into Friday's Gatekeeper review.")
-    
-    return "\n".join(lines)
 
-# --- SLACK FORMATTER ---
-def format_for_slack(text: str) -> str:
-    """
-    Cleans and formats text specifically for Slack:
-    - Converts literal '\\n' and '\\r' to real newlines.
-    - Strips JSON escape artifacts (escaped quotes, stray trailing backslashes).
-    - Converts standard Markdown bold (**text**) to Slack bold (*text*).
-    - Converts Markdown headers (# Header) to Slack bold (*Header*).
-    - Normalizes paragraph spacing so messages are clean, crisp, and readable.
-    """
-    if not text:
-        return ""
-    # 1. Unescape literal \n and \r
-    text = text.replace("\\n", "\n").replace("\\r", "")
-    text = text.replace('\\"', '"')
-    
-    # 2. Convert standard markdown bold **text** to Slack *text*
-    text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)
-    
-    # 3. Convert markdown headers (#, ##, ###) to Slack bold *Header*
-    text = re.sub(r"^#{1,6}\s*(.+)$", r"*\1*", text, flags=re.MULTILINE)
-    
-    # 4. Strip stray trailing quotes or backslashes
-    text = re.sub(r'[\"\'\\]+$', '', text.strip())
-    
-    # 5. Normalize multi-newlines (max 2 consecutive newlines)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    
-    return text.strip()
 
-# --- OUTBOUND DISPATCH (DASHBOARD -> SLACK) ---
-def send_slack_message(channel: str, text: str, thread_ts: str = None) -> bool:
-    """
-    Sends an outbound message to a specified Slack channel or user DM.
-    """
-    cleaned_text = format_for_slack(text)
+def build_role_picker_modal() -> dict:
+    """Step 1: two buttons, so each person only ever sees the form meant for them."""
+    return {
+        "type": "modal",
+        "callback_id": "modal_role_picker",
+        "title": {"type": "plain_text", "text": "Set up your profile"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": [
+            {"type": "section", "text": {"type": "mrkdwn", "text": "*Welcome! Which one are you?*"}},
+            {"type": "actions", "elements": [
+                {"type": "button", "style": "primary", "text": {"type": "plain_text", "text": "I'm a Founder"}, "action_id": "pick_founder"},
+                {"type": "button", "text": {"type": "plain_text", "text": "I'm a Mentor / Advisor"}, "action_id": "pick_mentor"},
+            ]},
+        ],
+    }
 
-    if channel in ["gwen-ben", "gwen_ben", "@gwen_ben"]:
-        send_slack_message("D0C94PG2R24", cleaned_text, thread_ts)
-        send_slack_message("D0C74JVR813", cleaned_text, thread_ts)
+
+def _text_input(block_id: str, action_id: str, label: str, optional: bool = False, hint: str | None = None, **extra) -> dict:
+    block = {"type": "input", "block_id": block_id, "optional": optional,
+             "label": {"type": "plain_text", "text": label},
+             "element": {"type": "plain_text_input", "action_id": action_id, **extra}}
+    if hint:
+        block["hint"] = {"type": "plain_text", "text": hint}
+    return block
+
+
+def build_founder_modal(startups: list, need_email: bool, require_code: bool) -> dict:
+    blocks = [_text_input("name_input", "name_text", "Your full name", max_length=80)]
+    if need_email:
+        blocks.append(_text_input("email_input", "email_text", "Your email",
+                                  hint="Use the email you were invited with."))
+    if startups:
+        blocks.append({
+            "type": "input", "block_id": "startup_input", "optional": True,
+            "label": {"type": "plain_text", "text": "Joining an existing startup?"},
+            "element": {"type": "static_select", "action_id": "startup_select",
+                        "placeholder": {"type": "plain_text", "text": "Pick your startup"},
+                        "options": [{"text": {"type": "plain_text", "text": st["name"][:75]}, "value": st["id"]} for st in startups]},
+        })
+    blocks.append(_text_input("new_startup_input", "new_startup_text", "Or name a new startup", optional=True,
+                              hint="No name yet? Leave it blank, you can rename it later.", max_length=80))
+    if require_code:
+        blocks.append(_text_input("code_input", "code_text", "Cohort join code", optional=True))
+    return {
+        "type": "modal", "callback_id": "modal_onboarding_founder",
+        "title": {"type": "plain_text", "text": "Founder profile"},
+        "submit": {"type": "plain_text", "text": "Save profile"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": blocks,
+    }
+
+
+def build_mentor_modal(need_email: bool) -> dict:
+    blocks = [_text_input("name_input", "name_text", "Your full name", max_length=80)]
+    if need_email:
+        blocks.append(_text_input("email_input", "email_text", "Your email"))
+    blocks.append(_text_input("mentor_code_input", "mentor_code_text", "Mentor code",
+                              hint="Ask the Program Coordinator for the code."))
+    return {
+        "type": "modal", "callback_id": "modal_onboarding_mentor",
+        "title": {"type": "plain_text", "text": "Mentor / Advisor profile"},
+        "submit": {"type": "plain_text", "text": "Verify & save"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": blocks,
+    }
+
+
+def code_matches(supplied: str, expected: str | None) -> bool:
+    """Constant-time comparison; an unset expected code never matches."""
+    return bool(expected) and hmac.compare_digest(supplied.strip().encode(), expected.strip().encode())
+
+
+def slugify_startup_id(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    return f"startup-{slug}" if slug else f"startup-{secrets.token_hex(3)}"
+
+
+def create_startup(name: str) -> dict:
+    """Creates a startup in the newest cohort. Stream/lead stay 'Unassigned' until a mentor sets them."""
+    cohort = supabase.table("cohorts").select("id").order("created_at", desc=True).limit(1).execute().data
+    startup_id = slugify_startup_id(name)
+    if supabase.table("startups").select("id").eq("id", startup_id).execute().data:
+        startup_id = f"{startup_id}-{secrets.token_hex(2)}"
+    row = {
+        "id": startup_id,
+        "cohort_id": cohort[0]["id"] if cohort else None,
+        "name": name.strip(),
+        "stream": "Unassigned",
+        "lead": "Unassigned",
+    }
+    supabase.table("startups").insert(row).execute()
+    return row
+
+
+def register_founder(slack_user_id: str, name: str, startup_id: str, email: str = "") -> dict:
+    """Creates the founders row linking a Slack user to a startup. Raises on failure."""
+    row = {
+        "id": f"founder-{slack_user_id.lower()}",
+        "startup_id": startup_id,
+        "slack_user_id": slack_user_id,
+        "name": name.strip(),
+        "role": "Founder",
+    }
+    if email:
+        row["email"] = email.lower()
+    supabase.table("founders").insert(row).execute()
+    return row
+
+
+def link_by_email(slack_user_id: str, email: str):
+    """
+    Matches a Slack profile email to a pre-registered, not-yet-linked founder and links them.
+    Returns the founder row (with startup name) or None.
+    """
+    if not (supabase and email):
+        return None
+    try:
+        res = (
+            supabase.table("founders")
+            .select("*, startups(name)")
+            .ilike("email", email.strip())
+            .is_("slack_user_id", "null")
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            return None
+        founder = res.data[0]
+        supabase.table("founders").update({"slack_user_id": slack_user_id}).eq("id", founder["id"]).execute()
+        return founder
+    except Exception as e:
+        print(f"[Onboarding Error] Email link failed: {e}")
+        return None
+
+
+def onboard_member(slack_user_id: str, client=None):
+    """
+    Called when someone joins the workspace/channel (or messages the bot unregistered).
+    Auto-links by email and welcomes them; otherwise falls back to the self-onboarding card.
+    Returns True if the user ends up linked.
+    """
+    client = client or app.client
+    if is_registered(slack_user_id):
+        return True
+    try:
+        user = client.users_info(user=slack_user_id)["user"]
+    except Exception as e:
+        print(f"[Onboarding Error] users_info failed: {e}")
+        return False
+    if user.get("is_bot") or user.get("deleted"):
+        return False
+
+    email = user.get("profile", {}).get("email", "")
+    mentor = link_mentor_by_email(slack_user_id, email)
+    if mentor:
+        client.chat_postMessage(
+            channel=slack_user_id,
+            text=f"Welcome, {mentor['name']}! You're signed in as a mentor. Ask me for the cohort pulse any time.",
+            blocks=build_mentor_blocks(safe_snapshot()),
+        )
+        publish_home(slack_user_id, client)
         return True
 
-    target_channel = channel
-    if channel in ["ben", "@ben", "ben_lim"]:
-        target_channel = "D0C74JVR813"  # Ben (ben@evecount.com)
-    elif channel in ["gwen", "@gwen", "gwen_lim"]:
-        target_channel = "D0C94PG2R24"  # Gwen Lim (gwen@evecount.com)
-    elif channel in ["james", "@james", "james_sun", "mamba"]:
-        target_channel = "D0C77UV5GT0"  # James Sun (james@mambapartners.com - Program Lead)
-    elif channel in ["arthur", "@arthur", "arthur_pandaan", "coordinator"]:
-        target_channel = "D0C8AC5G2SX"  # Arthur Andre Pandaan (arthur@mambapartners.com - Project Coordinator)
-    elif channel in ["leads", "mamba-leads"]:
-        target_channel = os.environ.get("SLACK_LEADS_CHANNEL", "#mamba-leads")
-
-    if not app or not SLACK_BOT_TOKEN:
-        print(f"[Simulated Slack Outbound to {target_channel}] Message: {cleaned_text[:80]}...")
-        return False
-    try:
-        kwargs = {"channel": target_channel, "text": cleaned_text}
-        if thread_ts:
-            kwargs["thread_ts"] = thread_ts
-        res = app.client.chat_postMessage(**kwargs)
-        print(f"Message dispatched to Slack channel {target_channel}: {res.get('ts')}")
+    founder = link_by_email(slack_user_id, email)
+    if founder:
+        startup = (founder.get("startups") or {}).get("name", "your startup")
+        welcome = (
+            f"👋 Welcome, {founder['name']}! You're linked to *{startup}*.\n\n"
+            f"No forms or Jira here: message me any update, blocker or voice note and I'll turn it "
+            f"into a check-in for you to confirm. Mentors see it live on the Venture Command Center."
+        )
+        client.chat_postMessage(
+            channel=slack_user_id,
+            text=welcome,
+            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": welcome}}, *dashboard_button_blocks(founder["id"]),
+                    *connect_blocks(founder["id"], founder["startup_id"])],
+        )
+        publish_home(slack_user_id, client)
         return True
-    except Exception as e:
-        print(f"Error sending Slack message to {target_channel}: {e}")
-        return False
-        return False
 
-# --- 6 PROACTIVE AUTONOMOUS CHIEF OF STAFF PLAYBOOKS ---
-
-def execute_monday_kickoff(founder_id: str = None, say_fn = None):
-    """
-    Playbook 1: Monday Kickoff Sprint Deconstruction & Founder Accountability Ping (Mon 09:00 SGT).
-    Decomposes the current syllabus module into a concrete 5-day checklist for each founder.
-    """
-    founders = STUDIO_CONFIG.get("cohort_founders", [])
-    if founder_id:
-        founders = [f for f in founders if f.get("id") == founder_id]
-        
-    leads_channel = STUDIO_CONFIG.get("communication_channels", {}).get("leads_channel", "#mamba-leads")
-    announcements = []
-
-    for f in founders:
-        name = f.get("name")
-        venture = f.get("venture")
-        target_channel = f.get("slack_channel", "D0C94PG2R24")
-        deliverable = f.get("week_2_deliverable", "Selected Concept, Value Prop & Sprint 1 Evidence Pack")
-        focus = f.get("tactical_focus", "Validate demand before writing code.")
-
-        if f.get("id") == "matthew_lee":
-            msg = (
-                f"🚀 *Good morning, {name}. Sprint 1 / Week 2 Kickoff from Cybrdeck Chief of Staff.*\n\n"
-                f"Your core milestone due *Friday Oct 16 at 5:00 PM* is: *{deliverable}*.\n"
-                f"As your Technical & Marketing Lead, your tactical focus is: *{focus}*\n\n"
-                f"Here is your ruthless 5-day execution checklist for this sprint:\n"
-                f"1. *Monday (Assumption Ranking)*: Lock your top 3 customer archetypes and rank your riskiest supply/demand assumptions.\n"
-                f"2. *Tuesday (WoZ Flow Setup)*: Set up a manual Wizard of Oz rental flow in *one* condo cluster (WhatsApp/Google Sheet). Do NOT touch backend code.\n"
-                f"3. *Wednesday (Office Hours with James Sun @ 2 PM)*: Bring verified demand numbers (inquiries vs actual paid intent) to office hours.\n"
-                f"4. *Thursday (Transaction Velocity)*: Close at least 3 paid rental transactions or verified cash deposits.\n"
-                f"5. *Friday (Gatekeeper Lock @ 5 PM)*: Submit your Evidence Pack, customer receipts, and KPI dashboard update.\n\n"
-                f"Remember: Do NOT build the app until you have demonstrated transaction velocity. Let's get to work."
-            )
-        elif f.get("id") == "takshma_patel":
-            msg = (
-                f"🚀 *Good morning, {name}. Sprint 1 / Week 2 Kickoff from Cybrdeck Chief of Staff.*\n\n"
-                f"Your core milestone due *Friday Oct 16 at 5:00 PM* is: *{deliverable}*.\n"
-                f"Your tactical focus is: *{focus}*\n\n"
-                f"Here is your 5-day execution checklist for this sprint:\n"
-                f"1. *Monday*: Rank Top 10 Critical Assumptions for {venture}.\n"
-                f"2. *Tuesday*: Complete 5 problem-validation discovery interviews with target users.\n"
-                f"3. *Wednesday*: Office Hours with James Sun at 2:00 PM—present structured interview scorecard.\n"
-                f"4. *Thursday*: Test willingness to pay / deposit signups.\n"
-                f"5. *Friday (Gatekeeper Lock @ 5 PM)*: Submit Evidence Pack & KPI scorecard to the Studio Ledger.\n\n"
-                f"Pre-build demand validation is active. Let's make every conversation count."
-            )
-        else:
-            msg = (
-                f"🚀 *Good morning, {name} ({venture}). Sprint 1 Kickoff.*\n\n"
-                f"Your Friday milestone deliverable is: *{deliverable}*.\n"
-                f"Focus: {focus}\n\n"
-                f"1. Mon: Rank Top 10 Critical Assumptions.\n"
-                f"2. Tue: Launch manual WoZ test.\n"
-                f"3. Wed: Prep office hours blocker for leadership.\n"
-                f"4. Thu: Synthesize customer feedback & receipts.\n"
-                f"5. Fri: Submit Evidence Pack by 5:00 PM."
-            )
-
-        send_slack_message(target_channel, msg)
-        announcements.append(f"- Deconstructed Sprint checklist for *{name}* ({venture}) -> dispatched.")
-
-    summary = (
-        f"📋 *[Playbook 1: Monday Kickoff Deconstruction Complete]*\n"
-        f"Dispatched tailored 5-day sprint checklists to all cohort founders.\n"
-        + "\n".join(announcements)
+    client.chat_postMessage(
+        channel=slack_user_id,
+        blocks=build_onboarding_card(),
+        text="Set up your profile to start checking in.",
     )
-    send_slack_message(leads_channel, summary)
-    send_slack_message("gwen-ben", summary)
-    if say_fn:
-        say_fn(summary)
-    return summary
-
-def execute_wednesday_blocker_sweep(say_fn = None):
-    """
-    Playbook 2: Wednesday Pre-Anchor Blocker Sweep (Wed 10:00 SGT).
-    Pings founders 4 hours before James Sun's 2 PM office hours to solicit blockers.
-    """
-    founders = STUDIO_CONFIG.get("cohort_founders", [])
-    leads_channel = STUDIO_CONFIG.get("communication_channels", {}).get("leads_channel", "#mamba-leads")
-
-    for f in founders:
-        name = f.get("name")
-        target_channel = f.get("slack_channel", "D0C94PG2R24")
-        msg = (
-            f"⚡ *Wednesday Blocker Sweep from MVP_buddy*\n\n"
-            f"Hey {name}, Office Hours with James Sun are today at *2:00 PM SGT*.\n"
-            f"What is your #1 critical decision, technical bottleneck, or scope dispute that needs locking today?\n"
-            f"Drop your update right here now so leadership reviews it before the call."
-        )
-        send_slack_message(target_channel, msg)
-
-    summary = (
-        f"⚡ *[Playbook 2: Wednesday Pre-Office Hours Blocker Sweep Executed]*\n"
-        f"Automated sweeps dispatched to all founders 4 hours prior to 2:00 PM Office Hours with James Sun.\n"
-        f"Inbound responses will be automatically synthesized into the Executive Blocker Dossier."
-    )
-    send_slack_message(leads_channel, summary)
-    send_slack_message("gwen-ben", summary)
-    if say_fn:
-        say_fn(summary)
-    return summary
-
-def execute_thursday_pregate_audit(say_fn = None):
-    """
-    Playbook 3: Thursday Pre-Gate Deliverable Audit (Thu 17:00 SGT).
-    24-hour early warning system before Friday evaluation gates.
-    """
-    founders = STUDIO_CONFIG.get("cohort_founders", [])
-    leads_channel = STUDIO_CONFIG.get("communication_channels", {}).get("leads_channel", "#mamba-leads")
-
-    for f in founders:
-        name = f.get("name")
-        venture = f.get("venture")
-        target_channel = f.get("slack_channel", "D0C94PG2R24")
-        deliverable = f.get("week_2_deliverable", "Selected Concept, Value Prop & Sprint 1 Evidence Pack")
-        msg = (
-            f"⚠️ *24-Hour Gate Warning from MVP_buddy*\n\n"
-            f"Hey {name}, the Friday 5:00 PM Milestone Gate closes in exactly 24 hours: *{deliverable}*.\n"
-            f"Are you submitting on time, or are we flagging an intervention for leadership?\n"
-            f"Reply with your draft or evidence pack link now."
-        )
-        send_slack_message(target_channel, msg)
-
-    summary = (
-        f"⚠️ *[Playbook 3: Thursday 24-Hour Pre-Gate Audit Dispatched]*\n"
-        f"Fired 24-hr milestone readiness alerts across all cohort founders for the Friday 5:00 PM Gate."
-    )
-    send_slack_message(leads_channel, summary)
-    send_slack_message("gwen-ben", summary)
-    if say_fn:
-        say_fn(summary)
-    return summary
-
-def execute_friday_gatekeeper(say_fn = None):
-    """
-    Playbook 4: Friday 5:00 PM Gatekeeper & Ledger Lock (Fri 17:00 SGT).
-    Locks the submission window, updates progress scorecards, and alerts leadership.
-    """
-    leads_channel = STUDIO_CONFIG.get("communication_channels", {}).get("leads_channel", "#mamba-leads")
-    summary = (
-        f"🛑 *[Playbook 4: Friday 5:00 PM Milestone Gatekeeper Lock]*\n\n"
-        f"The studio submission gate for Week 2 is now officially *LOCKED*.\n"
-        f"- *Milestone Gate*: Selected Concept, Value Prop & Sprint 1 Evidence Pack\n"
-        f"- *Traction Status*: Evaluating Matthew Lee (SharedOut) and Takshma Patel (WearMAInd)\n"
-        f"- *Action*: Studio ledger frozen for weekend review. Full scorecard compiling for Sunday briefing."
-    )
-    send_slack_message(leads_channel, summary)
-    send_slack_message("gwen-ben", summary)
-    if say_fn:
-        say_fn(summary)
-    return summary
-
-def execute_demand_trap_interceptor(user_id: str, message_text: str, say_fn = None):
-    """
-    Playbook 5: The 'Pre-Build Demand Trap' Interceptor (Continuous / Reactive).
-    Ruthlessly protects studio engineering hours and enforces Wizard of Oz demand validation.
-    """
-    reply = (
-        f"🛑 *Halt. Pre-Build Protocol Intercept from MVP_buddy:*\n\n"
-        f"You are talking about writing code, setting up infrastructure, or building features before validating customer willingness to pay.\n\n"
-        f"*Cybrdeck Chief of Staff Rule:*\n"
-        f"Show me the LOI, paid deposit, pre-payment receipt, or completed manual Wizard of Oz (WoZ) test first.\n"
-        f"We do NOT burn Gwen and Ben's engineering hours on a backend until you have real customer cash in hand.\n\n"
-        f"What empirical proof do you have that customers actually want to pay for this right now?"
-    )
-    if say_fn:
-        say_fn(reply)
-    else:
-        send_slack_message(user_id, reply)
-    return reply
-
-def execute_sunday_briefing(say_fn = None):
-    """
-    Playbook 6: Sunday Evening 60-Second Lead Briefing (Sun 20:00 SGT).
-    Synthesizes an executive 3-bullet briefing for studio leadership.
-    """
-    leads_channel = STUDIO_CONFIG.get("communication_channels", {}).get("leads_channel", "#mamba-leads")
-    briefing = (
-        f"📊 *60-Second Studio Leadership Briefing (Sunday Evening Digest)*\n"
-        f"--------------------------------------------------\n"
-        f"• 🚀 *Advancing*: Matthew Lee (SharedOut) - 60+ registered signups. Enforcing single condo cluster WoZ test to capture first 3 paid transactions.\n"
-        f"• ⚠️ *At Risk / Blockers*: Takshma Patel (WearMAInd) - Needs customer discovery synthesis and top 10 assumption ranking finalized.\n"
-        f"• 🎯 *Leadership Focus for Week 3*: James Sun to review WoZ transaction scorecards in Wednesday Office Hours. Cybrdeck technical sprints remain locked until demand gates pass."
-    )
-    send_slack_message(leads_channel, briefing)
-    send_slack_message("gwen-ben", briefing)
-    if say_fn:
-        say_fn(briefing)
-    return briefing
-
-# --- DEMAND TRAP KEYWORDS ---
-DEMAND_TRAP_PATTERNS = [
-    r"build(?:ing)?\s+(?:the\s+)?backend",
-    r"cod(?:e|ing)\s+(?:the\s+)?app",
-    r"set(?:ting)?\s+up\s+(?:the\s+)?database",
-    r"microservices",
-    r"writing\s+(?:the\s+)?code",
-    r"need\s+\d+\s+weeks\s+to\s+build",
-    r"redesign(?:ing)?\s+(?:the\s+)?db",
-    r"set(?:ting)?\s+up\s+aws",
-    r"docker\s+container",
-    r"backend\s+architecture"
-]
-
-def check_demand_trap(text: str) -> bool:
-    for pattern in DEMAND_TRAP_PATTERNS:
-        if re.search(pattern, text, re.IGNORECASE):
-            return True
     return False
 
-# --- AUTONOMOUS SCHEDULER (DAEMON THREAD) ---
-def cos_scheduler_loop():
-    """
-    Proactive autonomous chronometer executing the 6 playbooks in Singapore Time (UTC+8).
-    Runs continuously in a background daemon thread without needing human prompts.
-    """
-    print("⏰ Chief of Staff Autonomous Scheduler active (Singapore Time UTC+8). 6 Playbooks initialized.")
-    while True:
-        try:
-            now_sgt = datetime.now(SGT)
-            day_of_week = now_sgt.weekday()  # 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun
-            hour = now_sgt.hour
-            minute = now_sgt.minute
-            date_str = now_sgt.strftime("%Y-%m-%d")
-            
-            history = get_executed_playbooks()
 
-            # Playbook 1: Monday Kickoff (09:00 - 09:05 SGT)
-            if day_of_week == 0 and hour == 9 and minute < 5:
-                key = f"playbook_1_{date_str}"
-                if key not in history:
-                    print(f"Executing Playbook 1: Monday Kickoff ({date_str})...")
-                    execute_monday_kickoff()
-                    mark_playbook_executed(key)
+@app.event("team_join")
+def handle_team_join(event, client):
+    onboard_member(event["user"]["id"], client)
 
-            # Playbook 2: Wednesday Pre-Office Hours Blocker Sweep (10:00 - 10:05 SGT)
-            if day_of_week == 2 and hour == 10 and minute < 5:
-                key = f"playbook_2_{date_str}"
-                if key not in history:
-                    print(f"Executing Playbook 2: Wednesday Blocker Sweep ({date_str})...")
-                    execute_wednesday_blocker_sweep()
-                    mark_playbook_executed(key)
 
-            # Playbook 3: Thursday Pre-Gate Audit (17:00 - 17:05 SGT)
-            if day_of_week == 3 and hour == 17 and minute < 5:
-                key = f"playbook_3_{date_str}"
-                if key not in history:
-                    print(f"Executing Playbook 3: Thursday Pre-Gate Audit ({date_str})...")
-                    execute_thursday_pregate_audit()
-                    mark_playbook_executed(key)
+@app.event("member_joined_channel")
+def handle_member_joined_channel(event, client):
+    onboard_member(event["user"], client)
 
-            # Playbook 4: Friday 5:00 PM Gatekeeper Lock (17:00 - 17:05 SGT)
-            if day_of_week == 4 and hour == 17 and minute < 5:
-                key = f"playbook_4_{date_str}"
-                if key not in history:
-                    print(f"Executing Playbook 4: Friday Gatekeeper Lock ({date_str})...")
-                    execute_friday_gatekeeper()
-                    mark_playbook_executed(key)
 
-            # Playbook 6: Sunday Evening 60-Second Lead Briefing (20:00 - 20:05 SGT)
-            if day_of_week == 6 and hour == 20 and minute < 5:
-                key = f"playbook_6_{date_str}"
-                if key not in history:
-                    print(f"Executing Playbook 6: Sunday Lead Briefing ({date_str})...")
-                    execute_sunday_briefing()
-                    mark_playbook_executed(key)
+def prompt_onboarding(say):
+    say(blocks=build_onboarding_card(), text="Set up your profile to start checking in.")
 
-            # Periodically process dashboard outbox queue
-            process_outbox_queue()
 
-        except Exception as e:
-            print(f"Error in Chief of Staff scheduler tick: {e}")
-
-        time.sleep(30)
-
-# --- SLACK MESSAGE LISTENERS & ROUTING ---
-
-@app.message(re.compile(r"^(hello|hi|help|start|onboard|welcome)", re.IGNORECASE))
-def handle_greeting(message, say):
-    """
-    Greets new founders and explains the architecture.
-    """
-    user_id = message.get("user")
-    say(
-        f"Welcome to the Mamba MVP Program, <@{user_id}>! 👋\n\n"
-        f"I am MVP_buddy, your autonomous Chief of Staff from Cybrdeck (run by Gwen and Ben).\n\n"
-        f"*How this works:*\n"
-        f"You don't need to fill out status report forms. Whenever you make progress, hit a blocker, or finish customer interviews, just talk to me right here in Slack!\n\n"
-        f"I maintain 6 autonomous operational playbooks:\n"
-        f"• *Monday 9 AM*: Sprint task deconstruction and accountability ping.\n"
-        f"• *Wednesday 10 AM*: Pre-Office Hours blocker sweep before James Sun's call.\n"
-        f"• *Thursday 5 PM*: 24-hr milestone pre-gate audit.\n"
-        f"• *Friday 5 PM*: Gatekeeper lock & evidence pack verification.\n"
-        f"• *Continuous*: Pre-Build Demand Trap interceptor (stop building backend before validation!).\n"
-        f"• *Sunday 8 PM*: 60-second studio leadership briefing.\n\n"
-        f"Whenever you're ready, just send me a message about what you're working on today!"
-    )
-
-@app.message(re.compile(".*"))
-def handle_founder_checkin(message, say):
-    """
-    Listens for any Slack message and handles commands, demand trap interception,
-    or Qwen executive reasoning with Gwen's signature personality.
-    """
-    user_id = message.get("user")
-    text = message.get("text", "")
-    files = message.get("files", [])
-    
-    # 1. On-Demand Playbook Triggers
-    cleaned = text.strip().lower()
-    if any(k in cleaned for k in ["!playbook 1", "run kickoff", "sprint kickoff", "run playbook 1"]):
-        execute_monday_kickoff(say_fn=say)
-        return
-    elif any(k in cleaned for k in ["!playbook 2", "run blocker sweep", "run sweep", "run playbook 2"]):
-        execute_wednesday_blocker_sweep(say_fn=say)
-        return
-    elif any(k in cleaned for k in ["!playbook 3", "run audit", "run pre-gate", "run playbook 3"]):
-        execute_thursday_pregate_audit(say_fn=say)
-        return
-    elif any(k in cleaned for k in ["!playbook 4", "run gatekeeper", "run gate", "run playbook 4"]):
-        execute_friday_gatekeeper(say_fn=say)
-        return
-    elif any(k in cleaned for k in ["!playbook 6", "run briefing", "run lead briefing", "run playbook 6"]):
-        execute_sunday_briefing(say_fn=say)
-        return
-    elif any(k in cleaned for k in ["who didn't do what", "who hasnt done", "who hasn't done", "what is overdue", "overdue", "aging", "accountability", "task ledger", "who is blocked", "status report", "overdue tasks", "tasks"]):
-        say(format_for_slack(generate_task_aging_report()))
-        return
-    elif any(k in cleaned for k in ["!skills", "!playbooks"]):
-        say(format_for_slack(
-            f"🛠️ *Chief of Staff Autonomous Skillset (6 Playbooks Live):*\n"
-            f"1. *Monday Kickoff (09:00 SGT)*: Sprint Task Deconstruction (`!playbook 1`)\n"
-            f"2. *Wednesday Sweep (10:00 SGT)*: Pre-Office Hours Blocker Sweep (`!playbook 2`)\n"
-            f"3. *Thursday Audit (17:00 SGT)*: 24-Hour Pre-Gate Readiness Audit (`!playbook 3`)\n"
-            f"4. *Friday Gatekeeper (17:00 SGT)*: Milestone Gatekeeper Lock (`!playbook 4`)\n"
-            f"5. *Demand Trap Interceptor (Continuous)*: Halts premature coding in real time\n"
-            f"6. *Sunday Briefing (20:00 SGT)*: 60-Second Lead Briefing (`!playbook 6`)\n\n"
-            f"• *Accountability Ledger*: Ask *'who didn't do what'* or *'overdue'* anytime to see aging tasks.\n"
-            f"All playbooks execute autonomously on schedule without human prompts."
-        ))
-        return
-
-    # 2. Continuous Playbook 5: Demand Trap Interceptor
-    if check_demand_trap(text):
-        reply = execute_demand_trap_interceptor(user_id, text, say_fn=say)
-        log_conversation_locally(user_id, text, reply, {"status": "Blocked", "blocker": "Premature architecture / Demand trap"})
-        return
-
-    # 3. Detect and download files (e.g. massive transcripts or workplace documents)
-    if files:
-        for file in files:
-            url = file.get("url_private_download")
-            if url:
-                headers = {"Authorization": f"Bearer {SLACK_BOT_TOKEN}"}
-                response = requests.get(url, headers=headers)
-                if response.status_code == 200:
-                    file_content = response.text
-                    text += f"\n\n[Transcript Content from {file.get('name')}]:\n{file_content}"
-                    try:
-                        if supabase:
-                            supabase.table("knowledge_documents").insert({
-                                "title": file.get("name", "Slack Document"),
-                                "category": "slack_upload",
-                                "source": f"slack_file_{file.get('id', 'unknown')}",
-                                "content": file_content[:15000],
-                                "metadata": {"uploaded_by": user_id, "file_id": file.get("id")}
-                            }).execute()
-                            print(f"Indexed uploaded file '{file.get('name')}' to Supabase knowledge base.")
-                    except Exception as fe:
-                        print(f"Error indexing uploaded file: {fe}")
-                    
-    # 4. Process via real Qwen API with Gwen's signature personality
-    extracted_data = process_with_qwen(text)
-    
-    # 5. Reply with Gwen's witty/snarky personality directly in Slack (Clean Slack Mrkdwn)
-    say(format_for_slack(extracted_data.get("reply", "Telemetry logged. Now go find a customer who actually wants to pay.")))
-    
-    # 6. Relay cross-party action items if detected (Frictionless coordination)
-    action_relay = extracted_data.get("action_relay") or {}
-    if action_relay.get("has_cross_party_task") and action_relay.get("target") and action_relay.get("directive"):
-        target_dest = action_relay.get("target")
-        directive_text = action_relay.get("directive")
-        print(f"Relaying autonomous directive to {target_dest}: {directive_text}")
-        send_slack_message(target_dest, f"🔔 *Autonomous Directive from MVP_buddy:*\n{directive_text}")
-    
-    # 6. Save to Supabase (bypassing RLS with Service Role Key)
+def slack_email(client, user_id: str) -> str:
+    """The email Slack itself holds for this account (verified), or '' if the workspace doesn't expose it."""
     try:
-        if supabase:
-            supabase.table("founder_checkins").insert({
-                "slack_user_id": user_id,
-                "raw_transcript": text,
-                "status": extracted_data["status"],
-                "stream": extracted_data["stream"],
-                "blocker": extracted_data["blocker"],
-                "digest": extracted_data["digest"]
-            }).execute()
+        return client.users_info(user=user_id)["user"].get("profile", {}).get("email", "") or ""
     except Exception as e:
-        print(f"Database Error: {e}")
+        print(f"[Onboarding Warning] users_info failed: {e}")
+        return ""
 
-    # 7. Save to local Linode disk (immutable backup)
-    log_conversation_locally(user_id, text, extracted_data.get("reply"), extracted_data)
 
-def process_outbox_queue():
+def already_registered_text(user_id: str) -> str | None:
+    """Message for someone who already has a profile, or None if they don't."""
+    role = get_role(user_id)
+    if role is None:
+        return None
+    if role == "mentor":
+        return "You already have a profile as a *mentor*, so there's nothing more to set up."
+    try:
+        row = supabase.table("founders").select("name,startups(name)").eq("slack_user_id", user_id).limit(1).execute().data
+        who = f"*{row[0]['name']}* at *{(row[0].get('startups') or {}).get('name', 'your startup')}*" if row else "a founder"
+    except Exception:
+        who = "a founder"
+    return f"You already have a profile as {who}. To change your startup's name or details, just tell me here."
+
+
+@app.action("start_onboarding")
+def handle_start_onboarding(ack, body, client):
+    ack()
+    user_id = body["user"]["id"]
+    existing = already_registered_text(user_id)
+    if existing:
+        client.chat_postMessage(channel=user_id, text=existing)
+        publish_home(user_id, client)
+        return
+    client.views_open(trigger_id=body["trigger_id"], view=build_role_picker_modal())
+
+
+@app.action("pick_founder")
+def handle_pick_founder(ack, body, client):
+    ack()
+    user_id = body["user"]["id"]
+    try:
+        startups = supabase.table("startups").select("id,name").order("name").execute().data if supabase else []
+    except Exception as e:
+        print(f"[Onboarding Error] Could not load startups: {e}")
+        startups = []
+    view = build_founder_modal(startups, need_email=not slack_email(client, user_id), require_code=bool(ONBOARDING_CODE))
+    client.views_update(view_id=body["view"]["id"], hash=body["view"]["hash"], view=view)
+
+
+@app.action("pick_mentor")
+def handle_pick_mentor(ack, body, client):
+    ack()
+    user_id = body["user"]["id"]
+    view = build_mentor_modal(need_email=not slack_email(client, user_id))
+    client.views_update(view_id=body["view"]["id"], hash=body["view"]["hash"], view=view)
+
+
+def _val(values: dict, block: str, action: str) -> str:
+    return (values.get(block, {}).get(action, {}).get("value") or "").strip()
+
+
+def _resolve_email(client, user_id: str, values: dict):
+    """(email, verified, error_or_None). Slack's own email wins; a typed one is unverified."""
+    email = slack_email(client, user_id)
+    if email:
+        return email, True, None
+    typed = _val(values, "email_input", "email_text")
+    return (typed, False, None) if looks_like_email(typed) else ("", False, "Please enter a valid email address.")
+
+
+def _duplicate_text(row: dict, group: str) -> str:
+    return (f"A profile for *{row.get('name', 'that person')}* already exists in {group}. If that's you, it may be linked to "
+            "another Slack account, so please ask a mentor to sort it out. If you're a different person with the same name, "
+            "use your full name (including surname) and your own email.")
+
+
+@app.view("modal_onboarding_founder")
+def handle_founder_submit(ack, body, client, view):
+    values = view["state"]["values"]
+    user_id = body["user"]["id"]
+    email, verified, email_err = _resolve_email(client, user_id, values)
+    errors = {}
+    if email_err:
+        errors["email_input"] = email_err
+    if ONBOARDING_CODE and not code_matches(_val(values, "code_input", "code_text"), ONBOARDING_CODE):
+        errors["code_input"] = "That join code isn't right."
+    if errors:
+        ack(response_action="errors", errors=errors)
+        return
+    ack()
+
+    existing = already_registered_text(user_id)
+    if existing:
+        client.chat_postMessage(channel=user_id, text=existing)
+        return
+    name = _val(values, "name_input", "name_text")
+    ids = None
+    try:
+        startups = supabase.table("startups").select("id,name").execute().data or []
+        picked = values.get("startup_input", {}).get("startup_select", {}).get("selected_option")
+        new_name = _val(values, "new_startup_input", "new_startup_text")
+        startup = next((st for st in startups if picked and st["id"] == picked["value"]), None)
+        if not startup and new_name:  # naming an existing startup means joining it, not creating a twin
+            startup = next((st for st in startups if norm_name(st["name"]) == norm_name(new_name)), None)
+
+        founders = supabase.table("founders").select("id,name,email,slack_user_id,startup_id").execute().data or []
+        if email and any((m.get("email") or "").casefold() == email.casefold()
+                         for m in (supabase.table("mentors").select("email").execute().data or [])):
+            client.chat_postMessage(channel=user_id, text="That email already belongs to a mentor profile.")
+            return
+        scoped = [f for f in founders if startup and f["startup_id"] == startup["id"]]
+        verdict, row = match_person(founders, scoped, name, email, verified)
+        if verdict == "duplicate":
+            client.chat_postMessage(channel=user_id, text=_duplicate_text(row, "this startup" if startup else "the cohort"))
+            return
+        if verdict == "claim":
+            supabase.table("founders").update({"slack_user_id": user_id, "email": email.lower()}).eq("id", row["id"]).execute()
+            st_name = next((st["name"] for st in startups if st["id"] == row["startup_id"]), "your startup")
+            msg = f"✅ Welcome, {row['name']}! I found your invite and linked it to *{st_name}*."
+            ids = (row["id"], row["startup_id"])
+        else:
+            if not startup:
+                startup = create_startup(new_name or "Untitled startup")
+            register_founder(user_id, name, startup["id"], email)
+            ids = (f"founder-{user_id.lower()}", startup["id"])
+            msg = (f"✅ You're in, {name}! You're set up with *{startup['name']}* (you can rename it later). "
+                   "Send me an update any time and I'll turn it into a check-in for you to confirm.")
+    except Exception as e:
+        print(f"[Onboarding Error] {e}")
+        msg = "Something went wrong saving your profile. Please ask a mentor."
+        ids = None
+    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": msg}}] + (connect_blocks(*ids) if ids else [])
+    client.chat_postMessage(channel=user_id, text=msg, blocks=blocks)
+    publish_home(user_id, client)
+
+
+@app.view("modal_onboarding_mentor")
+def handle_mentor_submit(ack, body, client, view):
+    values = view["state"]["values"]
+    user_id = body["user"]["id"]
+    email, verified, email_err = _resolve_email(client, user_id, values)
+    errors = {}
+    if email_err:
+        errors["email_input"] = email_err
+    if not code_matches(_val(values, "mentor_code_input", "mentor_code_text"), MENTOR_CODE):
+        errors["mentor_code_input"] = "That mentor code isn't right."
+    if errors:
+        ack(response_action="errors", errors=errors)
+        return
+    ack()
+
+    existing = already_registered_text(user_id)
+    if existing:
+        client.chat_postMessage(channel=user_id, text=existing)
+        return
+    name = _val(values, "name_input", "name_text")
+    try:
+        mentors = supabase.table("mentors").select("id,name,email,slack_user_id").execute().data or []
+        if email and any((f.get("email") or "").casefold() == email.casefold()
+                         for f in (supabase.table("founders").select("email").execute().data or [])):
+            client.chat_postMessage(channel=user_id, text="That email already belongs to a founder profile.")
+            return
+        verdict, row = match_person(mentors, mentors, name, email, verified)
+        if verdict == "duplicate":
+            client.chat_postMessage(channel=user_id, text=_duplicate_text(row, "the mentor list"))
+            return
+        if verdict == "claim":
+            supabase.table("mentors").update({"slack_user_id": user_id, "email": email.lower()}).eq("id", row["id"]).execute()
+        else:
+            supabase.table("mentors").insert({"id": f"mentor-{user_id.lower()}", "slack_user_id": user_id,
+                                              "name": name, "email": email.lower()}).execute()
+        msg = (f"✅ Welcome, {name}! You're verified as a *mentor*. Message me any time for the cohort pulse; "
+               "your Home tab shows it too.")
+    except Exception as e:
+        print(f"[Onboarding Error] {e}")
+        msg = "Something went wrong saving your profile. Please check the mentors table exists, or ask the Program Coordinator."
+    client.chat_postMessage(channel=user_id, text=msg)
+    publish_home(user_id, client)
+
+
+# --- APP HOME TAB ---
+
+STATUS_EMOJI = {"Blocked": "🔴", "Completed": "✅", "On Track": "🟢", "In progress": "🟡"}
+
+
+def dashboard_button_blocks(founder_id: str | None = None) -> list:
+    url = integrations.dashboard_url(DASHBOARD_URL, STATE_SECRET, founder_id)
+    if not url:
+        return []
+    return [{
+        "type": "actions",
+        "elements": [{
+            "type": "button",
+            "text": {"type": "plain_text", "text": "Open dashboard"},
+            "url": url,
+            "action_id": "open_dashboard",
+        }],
+    }]
+
+
+@app.action("open_dashboard")
+def handle_open_dashboard(ack):
+    ack()  # link buttons still send an interaction event
+
+
+def connect_blocks(founder_id: str, startup_id: str) -> list:
+    """Optional 'connect your work' step shown right after profile setup."""
+    url = github_link(founder_id, startup_id)
+    if not url:
+        return []
+    return [
+        {"type": "divider"},
+        {"type": "section", "text": {"type": "mrkdwn", "text": (
+            "*One more optional step: connect your work* 🔌" + chr(10) +
+            "Link your GitHub and I can see real progress (commits, pull requests) without you typing it. "
+            "GitHub lets you choose *all repositories* or just the ones for your startup. I only get read access. "
+            "Code in a GitHub *organisation*? If you're not an owner, GitHub asks an owner to approve first. "
+            "Press the second button and tell me the organisation's name; I'll link it the moment it's approved.")}},
+        {"type": "actions", "elements": [
+            {"type": "button", "style": "primary", "text": {"type": "plain_text", "text": "Connect GitHub"},
+             "url": url, "action_id": "connect_github"},
+            {"type": "button", "text": {"type": "plain_text", "text": "My code is in an organisation"},
+             "action_id": "claim_org", "value": f"{founder_id}|{startup_id}"}]},
+    ]
+
+
+def build_connections_blocks(founder_id: str, startup_id: str, rows: list) -> list:
+    """GitHub connections for the whole startup. Co-founders each appear, and anyone can fix any of them."""
+    blocks, buttons = [], []
+    lines = []
+    for row in rows:
+        repos = integrations.monitored_repos(row)
+        who = (row.get("founders") or {}).get("name") or "a founder"
+        where = f" ({row['account']})" if row.get("account") else ""
+        if repos:
+            lines.append(f"✅ *{who}*{where}: monitoring " + ", ".join(f"*{r}*" for r in repos))
+        else:
+            lines.append(f"🟡 *{who}*{where}: connected, no repository chosen yet")
+        if len(row.get("repos") or []) > 1:
+            button = {"type": "button", "text": {"type": "plain_text", "text": f"Repositories: {who}"[:75]},
+                      "action_id": "change_repos", "value": row["id"]}
+            if not repos:
+                button["style"] = "primary"
+            buttons.append(button)
+    if lines:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Connections (GitHub)*" + chr(10) + chr(10).join(lines)}})
+    mine = any(r.get("founder_id") == founder_id for r in rows)
+    url = github_link(founder_id, startup_id)
+    if url and not mine:
+        text = ("GitHub isn't connected yet, so I can only see what you tell me." if not rows
+                else "Your own GitHub isn't connected yet. Connect it so your work counts too.")
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": ("*Connections (GitHub)*" + chr(10) if not rows else "") + text}})
+        buttons.append({"type": "button", "style": "primary", "text": {"type": "plain_text", "text": "Connect GitHub"},
+                        "url": url, "action_id": "connect_github_home"})
+        buttons.append({"type": "button", "text": {"type": "plain_text", "text": "My code is in an organisation"},
+                        "action_id": "claim_org", "value": f"{founder_id}|{startup_id}"})
+    if buttons:
+        blocks.append({"type": "actions", "elements": buttons[:25]})
+    return blocks
+
+
+def build_milestone_blocks(milestones: list) -> list:
+    if not milestones:
+        return [{"type": "section", "text": {"type": "mrkdwn", "text":
+                 "*Milestones*" + chr(10) + "None yet. Tell me what you're aiming for, e.g. _\"Set a milestone: 10 customer interviews by Oct 23\"_."}}]
+    nl, lines = chr(10), []
+    for m in milestones[:4]:
+        goals = m.get("goals") or []
+        done = sum(1 for g in goals if g.get("done"))
+        due = f" · due {m['due_date']}" if m.get("due_date") else ""
+        lines.append(f"🎯 *{m['title']}*{due} · {done}/{len(goals)} goals")
+        lines += [("      ✅ " if g.get("done") else "      ⬜ ") + g["title"] for g in goals[:6]]
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": "*Milestones*" + nl + nl.join(lines)}}]
+
+
+def build_task_blocks(tasks: list) -> list:
+    if not tasks:
+        return []
+    nl = chr(10)
+    lines = [f"• {t['title']}" + (f" (due {t['due_date']})" if t.get("due_date") else "") for t in tasks[:8]]
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": "*Follow-ups*" + nl + nl.join(lines)}}]
+
+
+def build_home_view(context: dict | None, latest: dict | None, tasks: list | None = None, milestones: list | None = None, conns: list | None = None) -> dict:
+    """Founder's personal sprint radar. context=None means the user isn't on the roster yet."""
+    blocks = [{"type": "header", "text": {"type": "plain_text", "text": "Your sprint radar"}}]
+    if context is None:
+        blocks += build_onboarding_card()
+        return {"type": "home", "blocks": blocks}
+
+    d = context["deliverable"]
+    due = str(d.get("due_date", ""))
+    if re.match(r"\d{4}-\d{2}-\d{2}", due):
+        due = due[:10]  # ISO timestamp from Supabase -> date only
+    blocks.append({
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": (
+                f"*{context['startup_name']}* · {context['stream']} stream · lead: {context['lead']}\n"
+                f"*This week:* {d['week']} - {d['title']}" + (f"\n*Due:* {due}" if due else "")
+            ),
+        },
+    })
+    if latest:
+        emoji = STATUS_EMOJI.get(latest["status"], "⚪")
+        text = f"{emoji} *{latest['status']}* · {latest.get('progress', 0)}%\n_{latest['digest']}_"
+        blocker = latest.get("blocker")
+        if blocker and blocker != "None":
+            text += f"\n*Blocker:* {blocker}"
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Your latest check-in*\n" + text}})
+    else:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*No check-ins yet.* Send me a message in this app's Messages tab to log your first one."}})
+    blocks += build_milestone_blocks(milestones or [])
+    blocks += build_connections_blocks(context["founder_id"], context["startup_id"], conns or [])
+    blocks += build_task_blocks(tasks or [])
+    blocks.append({"type": "divider"})
+    blocks.append({
+        "type": "context",
+        "elements": [{"type": "mrkdwn", "text": "Check in any time by messaging me: text, a blocker, or a voice note transcript. You confirm before anything is saved."}],
+    })
+    blocks += dashboard_button_blocks(context["founder_id"])
+    return {"type": "home", "blocks": blocks}
+
+
+def publish_home(slack_user_id: str, client=None):
+    """Renders the Home tab for a user. Safe to call after any state change."""
+    client = client or app.client
+    try:
+        role = get_role(slack_user_id)
+        if role == "mentor":
+            mine = [t for t in memory.open_tasks() if t.get("owner_slack_id") == slack_user_id]
+            blocks = build_mentor_blocks(safe_snapshot(), title="Mentor view", tasks=mine)
+            client.views_publish(user_id=slack_user_id, view={"type": "home", "blocks": blocks})
+            return
+        context = resolve_founder_context(slack_user_id) if role else None
+        latest = None
+        if supabase and context:
+            res = (
+                supabase.table("submissions")
+                .select("status,progress,blocker,digest")
+                .eq("founder_id", context["founder_id"])
+                .eq("confirmed", True)
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            latest = res.data[0] if res.data else None
+        client.views_publish(user_id=slack_user_id, view=build_home_view(context, latest, memory.open_tasks(context["startup_id"]) if context else [], memory.milestones(context["startup_id"]) if context else [], integrations.github_connections(supabase, context["startup_id"]) if context else []))
+    except Exception as e:
+        print(f"[Home Tab Error] {e}")
+
+
+@app.event("app_home_opened")
+def handle_app_home_opened(event, client):
+    if event.get("tab", "home") == "home":
+        publish_home(event["user"], client)
+
+
+# --- SLACK HANDLERS ---
+
+@app.message(re.compile(r"^(help|onboard|hi|hello|start)", re.IGNORECASE))
+def handle_greeting(message, say):
+    user_id = message.get("user")
+    if user_id and get_role(user_id) == "mentor":
+        say(blocks=build_mentor_blocks(safe_snapshot()), text="Cohort pulse")
+        return
+    say(
+        f"Hey <@{user_id}>! 👋 I'm *MVP_buddy*, your automated venture studio lead.\n\n"
+        f"You don't need to log into Jira or fill out forms. Whenever you work, hit a blocker, or finish customer interviews, "
+        f"just send me a voice note or type an update right here!\n\n"
+        f"I'll automatically parse your progress against the syllabus, generate a confirmation card for you to approve, "
+        f"and sync it live to the Venture Command Center for your mentors."
+    )
+    if user_id and not is_registered(user_id):
+        onboard_member(user_id)
+
+
+@app.event("app_mention")
+def handle_app_mention(event, say):
+    text = event.get("text", "")
+    user_id = event.get("user")
+    process_inbound_message(user_id, text, event.get("files", []), say)
+
+
+@app.message(re.compile(r".+"))
+def handle_direct_or_channel_message(message, say):
+    # Only process if direct message (channel type 'im') or explicitly in checkin context
+    channel_type = message.get("channel_type")
+    if channel_type != "im" and not message.get("text", "").startswith("/checkin"):
+        return  # Avoid hijacking regular chatter in public channels
+
+    user_id = message.get("user")
+    text = message.get("text", "").replace("/checkin", "").strip()
+    process_inbound_message(user_id, text, message.get("files", []), say)
+
+
+PULSE_RE = re.compile(r"^\s*(pulse|cohort pulse|status)\s*[?.!]*\s*$", re.IGNORECASE)
+
+
+def build_identity(user_id: str, role: str) -> dict:
+    if role == "mentor":
+        name = "Mentor"
+        try:
+            rows = supabase.table("mentors").select("name").eq("slack_user_id", user_id).limit(1).execute().data
+            name = rows[0]["name"] if rows else name
+        except Exception as e:
+            print(f"[Identity Warning] {e}")
+        return {"role": "mentor", "slack_id": user_id, "name": name}
+    context = resolve_founder_context(user_id)
+    return {"role": "founder", "slack_id": user_id, "name": context["name"], "context": context}
+
+
+def build_rename_card(proposal: dict) -> list:
+    return [
+        {"type": "section", "text": {"type": "mrkdwn",
+         "text": f"Rename *{proposal['old_name']}* to *{proposal['new_name']}*?"}},
+        {"type": "actions", "elements": [
+            {"type": "button", "style": "primary", "text": {"type": "plain_text", "text": "Rename"},
+             "action_id": "confirm_rename", "value": json.dumps(proposal)},
+            {"type": "button", "text": {"type": "plain_text", "text": "Cancel"},
+             "action_id": "cancel_rename", "value": "cancel"},
+        ]},
+    ]
+
+
+def process_inbound_message(user_id: str, text: str, files: list, say):
     """
-    Polls the Supabase 'slack_outbox' table for pending messages queued from the dashboard.
-    Dispatches each message and marks it as sent.
+    Core pipeline: resolve role, then hand the message to the conversational agent
+    (answers, notes, tasks, memory, check-in proposals). Falls back to plain extraction
+    when no LLM or database is configured.
     """
+    role = get_role(user_id)
+    if role is None:
+        if not onboard_member(user_id):
+            return
+        role = get_role(user_id)
+        # Linked just now by email; welcome DM already sent, carry on.
+
+    # Read attached files if present (transcripts, voice memo exports)
+    if files:
+        for f in files:
+            text += f"\n[Attachment: {f.get('name')}]"
+
+    if role == "mentor" and PULSE_RE.match(text):
+        say(blocks=build_mentor_blocks(safe_snapshot()), text="Cohort pulse")
+        return
+
+    if agent is not None:
+        try:
+            ident = build_identity(user_id, role)
+            result = agent.respond(ident, text)
+            say(result["text"])
+            if result["checkin"]:
+                say(blocks=build_confirmation_card(ident["context"], result["checkin"], text),
+                    text="Please confirm your dashboard update.")
+            if result["rename"]:
+                say(blocks=build_rename_card(result["rename"]), text="Confirm startup rename")
+            return
+        except Exception as e:
+            print(f"[Agent Error] {e}. Falling back to basic handling.")
+
+    if role == "mentor":
+        say(blocks=build_mentor_blocks(safe_snapshot()), text="Cohort pulse")
+        return
+    say(f"Processing your check-in with Studio AI, <@{user_id}>... ⚡")
+    context = resolve_founder_context(user_id)
+    extracted = extract_update_with_ai(text, context)
+    say(blocks=build_confirmation_card(context, extracted, text), text="Please confirm your dashboard update.")
+
+
+@app.action("confirm_rename")
+def handle_confirm_rename(ack, body, client):
+    ack()
+    user_id = body["user"]["id"]
+    proposal = json.loads(body["actions"][0]["value"])
+    role = get_role(user_id)
+    allowed = role == "mentor"
+    if role == "founder":
+        try:
+            own = supabase.table("founders").select("startup_id").eq("slack_user_id", user_id).execute().data
+            allowed = bool(own) and own[0]["startup_id"] == proposal["startup_id"]
+        except Exception as e:
+            print(f"[Rename Warning] {e}")
+    if not allowed:
+        text = "⚠️ You can't rename that startup."
+    else:
+        try:
+            supabase.table("startups").update({"name": proposal["new_name"]}).eq("id", proposal["startup_id"]).execute()
+            text = f"✅ Renamed *{proposal['old_name']}* to *{proposal['new_name']}*."
+        except Exception as e:
+            print(f"[Rename Error] {e}")
+            text = "⚠️ I couldn't rename it."
+    client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=text,
+                       blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text}}])
+    publish_home(user_id, client)
+
+
+@app.action("cancel_rename")
+def handle_cancel_rename(ack, body, client):
+    ack()
+    client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text="Rename cancelled.",
+                       blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": "Rename cancelled."}}])
+
+
+def commit_checkin(action_value: dict, actor: str):
+    """Writes a confirmed check-in to Supabase and emits the ticker signal."""
     if not supabase:
         return
     try:
-        response = supabase.table("slack_outbox").select("*").eq("status", "pending").limit(10).execute()
-        rows = response.data or []
-        for row in rows:
-            row_id = row["id"]
-            channel = row.get("channel", "#mamba-leads")
-            content = row.get("text", "")
-            success = send_slack_message(channel, content)
-            supabase.table("slack_outbox").update({
-                "status": "sent" if success else "failed",
-                "sent_at": "now()"
-            }).eq("id", row_id).execute()
+        supabase.table("submissions").insert({
+            "startup_id": action_value["startup_id"],
+            "deliverable_id": action_value["deliverable_id"],
+            "founder_id": action_value["founder_id"],
+            "status": action_value["status"],
+            "progress": action_value["progress"],
+            "blocker": action_value["blocker"],
+            "digest": action_value["digest"],
+            "raw_transcript": action_value.get("raw_transcript"),
+            "confirmed": True,
+        }).execute()
+        signal_type = "blocker" if action_value["status"] == "Blocked" else "checkin"
+        supabase.table("signals").insert({
+            "startup_id": action_value["startup_id"],
+            "type": signal_type,
+            "headline": f"{action_value['status']} update logged",
+            "detail": action_value["digest"],
+            "stream": action_value.get("stream", "General"),
+            "actor": actor,
+        }).execute()
     except Exception as e:
-        pass
+        print(f"[Supabase Commit Error]: {e}")
+
+
+@app.view("modal_edit_checkin")
+def handle_edit_checkin_submit(ack, body, client, view):
+    """Founder saved the Adjust Details modal: commit the edited values."""
+    ack()
+    action_value = json.loads(view["private_metadata"])
+    values = view["state"]["values"]
+    action_value["blocker"] = values["blocker_input"]["blocker_text"]["value"] or "None"
+    action_value["digest"] = values["digest_input"]["digest_text"]["value"] or action_value["digest"]
+    commit_checkin(action_value, body["user"]["name"])
+    user_id = body["user"]["id"]
+    client.chat_postMessage(channel=user_id, text="✅ Your adjusted check-in is synced to the dashboard.")
+    publish_home(user_id, client)
+
+
+@app.action("confirm_checkin")
+def handle_confirm_checkin(ack, body, client):
+    """
+    Founder clicked 'Confirm': Write to Supabase & Emit Live Signal
+    """
+    ack()
+    action_value = json.loads(body["actions"][0]["value"])
+    user_id = body["user"]["id"]
+    channel_id = body["channel"]["id"]
+    message_ts = body["message"]["ts"]
+
+    commit_checkin(action_value, body["user"]["name"])
+    publish_home(user_id, client)
+
+    # 3. Update original Slack card to locked confirmed state
+    client.chat_update(
+        channel=channel_id,
+        ts=message_ts,
+        text="✅ Synchronized to Venture Dashboard!",
+        blocks=[
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"✅ *Logged to Venture Command Center!*\n"
+                        f"• Deliverable: *{action_value['deliverable_id']}*\n"
+                        f"• Status: *{action_value['status']} ({action_value['progress']}%)*\n"
+                        f"• Synthesis: _{action_value['digest']}_\n"
+                        f"• Mentors notified on live dashboard."
+                    ),
+                },
+            }
+        ],
+    )
+
+
+@app.action("edit_checkin")
+def handle_edit_checkin(ack, body, client):
+    """
+    Founder clicked 'Adjust Details': Opens Slack modal for quick override.
+    """
+    ack()
+    trigger_id = body["trigger_id"]
+    action_value = json.loads(body["actions"][0]["value"])
+
+    client.views_open(
+        trigger_id=trigger_id,
+        view={
+            "type": "modal",
+            "callback_id": "modal_edit_checkin",
+            "private_metadata": json.dumps(action_value),
+            "title": {"type": "plain_text", "text": "Adjust Check-In"},
+            "submit": {"type": "plain_text", "text": "Save & Sync"},
+            "close": {"type": "plain_text", "text": "Cancel"},
+            "blocks": [
+                {
+                    "type": "input",
+                    "block_id": "blocker_input",
+                    "label": {"type": "plain_text", "text": "Blocker Details"},
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "blocker_text",
+                        "initial_value": action_value.get("blocker", "None"),
+                    },
+                },
+                {
+                    "type": "input",
+                    "block_id": "digest_input",
+                    "label": {"type": "plain_text", "text": "Summary for Mentors"},
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "digest_text",
+                        "initial_value": action_value.get("digest", ""),
+                        "multiline": True,
+                    },
+                },
+            ],
+        },
+    )
+
+
+# --- BACKGROUND PROACTIVE CHASER & NUDGE WORKER ---
+
+def audit_deadlines_and_blockers():
+    """
+    Runs daily to:
+    1. Alert teams with upcoming deadlines (<48h) lacking a submission.
+    2. Proactively DM founders stuck on blockers for >48h.
+    """
+    print(f"[{datetime.now().isoformat()}] Running proactive studio audit...")
+    if not supabase:
+        print("Supabase connection not active; skipping automated chaser pass.")
+        return
+
+    try:
+        # Check blocked items older than 48 hours
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+        res = (
+            supabase.table("submissions")
+            .select("*, startups(*), founders(*)")
+            .eq("status", "Blocked")
+            .lt("created_at", cutoff)
+            .execute()
+        )
+        for item in res.data or []:
+            founder = item.get("founders", {})
+            slack_id = founder.get("slack_user_id")
+            startup = item.get("startups", {})
+            lead = startup.get("lead", "Studio Lead")
+
+            if slack_id and SLACK_BOT_TOKEN:
+                app.client.chat_postMessage(
+                    channel=slack_id,
+                    text=(
+                        f"Hey {founder.get('name', 'there')}! 👋 The dashboard shows you've been blocked on: "
+                        f"*{item.get('blocker')}* for over 48 hours.\n\n"
+                        f"Would you like me to schedule a priority unblocking sync with your lead ({lead})?"
+                    ),
+                )
+    except Exception as e:
+        print(f"[Audit Error]: {e}")
+
+
+# --- GITHUB CONNECTION CONFIRMATION & REPO PICKER ---
+
+_poll_warned = False
+
+
+def poll_new_connections():
+    """Confirms freshly connected GitHub installs in Slack and offers the repo picker."""
+    if not (supabase and SLACK_BOT_TOKEN):
+        return
+    try:
+        rows = supabase.table("integrations").select("*").eq("provider", "github").is_("notified_at", "null").execute().data or []
+    except Exception as e:
+        global _poll_warned
+        if not _poll_warned:  # most likely the 2026-10-github-repos.sql migration hasn't been run yet
+            print(f"[GitHub Poll Warning] {e} (will keep retrying quietly)")
+            _poll_warned = True
+        return
+    now = datetime.now(timezone.utc)
+    for row in rows:
+        row = refresh_repos(row)
+        age = (now - datetime.fromisoformat(row["created_at"].replace("Z", "+00:00"))).total_seconds()
+        if not row.get("repos") and not gh and age < 60:
+            continue  # GitHub's repo list usually lands within seconds; give it a moment
+        try:
+            founder = supabase.table("founders").select("slack_user_id,startups(name)").eq("id", row["founder_id"]).execute().data
+            slack_id = founder[0]["slack_user_id"] if founder else None
+            if slack_id:
+                headline = integrations.connected_headline(row, (founder[0].get("startups") or {}).get("name", "your startup"))
+                app.client.chat_postMessage(channel=slack_id, text="GitHub connected",
+                                            blocks=integrations.build_repo_selector(row, headline))
+                publish_home(slack_id, app.client)
+                if len(row.get("repos") or []) == 1:
+                    backfill_in_background(row, slack_id)  # one repo: nothing to choose, so start right away
+            supabase.table("integrations").update({"notified_at": now.isoformat()}).eq("id", row["id"]).execute()
+        except Exception as e:
+            print(f"[GitHub Poll Error] {e}")
+
+
+def _owns_integration(user_id: str, integration_id: str):
+    """The integration row if this Slack user is a founder of its startup, else None."""
+    rows = supabase.table("integrations").select("*").eq("id", integration_id).execute().data
+    if not rows:
+        return None
+    mine = supabase.table("founders").select("id").eq("slack_user_id", user_id).eq("startup_id", rows[0]["startup_id"]).execute().data
+    return rows[0] if mine else None
+
+
+@app.action("select_repos")
+def handle_select_repos(ack, body, client):
+    ack()
+    user_id = body["user"]["id"]
+    action = body["actions"][0]
+    integration_id = action["block_id"].removeprefix("repos_")
+    try:
+        row = _owns_integration(user_id, integration_id)
+        if not row:
+            return
+        chosen = [o["value"] for o in action.get("selected_options", [])]
+        supabase.table("integrations").update({"selected_repos": chosen or None}).eq("id", integration_id).execute()
+        row["selected_repos"] = chosen or None
+        names = ", ".join(f"*{r}*" for r in integrations.monitored_repos(row))
+        headline = (f"✅ Now monitoring {names}. You can change this any time." if chosen
+                    else "I'm not tracking any repository right now. Pick one below when you're ready.")
+        client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text="Repositories updated",
+                           blocks=integrations.build_repo_selector(row, headline))
+        publish_home(user_id, client)
+        if chosen:
+            backfill_soon(row, user_id)
+    except Exception as e:
+        print(f"[Repo Select Error] {e}")
+
+
+@app.action("change_repos")
+def handle_change_repos(ack, body, client):
+    ack()
+    user_id = body["user"]["id"]
+    try:
+        row = _owns_integration(user_id, body["actions"][0]["value"])
+        if row:
+            row = refresh_repos(row)
+            client.chat_postMessage(channel=user_id, text="Choose repositories",
+                                    blocks=integrations.build_repo_selector(row, "Which repositories should I monitor?"))
+    except Exception as e:
+        print(f"[Change Repos Error] {e}")
+
+
+@app.action("connect_github")
+def handle_noop_link_button(ack):
+    ack()  # link buttons still send an interaction event; acknowledge so Slack doesn't show a warning
+
+
+@app.action("connect_github_home")
+def handle_noop_link_button_home(ack):
+    ack()
+
+
+# --- GITHUB ORGANISATIONS (an owner must approve the install) ---
+
+@app.action("claim_org")
+def handle_claim_org(ack, body, client):
+    ack()
+    user_id = body["user"]["id"]
+    founder_id, startup_id = body["actions"][0]["value"].split("|", 1)
+    own = supabase.table("founders").select("id").eq("id", founder_id).eq("slack_user_id", user_id).execute().data
+    if not own:
+        return
+    client.views_open(trigger_id=body["trigger_id"], view={
+        "type": "modal", "callback_id": "modal_claim_org", "private_metadata": body["actions"][0]["value"],
+        "title": {"type": "plain_text", "text": "GitHub organisation"},
+        "submit": {"type": "plain_text", "text": "Link it"}, "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": [
+            {"type": "section", "text": {"type": "mrkdwn", "text": (
+                "Type the organisation's GitHub name (the part after `github.com/`). "
+                "If you're not an owner, press *Connect GitHub* first and choose that organisation: GitHub will send the owners "
+                "an approval request. I'll link it automatically once it's approved.")}},
+            _text_input("org_input", "org_text", "Organisation name", max_length=39),
+        ],
+    })
+
+
+@app.view("modal_claim_org")
+def handle_claim_org_submit(ack, body, client, view):
+    org = (view["state"]["values"]["org_input"]["org_text"]["value"] or "").strip().removeprefix("https://github.com/").strip("/")
+    if not integrations.valid_org_login(org):
+        ack(response_action="errors", errors={"org_input": "That doesn't look like a GitHub organisation name."})
+        return
+    ack()
+    user_id = body["user"]["id"]
+    founder_id, startup_id = view["private_metadata"].split("|", 1)
+    try:
+        own = supabase.table("founders").select("id").eq("id", founder_id).eq("slack_user_id", user_id).execute().data
+        if not own:
+            return
+        supabase.table("github_claims").insert({"startup_id": startup_id, "founder_id": founder_id, "org_login": org}).execute()
+        supabase.table("signals").insert({"startup_id": startup_id, "type": "ai_digest", "stream": "Tech", "actor": "Studio AI",
+                                          "headline": f"A founder asked to link GitHub organisation {org}"}).execute()
+        client.chat_postMessage(channel=user_id, text=(
+            f"👍 Noted: *{org}*. Once the app is installed on that organisation (an owner may need to approve the request "
+            "GitHub sends them), I'll link it to your startup and message you here to choose the repository. "
+            "This request stays open for 14 days."))
+        link_org_claims()  # in case it's already installed
+    except Exception as e:
+        print(f"[Org Claim Error] {e}")
+        client.chat_postMessage(channel=user_id, text="Something went wrong saving that. Did you run the latest SQL migration?")
+
+
+def link_org_claims():
+    """Links claimed organisations whose app installation now exists (approved by an owner)."""
+    if not supabase:
+        return
+    for claim in integrations.open_claims(supabase):
+        try:
+            found = None
+            if gh:
+                found = gh.installation_for(claim["org_login"])
+            if not found:
+                staged = supabase.table("github_installations").select("installation_id,account").ilike("account", claim["org_login"]).execute().data
+                found = {"id": staged[0]["installation_id"], "account": staged[0]["account"]} if staged else None
+            if not found:
+                continue
+            existing = supabase.table("integrations").select("id").eq("provider", "github").eq("external_id", found["id"]).execute().data
+            if not existing:
+                supabase.table("integrations").insert({
+                    "startup_id": claim["startup_id"], "founder_id": claim["founder_id"], "provider": "github",
+                    "external_id": found["id"], "account": found["account"], "repos": []}).execute()
+            # An installation already linked to someone else is never re-pointed by a claim; the claim just closes.
+            supabase.table("github_claims").update({"resolved_at": datetime.now(timezone.utc).isoformat()}).eq("id", claim["id"]).execute()
+        except Exception as e:
+            print(f"[Org Claim Warning] {e}")
+
+
+# Initialize scheduler if available (all times Singapore time)
+DAILY_CHECKIN = os.environ.get("DAILY_CHECKIN", "on").lower() != "off"
+DAILY_CHECKIN_HOUR = int(os.environ.get("DAILY_CHECKIN_HOUR", "17"))
+
+
+def run_daily_prompts():
+    if supabase and SLACK_BOT_TOKEN:
+        print(f"[Daily] prompts sent: {len(send_daily_prompts(app.client, supabase, memory))}")
+
+
+def run_daily_nudges():
+    if supabase and SLACK_BOT_TOKEN:
+        print(f"[Daily] nudges sent: {len(send_nudges(app.client, supabase, memory))}")
+
+
+if BackgroundScheduler:
+    scheduler = BackgroundScheduler(timezone="Asia/Singapore")
+    scheduler.add_job(audit_deadlines_and_blockers, "cron", hour=9, minute=0)
+    scheduler.add_job(poll_new_connections, "interval", seconds=10, max_instances=1)
+    scheduler.add_job(link_org_claims, "interval", seconds=60, max_instances=1)
+    if DAILY_CHECKIN:
+        scheduler.add_job(run_daily_prompts, "cron", day_of_week="mon-fri", hour=DAILY_CHECKIN_HOUR, minute=0)
+        scheduler.add_job(run_daily_nudges, "cron", day_of_week="mon-fri", hour=9, minute=30)
+    scheduler.start()
+
+
+# --- CLI SIMULATOR / ENTRY POINT ---
 
 if __name__ == "__main__":
-    import sys
-    if "--send" in sys.argv:
-        channel_target = sys.argv[2] if len(sys.argv) > 2 else "#mamba-leads"
-        msg_content = sys.argv[3] if len(sys.argv) > 3 else "60-Second Lead Briefing from MVP_buddy"
-        print(f"Triggering outbound message to {channel_target}...")
-        send_slack_message(channel_target, msg_content)
-    elif "--playbook" in sys.argv:
-        pb_num = sys.argv[2] if len(sys.argv) > 2 else "1"
-        if pb_num == "1":
-            print(execute_monday_kickoff())
-        elif pb_num == "2":
-            print(execute_wednesday_blocker_sweep())
-        elif pb_num == "3":
-            print(execute_thursday_pregate_audit())
-        elif pb_num == "4":
-            print(execute_friday_gatekeeper())
-        elif pb_num == "6":
-            print(execute_sunday_briefing())
-    else:
-        # Start Autonomous Background Scheduler
-        scheduler_thread = threading.Thread(target=cos_scheduler_loop, daemon=True)
-        scheduler_thread.start()
+    if "--daily-dry-run" in sys.argv:
+        print("Prompts that would be sent now (nothing is sent):")
+        for uid, text in send_daily_prompts(None, supabase, memory, dry_run=True):
+            print(f"--- to {uid}" + chr(10) + text)
+        print("Nudges that would be sent now:", len(send_nudges(None, supabase, memory, dry_run=True)))
+        sys.exit(0)
+    if "--simulate" in sys.argv or "--dry-run" in sys.argv:
+        print("\n=== RUNNING SIMULATED INBOUND CHECK-IN (DRY RUN) ===")
+        sample_transcript = (
+            "We finished talking to 4 warehouse operations managers. They really hated the AI buzzwords, "
+            "so we rewrote the headline to focus on 15% fewer delayed shipments. My blocker right now is "
+            "getting feedback on our copy before launching the landing page test."
+        )
+        ctx = resolve_founder_context("U_NEXUS_LEAD")
+        extracted = extract_update_with_ai(sample_transcript, ctx)
+        blocks = build_confirmation_card(ctx, extracted, sample_transcript)
 
-        print("Venture Studio Slack Bot is starting in Socket Mode...")
-        if SLACK_BOT_TOKEN and SLACK_APP_TOKEN:
-            SocketModeHandler(app, SLACK_APP_TOKEN).start()
-        else:
-            print("Please add SLACK_BOT_TOKEN and SLACK_APP_TOKEN to your .env file to run the bot.")
+        print("\n1. RESOLVED CONTEXT:")
+        print(json.dumps(ctx, indent=2))
+        print("\n2. STRUCTURED EXTRACTION:")
+        print(json.dumps(extracted, indent=2))
+        print("\n3. BLOCK KIT CONFIRMATION CARD (PREVIEW):")
+        print(f"Header: {blocks[0]['text']['text']}")
+        print(f"Status: {extracted['status']} ({extracted['progress']}%)")
+        print(f"Blocker: {extracted['blocker']}")
+        print(f"Digest: {extracted['digest']}")
+        print("Interactive buttons: [Confirm & Sync Dashboard] [Adjust Details]")
+        print("\nDry run completed successfully! 🚀\n")
+        sys.exit(0)
+
+    print("Venture Studio Slack Bot starting in Socket Mode...")
+    if SLACK_BOT_TOKEN and SLACK_APP_TOKEN:
+        SocketModeHandler(app, SLACK_APP_TOKEN).start()
+    else:
+        print(
+            "SLACK_BOT_TOKEN or SLACK_APP_TOKEN not provided in .env.\n"
+            "Run with 'python slack_bot.py --simulate' to test extraction and card generation in dry-run mode."
+        )

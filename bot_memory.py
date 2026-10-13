@@ -1,0 +1,137 @@
+"""
+Persistent memory + CRM data access for the Slack bot (Supabase, service-role only).
+
+Every method swallows and logs database errors and returns an empty/False result, so a missing
+table or an outage degrades the bot to "no memory" instead of crashing a conversation.
+"""
+
+from datetime import datetime, timezone
+
+
+class Memory:
+    def __init__(self, sb):
+        self.sb = sb
+
+    def _guard(self, label, fn, default):
+        if not self.sb:
+            return default
+        try:
+            return fn()
+        except Exception as e:  # noqa: BLE001 - deliberate: memory must never break the bot
+            print(f"[Memory Warning] {label}: {e}")
+            return default
+
+    # --- short-term: conversation history ---
+    def history(self, slack_user_id: str, limit: int = 12) -> list:
+        def run():
+            rows = (
+                self.sb.table("bot_messages").select("role,content")
+                .eq("slack_user_id", slack_user_id)
+                .order("created_at", desc=True).limit(limit).execute().data
+            )
+            return [{"role": r["role"], "content": r["content"]} for r in reversed(rows or [])]
+        return self._guard("history", run, [])
+
+    def log(self, slack_user_id: str, role: str, content: str):
+        if not content:
+            return
+        self._guard("log", lambda: self.sb.table("bot_messages").insert(
+            {"slack_user_id": slack_user_id, "role": role, "content": content[:4000]}).execute(), None)
+
+    # --- long-term: facts ---
+    def remember(self, subject_type: str, subject_id: str, fact: str, audience: str, created_by: str) -> bool:
+        def run():
+            existing = self.sb.table("memories").select("id").eq("subject_id", subject_id).eq("fact", fact).execute().data
+            if existing:
+                return True
+            self.sb.table("memories").insert({
+                "subject_type": subject_type, "subject_id": subject_id, "fact": fact[:500],
+                "audience": audience, "created_by": created_by,
+            }).execute()
+            return True
+        return self._guard("remember", run, False)
+
+    def facts(self, subject_ids: list, audience_all_only: bool, limit: int = 25) -> list:
+        """Returns [{'subject_id', 'fact'}] newest first."""
+        def run():
+            q = self.sb.table("memories").select("subject_id,fact,audience").in_("subject_id", subject_ids)
+            if audience_all_only:
+                q = q.eq("audience", "all")
+            return q.order("created_at", desc=True).limit(limit).execute().data or []
+        return self._guard("facts", run, []) if subject_ids else []
+
+    def recent_facts(self, limit: int = 25) -> list:
+        """Mentor view: newest facts across the whole cohort."""
+        return self._guard("recent_facts", lambda: self.sb.table("memories").select("subject_id,fact,audience")
+                           .order("created_at", desc=True).limit(limit).execute().data or [], [])
+
+    # --- CRM: notes ---
+    def add_note(self, startup_id: str, author_slack_id: str, author_name: str, body: str) -> bool:
+        return self._guard("add_note", lambda: bool(self.sb.table("notes").insert({
+            "startup_id": startup_id, "author_slack_id": author_slack_id,
+            "author_name": author_name, "body": body[:2000]}).execute()), False)
+
+    def recent_notes(self, startup_id: str | None = None, limit: int = 10) -> list:
+        def run():
+            q = self.sb.table("notes").select("startup_id,author_name,body,created_at,startups(name)")
+            if startup_id:
+                q = q.eq("startup_id", startup_id)
+            return q.order("created_at", desc=True).limit(limit).execute().data or []
+        return self._guard("recent_notes", run, [])
+
+    # --- CRM: tasks ---
+    def add_task(self, startup_id: str | None, owner_slack_id: str | None, title: str,
+                 due_date: str | None, created_by: str) -> bool:
+        return self._guard("add_task", lambda: bool(self.sb.table("tasks").insert({
+            "startup_id": startup_id, "owner_slack_id": owner_slack_id, "title": title[:300],
+            "due_date": due_date, "created_by": created_by}).execute()), False)
+
+    def open_tasks(self, startup_id: str | None = None, limit: int = 30) -> list:
+        def run():
+            q = self.sb.table("tasks").select("id,startup_id,owner_slack_id,title,due_date,created_by,startups(name)").eq("status", "open")
+            if startup_id:
+                q = q.eq("startup_id", startup_id)
+            return q.order("due_date", desc=False, nullsfirst=False).limit(limit).execute().data or []
+        return self._guard("open_tasks", run, [])
+
+    def complete_task(self, task_id: str) -> bool:
+        return self._guard("complete_task", lambda: bool(self.sb.table("tasks").update({
+            "status": "done", "completed_at": datetime.now(timezone.utc).isoformat()}).eq("id", task_id).execute()), False)
+
+    # --- milestones & goals ---
+    def add_milestone(self, startup_id: str, title: str, due_date: str | None, created_by: str, role: str) -> str | None:
+        def run():
+            res = self.sb.table("milestones").insert({
+                "startup_id": startup_id, "title": title[:200], "due_date": due_date,
+                "created_by": created_by, "created_by_role": role}).execute()
+            return res.data[0]["id"] if res.data else None
+        return self._guard("add_milestone", run, None)
+
+    def milestones(self, startup_id: str | None = None, limit: int = 40) -> list:
+        """Open milestones with their goals nested (id, title, done)."""
+        def run():
+            q = self.sb.table("milestones").select(
+                "id,startup_id,title,due_date,status,startups(name),goals(id,title,done)").eq("status", "open")
+            if startup_id:
+                q = q.eq("startup_id", startup_id)
+            return q.order("due_date", desc=False, nullsfirst=False).limit(limit).execute().data or []
+        return self._guard("milestones", run, [])
+
+    def update_milestone(self, milestone_id: str, patch: dict) -> bool:
+        patch = {**patch, "updated_at": datetime.now(timezone.utc).isoformat()}
+        return self._guard("update_milestone", lambda: bool(
+            self.sb.table("milestones").update(patch).eq("id", milestone_id).execute()), False)
+
+    def add_goal(self, milestone_id: str, title: str, created_by: str) -> bool:
+        return self._guard("add_goal", lambda: bool(self.sb.table("goals").insert({
+            "milestone_id": milestone_id, "title": title[:300], "created_by": created_by}).execute()), False)
+
+    def update_goal(self, goal_id: str, patch: dict) -> bool:
+        if "done" in patch:
+            patch = {**patch, "done_at": datetime.now(timezone.utc).isoformat() if patch["done"] else None}
+        return self._guard("update_goal", lambda: bool(
+            self.sb.table("goals").update(patch).eq("id", goal_id).execute()), False)
+
+    def remove_goal(self, goal_id: str) -> bool:
+        return self._guard("remove_goal", lambda: bool(
+            self.sb.table("goals").delete().eq("id", goal_id).execute()), False)
