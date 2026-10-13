@@ -11,6 +11,7 @@ export type Founder = {
   status: "Blocked" | "In progress";
   digest: string;
   time: string;
+  lastCheckInAt?: string;
   progress: number;
   audience: string;
   stack: string[];
@@ -26,19 +27,22 @@ export const studioRoles = [
     id: "coordinator",
     title: "Program Coordinator",
     focus: "Program delivery",
-    responsibility: "Coordinate the cohort calendar, office hours, deliverables and gate readiness.",
+    responsibility:
+      "Coordinate the cohort calendar, office hours, deliverables and gate readiness.",
   },
   {
     id: "gtm",
     title: "GTM Venture Advisor",
     focus: "Venture strategy",
-    responsibility: "Guide positioning, customer discovery, business models and go-to-market experiments.",
+    responsibility:
+      "Guide positioning, customer discovery, business models and go-to-market experiments.",
   },
   {
     id: "marketing",
     title: "Marketing / Rollout / User Validation",
     focus: "Market validation",
-    responsibility: "Support launch planning, user recruitment, validation experiments and activation feedback.",
+    responsibility:
+      "Support launch planning, user recruitment, validation experiments and activation feedback.",
   },
   {
     id: "technical",
@@ -62,39 +66,3 @@ export function parsePerspective(value: string | undefined): DemoPerspective {
 export function isStudioRole(value: string): boolean {
   return roleIds.includes(value);
 }
-
-import syllabusData from "../../data/syllabus.json";
-
-const rawData = (syllabusData as any).Mamba_MVP_Official_Syllabus_Sch || [];
-export const allSyllabusEvents = rawData;
-
-const rawSprints = rawData
-  .map((row: any) => row["Sprint Phase"])
-  .filter((phase: any) => typeof phase === "string" && phase.trim() !== "");
-
-export const roadmap = Array.from(new Set(rawSprints)) as string[];
-
-// Dynamic extraction for "On the horizon" section (Defaulting to WK 01)
-const wk01Data = rawData.filter((row: any) => row["Week"] === "WK 01");
-
-export const currentSprintPhase = wk01Data[0]?.["Sprint Phase"] || "Sprint 1: Problem, Founder Thesis & Opportunity";
-
-const fridayRow = wk01Data.find((row: any) => row["Day"] === "Fri");
-export const currentDeliverable = fridayRow?.["Weekly Deliverable / Milestone"] || "1-page venture thesis & Top 10 assumptions ranked";
-export const currentDeliverableDate = fridayRow?.["Date"]
-  ? new Date(fridayRow["Date"]).toLocaleDateString("en-US", {
-      weekday: "long",
-      month: "short",
-      day: "numeric",
-    })
-  : "Friday, Oct 16";
-
-const wednesdayRow = wk01Data.find((row: any) => row["Day"] === "Wed");
-export const nextOfficeHoursActivity = wednesdayRow?.["Exercise / Activity"] || "Dashboard review, block removal & decision locking";
-export const nextOfficeHoursDate = wednesdayRow?.["Date"]
-  ? new Date(wednesdayRow["Date"]).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    })
-  : "Oct 14";
-export const nextOfficeHoursOwner = wednesdayRow?.["Owner / Lead"] || "Studio Lead";

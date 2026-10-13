@@ -12,6 +12,7 @@ export type SubmissionRow = {
 
 export type SignalRow = {
   id: string;
+  startup_id: string | null;
   type: string;
   headline: string;
   detail: string | null;
@@ -49,9 +50,9 @@ export function useLiveLedger(handlers: Handlers) {
           .limit(50),
         client
           .from("signals")
-          .select("id,type,headline,detail,stream,created_at")
+          .select("id,startup_id,type,headline,detail,stream,created_at")
           .order("created_at", { ascending: false })
-          .limit(10),
+          .limit(80),
       ]);
       if (cancelled) return;
       const seen = new Set<string>();

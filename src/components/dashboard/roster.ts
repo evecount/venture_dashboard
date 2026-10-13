@@ -68,7 +68,9 @@ export function buildRoster(
       }
       const days = Math.floor((now.getTime() - Date.parse(since)) / DAY);
       health = "blocked";
-      healthDetail = days ? `Blocked for ${days} day${days === 1 ? "" : "s"}` : "Blocked since today";
+      healthDetail = days
+        ? `Blocked for ${days} day${days === 1 ? "" : "s"}`
+        : "Blocked since today";
     } else {
       const idle = Math.floor((now.getTime() - Date.parse(latest.created_at)) / DAY);
       if (idle >= QUIET_DAYS) {
@@ -88,6 +90,7 @@ export function buildRoster(
       status: latest?.status === "Blocked" ? "Blocked" : "In progress",
       digest: latest?.digest ?? "No check-ins yet.",
       time: latest ? relativeTime(latest.created_at, now) : "—",
+      ...(latest ? { lastCheckInAt: latest.created_at } : {}),
       progress: latest?.progress ?? 0,
       audience: people[0]?.target_audience ?? "",
       stack: [],
@@ -101,6 +104,22 @@ export function buildRoster(
   });
   const order = { blocked: 0, quiet: 1, on_track: 2 } as const;
   return rows.sort(
-    (a, b) => order[a.health ?? "on_track"] - order[b.health ?? "on_track"] || a.startup.localeCompare(b.startup),
+    (a, b) =>
+      order[a.health ?? "on_track"] - order[b.health ?? "on_track"] ||
+      a.startup.localeCompare(b.startup),
   );
+}
+
+/** Why a startup needs a mentor's attention, or null when it's on track. Same rules as the Slack mentor view. */
+export function attentionReason(f: Founder): string | null {
+  if (f.health === "blocked")
+    return f.blocker && f.blocker !== "None" ? f.blocker : f.healthDetail || "Blocked";
+  if (f.health === "quiet") return f.healthDetail || "Quiet";
+  return null;
+}
+
+/** A "handled" mark covers the check-in it was made against; a newer check-in reopens the item. */
+export function isHandled(f: Founder, handledAt: string | undefined): boolean {
+  if (!handledAt) return false;
+  return !f.lastCheckInAt || Date.parse(handledAt) >= Date.parse(f.lastCheckInAt);
 }

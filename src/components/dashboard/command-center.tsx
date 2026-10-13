@@ -1,36 +1,24 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 import { useLiveRoster } from "@/hooks/use-live-roster";
-import { useLiveLedger, type SignalRow, type SubmissionRow } from "@/hooks/use-live-ledger";
+import { useLiveLedger, type SignalRow } from "@/hooks/use-live-ledger";
+import { useHandled } from "@/hooks/use-handled";
 import {
   Activity,
-  ArrowDown,
-  ArrowRight,
-  ArrowUpRight,
-  AudioLines,
-  Bell,
   CalendarDays,
   Check,
-  CheckCheck,
   ChevronDown,
   ChevronRight,
-  Circle,
   CircleAlert,
-  CircleHelp,
-  Code2,
-  Command,
   Flag,
+  GitPullRequest,
   LayoutGrid,
-  ListFilter,
   MessageSquare,
-  Radio,
   Search,
-  Settings2,
-  ShieldCheck,
-  Target,
-  TrendingUp,
+  Sun,
+  Undo2,
   Users,
-  Zap,
+  Video,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,75 +28,106 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
-import {
-  Accordion,
-  AccordionItem,
-  AccordionTrigger,
-  AccordionContent,
-} from "@/components/ui/accordion";
-import { 
-  roadmap, 
-  currentSprintPhase, 
-  currentDeliverable, 
-  currentDeliverableDate, 
-  nextOfficeHoursActivity, 
-  nextOfficeHoursDate, 
-  nextOfficeHoursOwner,
-  allSyllabusEvents,
-  type Founder, 
-  type DemoPerspective,
-  isStudioRole,
-} from "./data";
-import { StudioPerspectives } from "./studio-perspectives";
+import { type Founder, type DemoPerspective, isStudioRole } from "./data";
+import { attentionReason, isHandled, relativeTime } from "./roster";
+import { formatDay, programState, sgtDate, type ProgramState, type SyllabusEvent } from "./program";
+import { TeamPopover, ViewAs } from "./studio-perspectives";
 import { Timeline } from "./timeline";
 import { Milestones } from "./milestones";
 
+type Tab = "today" | "cohort" | "activity" | "program";
+type SheetTab = "Overview" | "Milestones" | "Timeline";
+
 function initials(name: string): string {
   const parts = name.split(/[\s,]+/).filter(Boolean);
+  if (parts.length === 1) return (parts[0] ?? "?").slice(0, 2).toUpperCase();
   return ((parts[0]?.[0] ?? "?") + (parts[1]?.[0] ?? "")).toUpperCase();
 }
 
-function Avatar({ founder, small = false }: { founder: Founder; small?: boolean }) {
-  return (
-    <div
-      aria-label={founder.name}
-      className={`founder-avatar flex items-center justify-center text-[10px] font-semibold text-muted-foreground ${small ? "size-7!" : ""}`}
-    >
-      {initials(founder.name)}
-    </div>
-  );
-}
-function StreamPill({ founder }: { founder: Founder }) {
-  return (
-    <span className={`pill max-w-full whitespace-normal! ${founder.stream === "Tech" ? "pill-info" : "pill-warning"}`}>
-      <span className="stream-dot shrink-0" />
-      <span className="min-w-0 break-words">{founder.stream} · {founder.lead}</span>
-    </span>
-  );
-}
-function Status({ founder }: { founder: Founder }) {
-  if (founder.health === "quiet") {
+/** "Cybrdeck · tagline" -> "Cybrdeck" */
+const startupName = (f: Founder) => f.startup.split(" · ")[0] ?? f.startup;
+
+function HealthPill({ founder }: { founder: Founder }) {
+  if (founder.health === "blocked") {
     return (
-      <span className="pill pill-warning">
-        <Circle size={9} /> {founder.healthDetail || "Quiet"}
+      <span className="pill pill-danger">
+        <CircleAlert size={11} /> Blocked
       </span>
     );
   }
+  if (founder.health === "quiet")
+    return (
+      <span className="pill pill-warning" title={founder.healthDetail}>
+        Quiet
+      </span>
+    );
+  return <span className="pill pill-success">On track</span>;
+}
+
+function StreamTag({ founder }: { founder: Founder }) {
+  const unassigned = !founder.stream || founder.stream === "Unassigned";
   return (
-    <span className={`pill ${founder.status === "Blocked" ? "pill-danger" : "pill-info"}`}>
-      {founder.status === "Blocked" ? <CircleAlert size={10} /> : <Circle size={9} />}{" "}
-      {founder.status}
-      {founder.status === "In progress" && ` · ${founder.progress}%`}
+    <span
+      className="pill pill-neutral"
+      title={unassigned ? "No stream lead yet" : `Lead: ${founder.lead}`}
+    >
+      {unassigned ? "No stream lead" : founder.stream}
     </span>
   );
 }
-const filters = [
-  "All startups",
-  "Tech",
-  "GTM & Strategy",
-  "Marketing & Activation",
-  "Flagged blockers",
-];
+
+function Progress({ value }: { value: number }) {
+  return (
+    <div
+      className="progress"
+      role="progressbar"
+      aria-valuenow={value}
+      aria-valuemin={0}
+      aria-valuemax={100}
+    >
+      <div style={{ width: `${Math.max(2, Math.min(100, value))}%` }} />
+    </div>
+  );
+}
+
+function Kpi({
+  label,
+  value,
+  sub,
+  tone,
+}: {
+  label: string;
+  value: ReactNode;
+  sub: ReactNode;
+  tone?: "warning" | "danger" | "success";
+}) {
+  return (
+    <div className="kpi">
+      <p className="kpi-label">{label}</p>
+      <p className="kpi-value">{value}</p>
+      <p className={`kpi-sub ${tone ? `text-${tone === "danger" ? "danger" : tone}` : ""}`}>
+        {sub}
+      </p>
+    </div>
+  );
+}
+
+function greeting(now: Date): string {
+  const hour = Number(
+    new Intl.DateTimeFormat("en-SG", {
+      hour: "numeric",
+      hourCycle: "h23",
+      timeZone: "Asia/Singapore",
+    }).format(now),
+  );
+  return hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+}
+
+function gateLabel(p: ProgramState): string {
+  if (p.daysToGate === null) return "—";
+  if (p.daysToGate <= 0) return "Today";
+  return `${p.daysToGate} day${p.daysToGate === 1 ? "" : "s"}`;
+}
 
 export function CommandCenter({
   initialPerspective = "coordinator",
@@ -118,948 +137,977 @@ export function CommandCenter({
   onPerspectiveChange?: (value: DemoPerspective) => void;
 } = {}) {
   const [perspective, setPerspectiveState] = useState<DemoPerspective>(initialPerspective);
-  const setPerspective = (value: DemoPerspective) => {
-    setPerspectiveState(value);
-    onPerspectiveChange?.(value);
-  };
   const [founderList, setFounderList] = useState<Founder[]>([]);
+  const [signals, setSignals] = useState<SignalRow[]>([]);
+  const [tab, setTab] = useState<Tab>("today");
+  const [selected, setSelected] = useState<Founder | null>(null);
+  const [sheetTab, setSheetTab] = useState<SheetTab>("Overview");
+  const [now, setNow] = useState(() => new Date());
+  const [lastSync, setLastSync] = useState<Date | null>(null);
   const roster = useLiveRoster();
+  const { handled, setMark, error: handledError } = useHandled();
+  const searchRef = useRef<HTMLInputElement>(null);
+
   const memberRow = isStudioRole(perspective)
     ? undefined
     : founderList.find((f) => f.id === perspective || f.founderIds?.includes(perspective));
   const isMember = memberRow !== undefined;
+  const program = useMemo(() => programState(now), [now]);
 
-  // Live ledger: load the real roster and pulse rows that just changed.
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Live ledger: load the real roster and pulse cards that just changed.
   useEffect(() => {
     if (!roster) return;
+    setLastSync(new Date());
     setFounderList((prev) =>
       roster.map((r) => {
         const old = prev.find((p) => p.id === r.id);
-        const changed = !!old && (old.digest !== r.digest || old.progress !== r.progress || old.status !== r.status);
+        const changed =
+          !!old &&
+          (old.digest !== r.digest || old.progress !== r.progress || old.status !== r.status);
         return { ...r, isPulsing: changed };
       }),
     );
-    const t = setTimeout(() => setFounderList((p) => p.map((f) => ({ ...f, isPulsing: false }))), 4000);
+    const t = setTimeout(
+      () => setFounderList((p) => p.map((f) => ({ ...f, isPulsing: false }))),
+      4000,
+    );
     return () => clearTimeout(t);
   }, [roster]);
-  const [filter, setFilter] = useState("All startups");
-  const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<Founder | null>(null);
-  const [handled, setHandled] = useState<string[]>([]);
-  const [detailTab, setDetailTab] = useState("Overview");
-  const [workspaceOpen, setWorkspaceOpen] = useState(false);
-  const [notificationOpen, setNotificationOpen] = useState(false);
-  const [statusFilter, setStatusFilter] = useState("All statuses");
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [notice, setNotice] = useState("");
-  const [section, setSection] = useState("overview");
-  const [recentSignals, setRecentSignals] = useState<
-    Array<{
-      id: string;
-      type: string;
-      headline: string;
-      detail: string;
-      time: string;
-      stream: "Tech" | "GTM" | "General";
-    }>
-  >([]);
-
-  function applyLiveSubmission(row: SubmissionRow) {
-    if (roster || !row.founder_id) return; // roster mode refetches from the database instead
-    const status = row.status === "Blocked" ? "Blocked" : "In progress";
-    setFounderList((prev) =>
-      prev.map((f) =>
-        f.id === row.founder_id
-          ? {
-              ...f,
-              status,
-              digest: row.digest,
-              blocker: row.blocker ?? "None",
-              progress: row.progress ?? f.progress,
-              time: "Just now",
-              isPulsing: true,
-            }
-          : f
-      )
-    );
-    setTimeout(() => {
-      setFounderList((prev) =>
-        prev.map((f) => (f.id === row.founder_id ? { ...f, isPulsing: false } : f))
-      );
-    }, 4000);
-  }
-
-  function applyLiveSignals(rows: SignalRow[], live: boolean) {
-    const mapped = rows.map((r) => ({
-      id: r.id,
-      type: r.type,
-      headline: r.headline,
-      detail: r.detail ?? "",
-      time: live ? "Just now" : new Date(r.created_at).toLocaleTimeString(),
-      stream: (r.stream === "Tech" || r.stream === "GTM" ? r.stream : "General") as
-        | "Tech"
-        | "GTM"
-        | "General",
-    }));
-    setRecentSignals((prev) => (live ? [...mapped, ...prev] : mapped));
-  }
 
   const { connected: liveConnected } = useLiveLedger({
-    onSubmission: applyLiveSubmission,
-    onSignals: applyLiveSignals,
+    onSubmission: () => {}, // the roster refetches on submission changes
+    onSignals: (rows, live) => {
+      setLastSync(new Date());
+      setSignals((prev) => (live ? [...rows, ...prev] : rows));
+    },
   });
 
-  const visible = founderList.filter((f) => {
-    const matchesStream =
-      filter === "All startups" ||
-      (filter === "Tech" && f.stream === "Tech") ||
-      (filter === "GTM & Strategy" && f.stream === "GTM") ||
-      (filter === "Flagged blockers" && !handled.includes(f.id));
-    return (
-      matchesStream &&
-      (statusFilter === "All statuses" || f.status === statusFilter) &&
-      `${f.name} ${f.startup} ${f.lead}`.toLowerCase().includes(search.toLowerCase())
-    );
-  });
+  // ⌘K / Ctrl+K jumps to the cohort search.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k" && !isMember) {
+        e.preventDefault();
+        setTab("cohort");
+        setTimeout(() => searchRef.current?.focus(), 0);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isMember]);
 
-  const openBlockersCount = founderList.filter(
-    (f) => f.status === "Blocked" && !handled.includes(f.id)
-  ).length;
+  function setPerspective(value: DemoPerspective) {
+    setPerspectiveState(value);
+    onPerspectiveChange?.(value);
+    setSelected(null);
+    setTab("today");
+  }
 
-  const avgVelocity = founderList.length
-    ? Math.round(founderList.reduce((acc, f) => acc + f.progress, 0) / founderList.length)
-    : 0;
-
-  function openFounder(f: Founder, tab = "Overview") {
+  function openFounder(f: Founder, t: SheetTab = "Overview") {
     setSelected(f);
-    setDetailTab(tab);
+    setSheetTab(t);
   }
-  function navigateSection(id: string) {
-    setSection(id);
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
+
+  const attention = founderList.filter((f) => attentionReason(f) !== null);
+  const openItems = attention.filter((f) => !isHandled(f, handled[f.id]));
+
+  const tabs: Array<{ id: Tab; label: string; icon: ReactNode; badge?: number }> = isMember
+    ? [
+        { id: "today", label: "My venture", icon: <Sun size={16} /> },
+        { id: "program", label: "Program", icon: <Flag size={16} /> },
+      ]
+    : [
+        { id: "today", label: "Today", icon: <Sun size={16} />, badge: openItems.length },
+        { id: "cohort", label: "Cohort", icon: <LayoutGrid size={16} /> },
+        { id: "activity", label: "Activity", icon: <Activity size={16} /> },
+        { id: "program", label: "Program", icon: <Flag size={16} /> },
+      ];
+
+  const syncText = !supabase
+    ? "Not connected"
+    : lastSync
+      ? `Updated ${relativeTime(lastSync.toISOString(), now)}`
+      : "Connecting…";
+
   return (
-    <div className="dashboard-shell">
-      <aside className="side-rail" aria-label="Main navigation">
-        <div className="brand-mark" title="Adventure Studio">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path
-              d="M3 19 11 4l4 7-4 8H3Z M13 19l4-8 4 8h-8Z"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </div>
-        <div className="flex flex-col gap-3">
-          <Button
-            variant="quiet"
-            size="icon"
-            className={`nav-icon ${section === "overview" ? "selected" : ""}`}
-            title="Command center"
-            aria-label="Command center"
-            onClick={() => navigateSection("overview")}
-          >
-            <LayoutGrid />
-          </Button>
-          <Button
-            variant="quiet"
-            size="icon"
-            className={`nav-icon ${section === "cohort" ? "selected" : ""}`}
-            title="Cohort roster"
-            aria-label="Cohort roster"
-            onClick={() => navigateSection("cohort")}
-          >
-            <Users />
-          </Button>
-          <Button
-            variant="quiet"
-            size="icon"
-            className={`nav-icon ${section === "program" ? "selected" : ""}`}
-            title="Sprint roadmap"
-            aria-label="Sprint roadmap"
-            onClick={() => navigateSection("program")}
-          >
-            <Flag />
-          </Button>
-          <Button
-            variant="quiet"
-            size="icon"
-            className={`nav-icon ${section === "activity" ? "selected" : ""}`}
-            title="Activity feed"
-            aria-label="Activity feed"
-            onClick={() => navigateSection("activity")}
-          >
-            <Activity />
-          </Button>
-        </div>
-        <div className="mt-auto flex flex-col gap-3">
-          <Button
-            variant="quiet"
-            size="icon"
-            title="Workspace information"
-            aria-label="Workspace information"
-            onClick={() =>
-              setNotice(
-                `SG#01 · ${founderList.length} startup${founderList.length === 1 ? "" : "s"} · 12-week venture studio program.`,
-              )
-            }
-          >
-            <Settings2 />
-          </Button>
-          <Button
-            variant="quiet"
-            size="icon"
-            title="Support"
-            aria-label="Support"
-            onClick={() =>
-              setNotice(
-                "Questions about the program? Ask the studio team in Slack.",
-              )
-            }
-          >
-            <CircleHelp />
-          </Button>
-          <span
-            className="flex size-8 items-center justify-center rounded-full bg-secondary text-xs font-semibold"
-            title="Studio operations"
-          >
-            DO
-          </span>
-        </div>
-      </aside>
-      <div className="min-w-0">
-        <header className="main-header">
-          <div className="relative">
-            <Button
-              variant="ghost"
-              className="workspace px-0!"
-              onClick={() => setWorkspaceOpen(!workspaceOpen)}
-              aria-expanded={workspaceOpen}
-            >
-              <span className="workspace-name font-semibold">Adventure Studio</span>
-              <span className="cohort-tag">SG#01</span>
-              <ChevronDown className="size-3! text-muted-foreground" />
-            </Button>
-            {workspaceOpen && (
-              <div className="absolute top-11 left-0 z-20 w-64 rounded-md border border-border bg-card p-3 shadow-sm">
-                <p className="mb-2 text-[10px] text-muted-foreground">WORKSPACES</p>
-                <div className="flex items-center justify-between text-xs">
-                  Adventure Studio · SG#01 <Check size={13} className="text-primary" />
-                </div>
-                <p className="mt-2 text-[10px] text-muted-foreground">Current cohort · Singapore</p>
-              </div>
-            )}
+    <div className="dash">
+      <header className="dash-header">
+        <div className="dash-header-inner">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="brand-mark" title="Adventure Studio">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M3 19 11 4l4 7-4 8H3Z M13 19l4-8 4 8h-8Z"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+            <span className="hide-sm truncate font-semibold">Adventure Studio</span>
+            <span className="cohort-tag">SG#01</span>
           </div>
-          <div className="header-sprint flex items-center gap-2 text-[11px] text-muted-foreground">
-            <Flag size={12} />
-            <span>Sprint 1: Problem & Founder Thesis</span>
-            <span className="mx-2 text-border">/</span>
-            <span>
-              Week <strong className="font-medium text-foreground">1</strong> of 12
-            </span>
-          </div>
-          <div className="flex items-center gap-3">
-            {!isMember && <label className="search-field header-search">
-              <Search size={13} className="text-muted-foreground" />
-              <input
-                aria-label="Search founders"
-                placeholder="Search anything…"
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  navigateSection("cohort");
-                }}
-              />
-              <span className="rounded border border-border px-1 text-[9px] text-muted-foreground">
-                ⌘ K
-              </span>
-            </label>}
-            <div className="relative">
-              <Button
-                variant="quiet"
-                size="icon"
-                aria-label="Notifications"
-                title="Notifications"
-                onClick={() => setNotificationOpen(!notificationOpen)}
+          <nav className="tab-nav" aria-label="Dashboard sections">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={`tab-btn ${tab === t.id ? "active" : ""}`}
+                aria-current={tab === t.id ? "page" : undefined}
+                onClick={() => setTab(t.id)}
               >
-                <Bell size={16} />
-                <span className="absolute top-2 right-2 size-1.5 rounded-full bg-primary" />
-              </Button>
-              {notificationOpen && (
-                <div className="absolute right-0 top-11 z-20 w-64 rounded-md border border-border bg-card p-4 shadow-sm">
-                  <p className="text-xs font-semibold">Notifications</p>
-                  <p className="mt-3 text-xs text-muted-foreground">
-                    {openBlockersCount} blocker{openBlockersCount === 1 ? "" : "s"} awaiting studio review.
-                  </p>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {founderList.filter((f) => f.health !== "quiet").length} of {founderList.length} startups checked in recently.
-                  </p>
-                </div>
-              )}
-            </div>
-            <span className="h-5 border-l border-border" />
-            <span className="flex size-7 items-center justify-center rounded-full bg-accent text-[10px] font-semibold text-primary">
-              {memberRow ? initials(memberRow.name) : "CT"}
+                {t.icon}
+                <span>{t.label}</span>
+                {!!t.badge && <span className="tab-badge">{t.badge}</span>}
+              </button>
+            ))}
+          </nav>
+          <div className="flex items-center justify-end gap-2">
+            <span
+              className="sync-status"
+              title={liveConnected ? "Live updates on" : "Live updates off"}
+            >
+              <span className={`live-dot ${liveConnected ? "" : "off"}`} />
+              <span className="hide-sm">{syncText}</span>
             </span>
+            <TeamPopover perspective={perspective} />
+            <ViewAs perspective={perspective} members={founderList} onChange={setPerspective} />
           </div>
-        </header>
-        <main className="content-wrap" id="overview">
-          <div className="page-intro flex items-center justify-between gap-4">
-            <div>
-              <div className="mb-3 flex flex-wrap items-center gap-2">
-                <span className="flex items-center gap-1.5 text-[10px] text-success">
-                  <span className="live-dot" />
-                  {liveConnected ? "Live from Slack" : "Not connected to the live ledger"}
-                </span>
-              </div>
-              <h1 className="page-title text-[30px] font-semibold leading-tight">
-                {isMember ? "My venture" : "Cohort pulse"}<span className="text-primary">.</span>
-              </h1>
-              <p className="mt-2 text-xs text-muted-foreground">
-                {liveConnected
-                  ? "Everything here comes from founders' Slack check-ins and connected work."
-                  : "Connect the dashboard to the database to see your cohort."}
-              </p>
-            </div>
-            <div className="date-label text-right">
-              <div className="mb-2 flex items-center justify-end gap-2 text-xs">
-                <CalendarDays size={13} className="text-muted-foreground" />
-                {new Date().toLocaleDateString("en-SG", { year: "numeric", month: "long", day: "numeric" })}
-              </div>
-              <span className="text-[10px] text-muted-foreground">All times SGT</span>
-            </div>
+        </div>
+      </header>
+
+      <main className="dash-main">
+        {isMember && memberRow ? (
+          tab === "program" ? (
+            <ProgramView program={program} now={now} />
+          ) : (
+            <MemberView founder={memberRow} program={program} now={now} openFounder={openFounder} />
+          )
+        ) : (
+          <>
+            {tab === "today" && (
+              <TodayView
+                founders={founderList}
+                program={program}
+                now={now}
+                handled={handled}
+                handledError={handledError}
+                onHandle={setMark}
+                openFounder={openFounder}
+                loaded={roster !== null || !supabase}
+              />
+            )}
+            {tab === "cohort" && (
+              <CohortView founders={founderList} openFounder={openFounder} searchRef={searchRef} />
+            )}
+            {tab === "activity" && (
+              <ActivityView signals={signals} founders={founderList} now={now} />
+            )}
+            {tab === "program" && <ProgramView program={program} now={now} />}
+          </>
+        )}
+        <footer className="page-footer">
+          <span>Adventure Studio · Cohort SG#01</span>
+          <span>From founders&apos; Slack check-ins and connected tools · All times SGT</span>
+        </footer>
+      </main>
+
+      <FounderSheet
+        founder={selected ? (founderList.find((f) => f.id === selected.id) ?? selected) : null}
+        tab={sheetTab}
+        onTab={setSheetTab}
+        program={program}
+        onClose={() => setSelected(null)}
+      />
+    </div>
+  );
+}
+
+function PageHead({ title, sub, right }: { title: ReactNode; sub: ReactNode; right?: ReactNode }) {
+  return (
+    <div className="page-head">
+      <div className="min-w-0">
+        <h1>{title}</h1>
+        <p>{sub}</p>
+      </div>
+      {right}
+    </div>
+  );
+}
+
+function TodayView({
+  founders,
+  program,
+  now,
+  handled,
+  handledError,
+  onHandle,
+  openFounder,
+  loaded,
+}: {
+  founders: Founder[];
+  program: ProgramState;
+  now: Date;
+  handled: Record<string, string>;
+  handledError: boolean;
+  onHandle: (startupId: string, value: boolean) => void;
+  openFounder: (f: Founder, t?: SheetTab) => void;
+  loaded: boolean;
+}) {
+  const n = founders.length;
+  const quiet = founders.filter((f) => f.health === "quiet").length;
+  const blocked = founders.filter(
+    (f) => f.health === "blocked" && !isHandled(f, handled[f.id]),
+  ).length;
+  const avg = n ? Math.round(founders.reduce((a, f) => a + f.progress, 0) / n) : 0;
+  const attention = founders.filter((f) => attentionReason(f) !== null);
+  const open = attention.filter((f) => !isHandled(f, handled[f.id]));
+  const done = attention.filter((f) => isHandled(f, handled[f.id]));
+
+  return (
+    <>
+      <PageHead
+        title={greeting(now)}
+        sub={
+          <>
+            Week {program.week} of {program.totalWeeks}
+            <span className="dot-sep">·</span>
+            {program.phase}
+          </>
+        }
+        right={
+          <span className="page-date">
+            {formatDay(sgtDate(now), { weekday: "short", day: "numeric", month: "long" })}
+          </span>
+        }
+      />
+
+      <div className="kpi-strip">
+        <Kpi
+          label="Next gate"
+          value={gateLabel(program)}
+          sub={program.gateDate ? formatDay(program.gateDate) : "No gate scheduled"}
+          {...(program.daysToGate !== null && program.daysToGate <= 2
+            ? { tone: "warning" as const }
+            : {})}
+        />
+        <Kpi
+          label="Checked in, last 7 days"
+          value={loaded ? `${n - quiet} / ${n}` : "—"}
+          sub={
+            !loaded
+              ? "Loading"
+              : !n
+                ? "No startups yet"
+                : quiet
+                  ? `${quiet} quiet`
+                  : "Everyone checked in"
+          }
+          {...(loaded && n ? { tone: quiet ? ("warning" as const) : ("success" as const) } : {})}
+        />
+        <Kpi
+          label="Open blockers"
+          value={loaded ? blocked : "—"}
+          sub={!loaded ? "Loading" : blocked ? "Waiting on the studio" : "None reported"}
+          {...(blocked ? { tone: "danger" as const } : {})}
+        />
+        <Kpi
+          label="Average progress"
+          value={loaded ? `${avg}%` : "—"}
+          sub="From latest check-ins"
+        />
+      </div>
+
+      <div className="today-grid">
+        <section className="panel" aria-labelledby="needs-you">
+          <div className="panel-head">
+            <h2 id="needs-you">Needs you</h2>
+            {open.length > 0 && <span className="pill pill-warning">{open.length}</span>}
           </div>
-          <StudioPerspectives perspective={perspective} members={founderList} onChange={(value) => {
-            setPerspective(value);
-            setSelected(null);
-            setNotificationOpen(false);
-            setSearch("");
-            setFilter("All startups");
-            setStatusFilter("All statuses");
-          }} openFounder={openFounder} />
-          {!isMember && <>
-          <div className="kpi-grid">
-            <div className="kpi">
-              <div className="kpi-label">
-                Cohort velocity
-                <TrendingUp size={14} />
-              </div>
-              <div className="mt-4 flex items-center justify-between">
-                <div className="flex items-baseline gap-2">
-                  <span className="kpi-value">
-                    {avgVelocity}<span className="text-xl">%</span>
-                  </span>
-                  <span className="text-[11px] text-muted-foreground">on track</span>
-                </div>
-                <svg
-                  width="78"
-                  height="32"
-                  viewBox="0 0 78 32"
-                  className="text-success"
-                  aria-label="Velocity trending upwards"
-                >
-                  <path
-                    d="M1 30 12 25 23 28 34 17 45 20 56 10 67 13 77 2"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinejoin="round"
-                  />
-                  <path
-                    d="M1 30 12 25 23 28 34 17 45 20 56 10 67 13 77 2V32H1Z"
-                    fill="currentColor"
-                    opacity=".07"
-                  />
-                </svg>
-              </div>
-              <div className="kpi-foot">
-                <ArrowUpRight size={12} className="text-success" />
-                <span className="text-success">12%</span> vs. last check-in
-              </div>
+          {handledError && (
+            <p className="mb-2 text-xs text-danger">
+              Couldn&apos;t save that. Check your connection and try again.
+            </p>
+          )}
+          {!loaded ? (
+            <p className="empty">Loading the cohort…</p>
+          ) : open.length === 0 ? (
+            <div className="empty">
+              <Check size={18} className="text-success" />
+              <p className="font-medium text-foreground">All clear</p>
+              <p>No startup is blocked or quiet right now.</p>
             </div>
-            <div className="kpi">
-              <div className="kpi-label">
-                Active blockers
-                <CircleAlert size={14} />
-              </div>
-              <div className="mt-4 flex items-baseline gap-2">
-                <span className="kpi-value">{openBlockersCount}</span>
-                <span className="text-[11px] text-muted-foreground">open blockers</span>
-              </div>
-              <div className="kpi-foot">
-                <span className="pill pill-info">
-                  Tech · {founderList.filter((f) => f.stream === "Tech" && f.status === "Blocked" && !handled.includes(f.id)).length}
-                </span>
-                <span className="pill pill-warning">
-                  GTM · {founderList.filter((f) => f.stream === "GTM" && f.status === "Blocked" && !handled.includes(f.id)).length}
-                </span>
-              </div>
-            </div>
-            <div className="kpi">
-              <div className="kpi-label">
-                Check-in response rate
-                <AudioLines size={14} />
-              </div>
-              <div className="mt-4 flex items-baseline gap-2">
-                <span className="kpi-value">
-                  100<span className="text-xl">%</span>
-                </span>
-                <span className="text-[11px] text-muted-foreground">active</span>
-              </div>
-              <div className="kpi-foot">
-                <CheckCheck size={13} className="text-success" />
-                {founderList.filter((f) => f.health !== "quiet").length} of {founderList.length} startups checked in recently
-              </div>
-            </div>
-            <div className="kpi">
-              <div className="kpi-label">
-                Next program gate
-                <Flag size={14} />
-              </div>
-              <div className="mt-4 flex items-baseline gap-2">
-                <span className="kpi-value text-[26px]!">Oct 16</span>
-                <span className="pill pill-orange">6 days left</span>
-              </div>
-              <div className="kpi-foot">
-                Sprint 1 gate{" "}
-                <span className="ml-auto">
-                  <ArrowRight size={12} />
-                </span>
-              </div>
-            </div>
-          </div>
-          <section aria-labelledby="triage-title">
-            <div className="section-heading">
-              <div className="flex items-center gap-2">
-                <CircleAlert size={15} className="text-danger" />
-                <h2 id="triage-title">Needs your attention</h2>
-                <span className="pill pill-danger">{openBlockersCount}</span>
-              </div>
-              <span className="text-[10px] text-muted-foreground">
-                Prioritized from founder check-ins
-              </span>
-            </div>
-            <div className="blocker-grid">
-              {[...founderList].reverse().map((f) => (
-                <article
-                  key={f.id}
-                  className={`blocker ${handled.includes(f.id) ? "handled" : ""} ${f.isPulsing ? "ring-2 ring-primary/80 bg-accent/20 transition-all duration-700 animate-pulse" : ""}`}
-                >
-                  <div className="mb-3 flex items-center justify-between">
-                    <StreamPill founder={f} />
-                    <span
-                      className={`flex items-center gap-1 text-[10px] ${handled.includes(f.id) ? "text-success" : "text-danger"}`}
-                    >
-                      <span className="stream-dot" />
-                      {handled.includes(f.id) ? "Handled" : "Open blocker"}
+          ) : (
+            <ul className="rows">
+              {open.map((f) => (
+                <li key={f.id} className={`row ${f.isPulsing ? "pulsing" : ""}`}>
+                  <button
+                    type="button"
+                    className="row-main"
+                    onClick={() => openFounder(f, "Timeline")}
+                  >
+                    <span className="avatar">{initials(startupName(f))}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="row-title">
+                        {startupName(f)} <span className="row-meta">· {f.name}</span>
+                      </span>
+                      <span className="row-reason">{attentionReason(f)}</span>
                     </span>
-                  </div>
-                  <div className="flex items-center gap-2.5">
-                    <Avatar founder={f} small />
-                    <span className="text-xs font-semibold">{f.name}</span>
-                    <span className="truncate text-[10px] text-muted-foreground">{f.startup}</span>
-                  </div>
-                  <p className="mt-3 min-h-10 text-xs leading-relaxed">{f.blocker}</p>
-                  <div className="mt-2 flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                    <AudioLines size={12} />
-                    Last check-in {f.time}
-                  </div>
-                  <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-3">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7! text-[10px]!"
-                      disabled={handled.includes(f.id)}
-                      onClick={() => setHandled([...handled, f.id])}
-                    >
-                      <Check size={11} />
-                      {handled.includes(f.id)
-                        ? "Handled in office hours"
-                        : "Mark handled in office hours"}
+                    <HealthPill founder={f} />
+                  </button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="row-action"
+                    aria-label={`Mark ${startupName(f)} handled`}
+                    onClick={() => onHandle(f.id, true)}
+                  >
+                    <Check size={14} /> <span className="hide-sm">Mark handled</span>
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {done.length > 0 && (
+            <details className="handled">
+              <summary>Handled · {done.length}</summary>
+              <ul className="rows">
+                {done.map((f) => (
+                  <li key={f.id} className="row muted">
+                    <span className="avatar">{initials(startupName(f))}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="row-title">{startupName(f)}</span>
+                      <span className="row-reason">
+                        Handled {relativeTime(handled[f.id] ?? "", now)} · reopens on the next
+                        check-in
+                      </span>
+                    </span>
+                    <Button variant="quiet" size="sm" onClick={() => onHandle(f.id, false)}>
+                      <Undo2 size={14} /> Undo
                     </Button>
-                    <Button
-                      variant="quiet"
-                      size="sm"
-                      className="ml-auto h-7! px-0! text-[10px]!"
-                      onClick={() => openFounder(f, "Timeline")}
-                    >
-                      View source
-                      <ArrowUpRight size={11} />
-                    </Button>
-                  </div>
-                </article>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </section>
+        <ThisWeek program={program} now={now} />
+      </div>
+    </>
+  );
+}
+
+function ThisWeek({ program, now }: { program: ProgramState; now: Date }) {
+  const today = sgtDate(now);
+  return (
+    <section className="panel" aria-labelledby="this-week">
+      <div className="panel-head">
+        <h2 id="this-week">Coming up</h2>
+      </div>
+      {program.upcoming.length === 0 ? (
+        <p className="empty">The program schedule is complete.</p>
+      ) : (
+        <ol className="agenda">
+          {program.upcoming.map((e) => (
+            <li key={e.date} className={e.date === today ? "now" : ""}>
+              <p className="agenda-when">{e.date === today ? "Today" : formatDay(e.date)}</p>
+              <p className="agenda-what">{e.deliverable ? `Gate: ${e.deliverable}` : e.focus}</p>
+              <p className="agenda-who">{e.owner}</p>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+
+function MemberView({
+  founder,
+  program,
+  now,
+  openFounder,
+}: {
+  founder: Founder;
+  program: ProgramState;
+  now: Date;
+  openFounder: (f: Founder, t?: SheetTab) => void;
+}) {
+  const blocker = founder.blocker && founder.blocker !== "None" ? founder.blocker : null;
+  return (
+    <>
+      <PageHead
+        title={startupName(founder)}
+        sub={
+          <>
+            {founder.name}
+            <span className="dot-sep">·</span>Week {program.week} of {program.totalWeeks}
+          </>
+        }
+        right={<HealthPill founder={founder} />}
+      />
+      <div className="kpi-strip">
+        <Kpi
+          label="Next gate"
+          value={gateLabel(program)}
+          sub={program.gateDate ? formatDay(program.gateDate) : "—"}
+        />
+        <Kpi label="Your progress" value={`${founder.progress}%`} sub="From your latest check-in" />
+        <Kpi
+          label="Last check-in"
+          value={founder.time === "—" ? "None yet" : founder.time}
+          sub="Message the bot in Slack to add one"
+        />
+        <Kpi
+          label="Stream lead"
+          value={
+            <span className="text-lg">
+              {founder.lead && founder.lead !== "Unassigned" ? founder.lead : "Not assigned yet"}
+            </span>
+          }
+          sub={
+            founder.stream && founder.stream !== "Unassigned"
+              ? `${founder.stream} stream`
+              : "The studio will assign one"
+          }
+        />
+      </div>
+      <div className="today-grid">
+        <section className="panel" aria-labelledby="my-latest">
+          <div className="panel-head">
+            <h2 id="my-latest">Your latest check-in</h2>
+          </div>
+          <p className="text-sm leading-relaxed">{founder.digest}</p>
+          {blocker && (
+            <div className="callout danger mt-4">
+              <p className="font-medium">Waiting on the studio</p>
+              <p>{blocker}</p>
+            </div>
+          )}
+          <div className="mt-5 rounded-lg bg-secondary p-4">
+            <p className="text-xs text-muted-foreground">
+              Due {program.gateDate ? formatDay(program.gateDate) : "this week"}
+            </p>
+            <p className="mt-1 text-sm font-medium">
+              {program.deliverable || "No deliverable this week"}
+            </p>
+          </div>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => openFounder(founder, "Timeline")}>
+              <MessageSquare size={14} /> Check-in history
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => openFounder(founder, "Milestones")}>
+              <Flag size={14} /> Milestones
+            </Button>
+          </div>
+        </section>
+        <ThisWeek program={program} now={now} />
+      </div>
+    </>
+  );
+}
+
+function CohortView({
+  founders,
+  openFounder,
+  searchRef,
+}: {
+  founders: Founder[];
+  openFounder: (f: Founder, t?: SheetTab) => void;
+  searchRef: React.RefObject<HTMLInputElement | null>;
+}) {
+  const [filter, setFilter] = useState("All");
+  const [search, setSearch] = useState("");
+  const streams = Array.from(
+    new Set(founders.map((f) => f.stream).filter((s) => s && s !== "Unassigned")),
+  ).sort();
+  const chips = ["All", "Needs attention", ...streams];
+  const visible = founders.filter(
+    (f) =>
+      (filter === "All" ||
+        (filter === "Needs attention" && attentionReason(f) !== null) ||
+        f.stream === filter) &&
+      `${f.name} ${f.startup} ${f.lead}`.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  return (
+    <>
+      <PageHead
+        title="Cohort"
+        sub={`${founders.length} startup${founders.length === 1 ? "" : "s"} · click one for check-ins, milestones and history`}
+      />
+      <div className="toolbar">
+        <div className="chips" role="group" aria-label="Filter startups">
+          {chips.map((c) => (
+            <button
+              key={c}
+              type="button"
+              className={`chip ${filter === c ? "active" : ""}`}
+              aria-pressed={filter === c}
+              onClick={() => setFilter(c)}
+            >
+              {c}
+              <span className="chip-count">
+                {c === "All"
+                  ? founders.length
+                  : c === "Needs attention"
+                    ? founders.filter((f) => attentionReason(f) !== null).length
+                    : founders.filter((f) => f.stream === c).length}
+              </span>
+            </button>
+          ))}
+        </div>
+        <label className="search-field">
+          <Search size={15} className="text-muted-foreground" />
+          <input
+            ref={searchRef}
+            aria-label="Search startups"
+            placeholder="Search startups or founders"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <kbd className="hide-sm">⌘K</kbd>
+        </label>
+      </div>
+      {visible.length === 0 ? (
+        <div className="panel empty">
+          <p className="font-medium text-foreground">No startups match</p>
+          <Button
+            variant="link"
+            size="sm"
+            onClick={() => {
+              setFilter("All");
+              setSearch("");
+            }}
+          >
+            Clear filters
+          </Button>
+        </div>
+      ) : (
+        <div className="card-grid">
+          {visible.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              className={`startup-card ${f.isPulsing ? "pulsing" : ""}`}
+              onClick={() => openFounder(f)}
+            >
+              <span className="flex items-start justify-between gap-2">
+                <span className="min-w-0">
+                  <span className="card-title">{startupName(f)}</span>
+                  <span className="card-sub">{f.name}</span>
+                </span>
+                <HealthPill founder={f} />
+              </span>
+              <span className="card-digest">{f.digest}</span>
+              <span className="mt-auto block">
+                <Progress value={f.progress} />
+                <span className="card-foot">
+                  <span>
+                    {f.progress}% · {f.time === "—" ? "no check-in yet" : f.time}
+                  </span>
+                  <StreamTag founder={f} />
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+const KIND: Record<string, { group: string; noun: string; icon: ReactNode; tone: string }> = {
+  checkin: {
+    group: "Check-ins",
+    noun: "check-in",
+    icon: <MessageSquare size={14} />,
+    tone: "text-success",
+  },
+  deliverable_submitted: {
+    group: "Check-ins",
+    noun: "deliverable",
+    icon: <Check size={14} />,
+    tone: "text-success",
+  },
+  ai_digest: {
+    group: "Check-ins",
+    noun: "digest",
+    icon: <MessageSquare size={14} />,
+    tone: "text-primary",
+  },
+  blocker: {
+    group: "Blockers",
+    noun: "blocker",
+    icon: <CircleAlert size={14} />,
+    tone: "text-danger",
+  },
+  unblocked: {
+    group: "Blockers",
+    noun: "unblock",
+    icon: <Check size={14} />,
+    tone: "text-success",
+  },
+  commit: { group: "Work", noun: "push", icon: <GitPullRequest size={14} />, tone: "text-info" },
+  pull_request: {
+    group: "Work",
+    noun: "PR update",
+    icon: <GitPullRequest size={14} />,
+    tone: "text-info",
+  },
+  issue: { group: "Work", noun: "issue", icon: <GitPullRequest size={14} />, tone: "text-info" },
+  meeting: {
+    group: "Meetings",
+    noun: "meeting",
+    icon: <Video size={14} />,
+    tone: "text-muted-foreground",
+  },
+};
+const kindOf = (type: string) =>
+  KIND[type] ?? {
+    group: "Other",
+    noun: "update",
+    icon: <Activity size={14} />,
+    tone: "text-muted-foreground",
+  };
+
+function dayLabel(iso: string, now: Date): string {
+  const d = sgtDate(new Date(iso));
+  const today = sgtDate(now);
+  const yesterday = sgtDate(new Date(now.getTime() - 86_400_000));
+  return d === today ? "Today" : d === yesterday ? "Yesterday" : formatDay(d);
+}
+
+function ActivityView({
+  signals,
+  founders,
+  now,
+}: {
+  signals: SignalRow[];
+  founders: Founder[];
+  now: Date;
+}) {
+  const [filter, setFilter] = useState("All");
+  const names = Object.fromEntries(founders.map((f) => [f.id, startupName(f)]));
+  const filtered = signals.filter((s) => filter === "All" || kindOf(s.type).group === filter);
+  const chips = ["All", ...Array.from(new Set(signals.map((s) => kindOf(s.type).group)))];
+
+  // Day -> (startup, kind group) bundles, so a burst of commits reads as one line.
+  const days: Array<{
+    label: string;
+    groups: Array<{ key: string; startup: string; items: SignalRow[] }>;
+  }> = [];
+  for (const s of filtered) {
+    const label = dayLabel(s.created_at, now);
+    let day = days.find((d) => d.label === label);
+    if (!day) days.push((day = { label, groups: [] }));
+    const key = `${s.startup_id ?? "studio"}|${kindOf(s.type).group}`;
+    let g = day.groups.find((x) => x.key === key);
+    if (!g)
+      day.groups.push(
+        (g = { key, startup: (s.startup_id && names[s.startup_id]) || "Studio", items: [] }),
+      );
+    g.items.push(s);
+  }
+
+  return (
+    <>
+      <PageHead title="Activity" sub="Check-ins, blockers and connected work, newest first" />
+      <div className="toolbar">
+        <div className="chips" role="group" aria-label="Filter activity">
+          {chips.map((c) => (
+            <button
+              key={c}
+              type="button"
+              className={`chip ${filter === c ? "active" : ""}`}
+              aria-pressed={filter === c}
+              onClick={() => setFilter(c)}
+            >
+              {c}
+            </button>
+          ))}
+        </div>
+      </div>
+      {days.length === 0 ? (
+        <div className="panel empty">
+          <p>No activity yet. It appears here as founders check in and push work.</p>
+        </div>
+      ) : (
+        days.map((d) => (
+          <section key={d.label} className="mb-6">
+            <h2 className="day-label">{d.label}</h2>
+            <div className="panel p-0!">
+              {d.groups.map((g) => (
+                <ActivityGroup key={g.key} startup={g.startup} items={g.items} />
               ))}
             </div>
           </section>
-          <section
-            className="matrix-section scroll-mt-6"
-            id="cohort"
-            aria-labelledby="cohort-title"
-          >
-            <div className="section-heading">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 id="cohort-title">The cohort</h2>
-                  <span className="pill pill-neutral">{founderList.length} startup{founderList.length === 1 ? "" : "s"}</span>
-                </div>
-                <p className="mt-1.5 text-[11px] text-muted-foreground">
-                  Founder momentum, work signals and check-ins, live from Slack.
-                </p>
-              </div>
-              <Button
-                variant="quiet"
-                size="sm"
-                onClick={() => {
-                  setFilter("All startups");
-                  setSearch("");
-                  setStatusFilter("All statuses");
-                }}
-              >
-                <Radio size={12} />
-                <span className="text-[10px]">Reset filters</span>
-              </Button>
-            </div>
-            <div className="matrix-tools">
-              <div className="filter-tabs" role="tablist" aria-label="Workstream filters">
-                {filters.map((f, i) => (
-                  <Button
-                    role="tab"
-                    aria-selected={filter === f}
-                    key={f}
-                    size="sm"
-                    variant="ghost"
-                    className={`filter-tab h-8! px-2.5! text-[10px]! ${filter === f ? "active" : ""}`}
-                    onClick={() => setFilter(f)}
-                  >
-                    {i === 0 && <LayoutGrid className="size-3!" />}
-                    {i === 1 && <Code2 className="size-3!" />}
-                    {i === 4 && <Flag className="size-3!" />}
-                    {f}
-                    {i === 0 && <span className="ml-1 text-muted-foreground">2</span>}
-                  </Button>
-                ))}
-              </div>
-              <div className="relative">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8! text-[10px]!"
-                  onClick={() => setFilterOpen(!filterOpen)}
-                  aria-expanded={filterOpen}
-                >
-                  <ListFilter className="size-3!" />
-                  Filters
-                  {statusFilter !== "All statuses" && (
-                    <span className="size-1.5 rounded-full bg-primary" />
-                  )}
-                </Button>
-                {filterOpen && (
-                  <div className="absolute top-10 right-0 z-10 w-48 rounded-md border border-border bg-card p-3 shadow-sm">
-                    <label className="text-[10px] text-muted-foreground" htmlFor="status-filter">
-                      Deliverable status
-                    </label>
-                    <select
-                      id="status-filter"
-                      className="mt-2 w-full rounded border border-border bg-card p-2 text-xs"
-                      value={statusFilter}
-                      onChange={(e) => setStatusFilter(e.target.value)}
-                    >
-                      <option>All statuses</option>
-                      <option>Blocked</option>
-                      <option>In progress</option>
-                    </select>
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="table-frame">
-              <table className="cohort-table">
-                <colgroup>
-                  <col className="w-[19%]" />
-                  <col className="w-[19%]" />
-                  <col className="w-[13%]" />
-                  <col className="w-[26%]" />
-                  <col className="w-[12%]" />
-                  <col className="w-[11%]" />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th>
-                      Founder & startup <ArrowDown className="ml-1 inline size-2.5" />
-                    </th>
-                    <th>Sprint 1 milestone</th>
-                    <th>Deliverable status</th>
-                    <th className="flex items-center gap-1.5">
-                      <Zap size={11} className="text-primary" />
-                      Latest AI check-in digest
-                    </th>
-                    <th>Stream ownership</th>
-                    <th>Last check-in</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visible.map((f) => (
-                    <tr
-                      key={f.id}
-                      onClick={() => openFounder(f)}
-                      className={f.isPulsing ? "ring-2 ring-primary/80 bg-accent/20 transition-all duration-700 animate-pulse" : ""}
-                    >
-                      <td>
-                        <div className="flex gap-2.5">
-                          <Avatar founder={f} />
-                          <div>
-                            <p className="font-semibold">{f.name}</p>
-                            <p className="mt-1 text-[10px] text-muted-foreground">{f.startup}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td>
-                        <p className="leading-relaxed">1-page venture thesis</p>
-                        <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
-                          Top 10 assumptions ranked
-                        </p>
-                        <div className="mt-3 flex items-center gap-2">
-                          <progress
-                            max={100}
-                            value={f.progress}
-                            className="h-1 w-20 overflow-hidden rounded-full [&::-webkit-progress-bar]:bg-secondary [&::-webkit-progress-value]:bg-primary"
-                          />
-                          <span className="text-[9px] text-muted-foreground">{f.progress}%</span>
-                        </div>
-                      </td>
-                      <td>
-                        <Status founder={f} />
-                      </td>
-                      <td>
-                        <p className="text-[11px] leading-[1.7]">{f.digest}</p>
-                        <Button
-                          variant="quiet"
-                          className="mt-1 h-auto! p-0! text-[10px]!"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openFounder(f, "Timeline");
-                          }}
-                        >
-                          View timeline & transcript
-                          <ArrowUpRight className="size-2.5!" />
-                        </Button>
-                      </td>
-                      <td>
-                        <StreamPill founder={f} />
-                      </td>
-                      <td>
-                        <p className="text-[11px]">{f.time}</p>
-                        <p className="mt-1.5 flex items-center gap-1 text-[9px] text-muted-foreground">
-                          <AudioLines size={10} />
-                          Last check-in
-                        </p>
-                        <Button
-                          variant="quiet"
-                          size="icon"
-                          className="mt-2 h-6! w-6!"
-                          aria-label={`View ${f.name} details`}
-                        >
-                          <ChevronRight className="size-3!" />
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                  {visible.length === 0 && (
-                    <tr>
-                      <td colSpan={6}>
-                        <div className="py-6 text-center">
-                          <Search size={20} className="mx-auto mb-3 text-muted-foreground" />
-                          <p className="text-sm font-medium">No startups match these filters</p>
-                          <Button
-                            variant="link"
-                            size="sm"
-                            onClick={() => {
-                              setFilter("All startups");
-                              setSearch("");
-                              setStatusFilter("All statuses");
-                            }}
-                          >
-                            Clear filters
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-              <div className="table-footer">
-                <span>Showing {visible.length} of {founderList.length} startups</span>
-                <span className="flex items-center gap-1.5">
-                  <ShieldCheck size={11} />
-                  AI summaries · human oversight
-                </span>
-              </div>
-            </div>
-          </section>
-          </>}
-          <div className="bottom-grid">
-            {!isMember && <section id="activity" className="scroll-mt-6">
-              <div className="section-heading">
-                <div className="flex items-center gap-2">
-                  <Activity size={14} />
-                  <h2>Latest signals</h2>
-                </div>
-                <span className="text-[10px] text-muted-foreground">Live Ticker</span>
-              </div>
-              <div className="flex flex-col gap-2">
-                {recentSignals.map((signal) => (
-                  <div key={signal.id} className="activity-item">
-                    <span
-                      className={`activity-symbol ${
-                        signal.type === "blocker"
-                          ? "text-danger"
-                          : signal.type === "checkin"
-                          ? "text-success"
-                          : "text-primary"
-                      }`}
-                    >
-                      {signal.type === "blocker" ? (
-                        <Flag size={12} />
-                      ) : signal.type === "checkin" ? (
-                        <AudioLines size={12} />
-                      ) : (
-                        <Zap size={12} />
-                      )}
-                    </span>
-                    <div className="flex-1">
-                      <p className="text-[11px]">
-                        <strong className="font-medium">{signal.headline}</strong>
-                        {signal.stream !== "General" && (
-                          <span
-                            className={`ml-2 pill ${
-                              signal.stream === "Tech" ? "pill-info" : "pill-warning"
-                            }`}
-                          >
-                            {signal.stream}
-                          </span>
-                        )}
-                      </p>
-                      <p className="mt-1 text-[10px] text-muted-foreground">{signal.detail}</p>
-                    </div>
-                    <span className="text-[10px] text-muted-foreground">{signal.time}</span>
-                  </div>
-                ))}
-              </div>
-            </section>
-            }
-            <section id="program" className="scroll-mt-6">
-              <div className="section-heading">
-                <div className="flex items-center gap-2">
-                  <Flag size={14} />
-                  <h2>On the horizon</h2>
-                </div>
-                <span className="pill pill-neutral">Week 1 / 12</span>
-              </div>
-              <div className="border-b border-border pb-5">
-                <div className="flex items-start gap-3">
-                  <div className="rounded-md bg-accent p-2 text-primary">
-                    <Target size={18} />
-                  </div>
-                  <div>
-                    <span className="text-[9px] font-medium uppercase text-primary">
-                      Next program gate
-                    </span>
-                    <h3 className="mt-1 text-[13px] font-semibold">{currentSprintPhase}</h3>
-                    <p className="mt-1.5 text-[10px] text-muted-foreground">
-                      {currentDeliverableDate}<span className="mx-2">·</span>{currentDeliverable}
-                    </p>
-                  </div>
-                </div>
-                <div className="program-band" aria-label="Week 1 of 12">
-                  {roadmap.map((r, i) => (
-                    <div
-                      key={r}
-                      className={`program-step ${i === 0 ? "current" : ""}`}
-                      title={`Week ${i + 1}: ${r}`}
-                    />
-                  ))}
-                </div>
-                <div className="mt-2 flex justify-between text-[9px] text-muted-foreground">
-                  <span>Kickoff</span>
-                  <span>Final demo</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 pt-4">
-                <CalendarDays size={16} className="text-muted-foreground" />
-                <div>
-                  <p className="text-[11px] font-medium">{nextOfficeHoursActivity}</p>
-                  <p className="mt-1 text-[10px] text-muted-foreground">
-                    {nextOfficeHoursDate} · {nextOfficeHoursOwner}
-                  </p>
-                </div>
-              </div>
-            </section>
-            
-            <section id="full-syllabus" className="mt-8 scroll-mt-6">
-              <div className="section-heading">
-                <div className="flex items-center gap-2">
-                  <CalendarDays size={14} />
-                  <h2>Full Syllabus Timeline</h2>
-                </div>
-              </div>
-              <div className="flex flex-col gap-3 pt-2">
-                {allSyllabusEvents.map((event: any, idx: number) => (
-                  <div key={idx} className="flex flex-col gap-1 rounded-md border border-border p-3 shadow-sm bg-card hover:bg-accent/50 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold text-primary">{event["Week"]} · {event["Day"]}</span>
-                      <span className="text-[9px] text-muted-foreground">
-                        {event["Date"] ? new Date(event["Date"]).toLocaleDateString("en-US", { month: 'short', day: 'numeric' }) : "TBD"}
-                      </span>
-                    </div>
-                    {event["Sprint Phase"] && (
-                      <h3 className="text-[12px] font-semibold">{event["Sprint Phase"]}</h3>
-                    )}
-                    {event["Exercise / Activity"] && (
-                      <p className="text-[11px] text-muted-foreground mt-1">
-                        <strong className="text-foreground">Activity:</strong> {event["Exercise / Activity"]}
-                      </p>
-                    )}
-                    {event["Weekly Deliverable / Milestone"] && (
-                      <p className="text-[11px] text-muted-foreground mt-1">
-                        <strong className="text-foreground">Deliverable:</strong> {event["Weekly Deliverable / Milestone"]}
-                      </p>
-                    )}
-                    {event["Owner / Lead"] && (
-                      <p className="text-[10px] text-muted-foreground mt-1">
-                        <strong className="text-foreground">Lead:</strong> {event["Owner / Lead"]}
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </section>
-          </div>
-          <footer className="page-footer">
-            <span className="flex items-center gap-1.5">
-              <Command size={11} />
-              Adventure Studio<span className="mx-2">/</span>Built for founder momentum.
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="live-dot" />
-              {liveConnected ? "Live" : "Offline"}<span className="mx-2">·</span>All times SGT
-            </span>
-          </footer>
-        </main>
+        ))
+      )}
+    </>
+  );
+}
+
+function ActivityGroup({ startup, items }: { startup: string; items: SignalRow[] }) {
+  const [open, setOpen] = useState(false);
+  const first = items[0]!;
+  const kind = kindOf(first.type);
+  const time = (iso: string) =>
+    new Date(iso).toLocaleTimeString("en-SG", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: "Asia/Singapore",
+    });
+
+  if (items.length === 1) {
+    return (
+      <div className="feed-row">
+        <span className={`feed-icon ${kind.tone}`}>{kind.icon}</span>
+        <div className="min-w-0 flex-1">
+          <p className="feed-title">
+            <span className="font-medium">{startup}</span> · {first.headline}
+          </p>
+          {first.detail && <p className="feed-detail">{first.detail}</p>}
+        </div>
+        <span className="feed-time">{time(first.created_at)}</span>
       </div>
-      <Sheet
-        open={selected !== null}
-        onOpenChange={(open) => {
-          if (!open) setSelected(null);
-        }}
+    );
+  }
+
+  const counts: Record<string, number> = {};
+  for (const s of items) counts[kindOf(s.type).noun] = (counts[kindOf(s.type).noun] ?? 0) + 1;
+  const summary = Object.entries(counts)
+    .map(([noun, c]) => `${c} ${noun}${c === 1 ? "" : noun.endsWith("h") ? "es" : "s"}`)
+    .join(", ");
+
+  return (
+    <div className="feed-group">
+      <button
+        type="button"
+        className="feed-row w-full text-left"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
       >
-        <SheetContent className="detail-sheet sm:max-w-[560px]">
-          {selected && (
-            <>
-              <SheetHeader>
-                <span className="mb-4 text-[10px] font-medium uppercase text-muted-foreground">
-                  Startup
-                </span>
-                <div className="flex items-center gap-3">
-                  <Avatar founder={selected} />
-                  <div>
-                    <SheetTitle>{selected.name}</SheetTitle>
-                    <SheetDescription className="mt-1 text-xs">{selected.startup}</SheetDescription>
-                  </div>
-                </div>
-              </SheetHeader>
-              <div className="mt-5 flex gap-2">
-                <Status founder={selected} />
-                <StreamPill founder={selected} />
-              </div>
-              <div className="mt-6 flex gap-1 border-b border-border pb-2">
-                {["Overview", "Milestones", "Timeline"].map((t) => (
-                  <Button
-                    key={t}
-                    variant={detailTab === t ? "secondary" : "ghost"}
-                    size="sm"
-                    onClick={() => setDetailTab(t)}
-                  >
-                    {t}
-                  </Button>
-                ))}
-              </div>
-              {detailTab === "Overview" && (
-                <>
-                  <h3 className="detail-heading">Founder profile</h3>
-                  <p className="text-xs leading-relaxed text-muted-foreground">
-                    {selected.profile}
-                  </p>
-                  <div className="mt-4 grid grid-cols-2 gap-4 text-xs">
-                    <div>
-                      <p className="text-[10px] text-muted-foreground">Stage</p>
-                      <p className="mt-1">Discovery & validation</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-muted-foreground">Target audience</p>
-                      <p className="mt-1">{selected.audience}</p>
-                    </div>
-                  </div>
-                  <p className="mt-4 text-[10px] text-muted-foreground">Tech stack</p>
-                  <div className="mt-2 flex gap-2">
-                    {selected.stack.map((s) => (
-                      <span key={s} className="pill pill-neutral">
-                        {s}
-                      </span>
-                    ))}
-                  </div>
-                  <h3 className="detail-heading">12-week sprint roadmap</h3>
-                  <Accordion type="single" collapsible defaultValue="sprint-0">
-                    {roadmap.map((r, i) => (
-                      <AccordionItem key={r} value={`sprint-${i}`}>
-                        <AccordionTrigger className="py-3 text-xs">
-                          <span className="flex items-center gap-3">
-                            <span
-                              className={`text-[10px] ${i === 0 ? "text-primary" : "text-muted-foreground"}`}
-                            >
-                              {String(i + 1).padStart(2, "0")}
-                            </span>
-                            {r}
-                            {i === 0 && <span className="pill pill-orange">Current</span>}
-                          </span>
-                        </AccordionTrigger>
-                        <AccordionContent className="text-[11px] leading-relaxed text-muted-foreground">
-                          {i === 0
-                            ? "Deliver a 1-page venture thesis and rank your top 10 assumptions. Gate: October 16."
-                            : `Upcoming sprint: ${r}. Deliverables will be reviewed with your stream lead.`}
-                        </AccordionContent>
-                      </AccordionItem>
-                    ))}
-                  </Accordion>
-                </>
-              )}
-              {detailTab === "Milestones" && <Milestones founder={selected} />}
-              {detailTab === "Timeline" && (() => {
-                const live = founderList.find((f) => f.id === selected.id) ?? selected;
-                return (
-                  <Timeline
-                    founder={selected}
-                    refreshKey={`${live.digest}|${live.progress}|${live.status}`}
-                  />
-                );
-              })()}
-            </>
-          )}
-        </SheetContent>
-      </Sheet>
-      <Sheet
-        open={!!notice}
-        onOpenChange={(open) => {
-          if (!open) setNotice("");
-        }}
-      >
-        <SheetContent className="detail-sheet">
-          <SheetHeader>
-            <SheetTitle>Adventure Studio</SheetTitle>
-            <SheetDescription>{notice}</SheetDescription>
-          </SheetHeader>
-        </SheetContent>
-      </Sheet>
+        <span className={`feed-icon ${kind.tone}`}>{kind.icon}</span>
+        <div className="min-w-0 flex-1">
+          <p className="feed-title">
+            <span className="font-medium">{startup}</span> · {summary}
+          </p>
+          <p className="feed-detail truncate">
+            {items
+              .slice(0, 3)
+              .map((s) => s.detail || s.headline)
+              .join(" · ")}
+          </p>
+        </div>
+        <span className="feed-time">
+          {time(items.at(-1)!.created_at)}–{time(first.created_at)}
+        </span>
+        <ChevronDown
+          size={16}
+          className={`text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <ul className="feed-children">
+          {items.map((s) => (
+            <li key={s.id}>
+              <p className="feed-title">{s.headline}</p>
+              {s.detail && <p className="feed-detail">{s.detail}</p>}
+              <span className="feed-time">{time(s.created_at)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
+  );
+}
+
+function ProgramView({ program, now }: { program: ProgramState; now: Date }) {
+  const [week, setWeek] = useState(program.week);
+  const today = sgtDate(now);
+  const w = program.weeks.find((x) => x.week === week);
+  return (
+    <>
+      <PageHead title="Program" sub={`12-week MVP program · currently week ${program.week}`} />
+      <div className="week-band" role="tablist" aria-label="Program weeks">
+        {program.weeks.map((x) => (
+          <button
+            key={x.week}
+            type="button"
+            role="tab"
+            aria-selected={x.week === week}
+            title={x.phase}
+            className={`week ${x.week < program.week ? "past" : ""} ${x.week === program.week ? "current" : ""} ${x.week === week ? "selected" : ""}`}
+            onClick={() => setWeek(x.week)}
+          >
+            <span className="week-bar" />
+            <span className="week-num">{x.week}</span>
+          </button>
+        ))}
+      </div>
+      {w && (
+        <section className="panel mt-6">
+          <p className="text-xs text-muted-foreground">
+            Week {w.week}
+            {w.week === program.week ? " · this week" : ""}
+          </p>
+          <h2 className="mt-1 text-lg font-semibold">{w.phase}</h2>
+          {w.deliverable && (
+            <div className="mt-4 rounded-lg bg-secondary p-4">
+              <p className="text-xs text-muted-foreground">
+                Gate · {w.gateDate ? formatDay(w.gateDate) : "—"}
+              </p>
+              <p className="mt-1 text-sm font-medium">{w.deliverable}</p>
+            </div>
+          )}
+          <ol className="agenda mt-5">
+            {w.events.map((e: SyllabusEvent) => (
+              <li key={e.date} className={e.date === today ? "now" : e.date < today ? "past" : ""}>
+                <p className="agenda-when">{e.date === today ? "Today" : formatDay(e.date)}</p>
+                <p className="agenda-what">{e.focus}</p>
+                <p className="agenda-who">
+                  {e.activity}
+                  <span className="dot-sep">·</span>
+                  {e.owner}
+                </p>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+    </>
+  );
+}
+
+function FounderSheet({
+  founder,
+  tab,
+  onTab,
+  program,
+  onClose,
+}: {
+  founder: Founder | null;
+  tab: SheetTab;
+  onTab: (t: SheetTab) => void;
+  program: ProgramState;
+  onClose: () => void;
+}) {
+  return (
+    <Sheet
+      open={founder !== null}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <SheetContent className="detail-sheet sm:max-w-[560px]">
+        {founder && (
+          <>
+            <SheetHeader className="p-0">
+              <div className="flex items-center gap-3">
+                <span className="avatar lg">{initials(startupName(founder))}</span>
+                <div className="min-w-0">
+                  <SheetTitle className="text-lg">{startupName(founder)}</SheetTitle>
+                  <SheetDescription className="text-sm">{founder.name}</SheetDescription>
+                </div>
+              </div>
+            </SheetHeader>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <HealthPill founder={founder} />
+              <StreamTag founder={founder} />
+            </div>
+            <div className="sheet-tabs" role="tablist">
+              {(["Overview", "Milestones", "Timeline"] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === t}
+                  className={`chip ${tab === t ? "active" : ""}`}
+                  onClick={() => onTab(t)}
+                >
+                  {t === "Timeline" ? "Check-in history" : t}
+                </button>
+              ))}
+            </div>
+            {tab === "Overview" && (
+              <div className="space-y-6">
+                <section>
+                  <h3 className="detail-heading pt-0!">Latest check-in</h3>
+                  <p className="text-sm leading-relaxed">{founder.digest}</p>
+                  {founder.time !== "—" && (
+                    <p className="mt-1 text-xs text-muted-foreground">{founder.time}</p>
+                  )}
+                  {founder.blocker && founder.blocker !== "None" && (
+                    <div className="callout danger mt-3">
+                      <p className="font-medium">Blocker</p>
+                      <p>{founder.blocker}</p>
+                    </div>
+                  )}
+                </section>
+                <section>
+                  <h3 className="detail-heading pt-0!">This week&apos;s deliverable</h3>
+                  <p className="text-sm">{program.deliverable || "None this week"}</p>
+                  <div className="mt-3 flex items-center gap-3">
+                    <Progress value={founder.progress} />
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {founder.progress}%
+                    </span>
+                  </div>
+                  {program.gateDate && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Gate {formatDay(program.gateDate)}
+                    </p>
+                  )}
+                </section>
+                {(founder.profile || founder.audience || founder.stack.length > 0) && (
+                  <section>
+                    <h3 className="detail-heading pt-0!">Profile</h3>
+                    {founder.profile && (
+                      <p className="text-sm leading-relaxed text-muted-foreground">
+                        {founder.profile}
+                      </p>
+                    )}
+                    {founder.audience && (
+                      <p className="mt-3 text-sm">
+                        <span className="text-muted-foreground">Target audience · </span>
+                        {founder.audience}
+                      </p>
+                    )}
+                    {founder.stack.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {founder.stack.map((s) => (
+                          <span key={s} className="pill pill-neutral">
+                            {s}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                )}
+                <section className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Users size={14} /> Stream lead: {founder.lead || "Unassigned"}
+                  <span className="dot-sep">·</span>
+                  <CalendarDays size={14} /> Week {program.week}
+                </section>
+              </div>
+            )}
+            {tab === "Milestones" && <Milestones founder={founder} />}
+            {tab === "Timeline" && (
+              <Timeline
+                founder={founder}
+                refreshKey={`${founder.digest}|${founder.progress}|${founder.status}`}
+              />
+            )}
+            <Button variant="quiet" size="sm" className="mt-8" onClick={onClose}>
+              <ChevronRight size={14} className="rotate-180" /> Back to dashboard
+            </Button>
+          </>
+        )}
+      </SheetContent>
+    </Sheet>
   );
 }

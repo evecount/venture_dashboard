@@ -10,7 +10,10 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AboutRouteImport } from './routes/about'
+import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as ApiDashClaimRouteImport } from './routes/api/dash/claim'
+import { Route as ApiDashHandledRouteImport } from './routes/api/dash/handled'
 import { Route as ApiGithubCallbackRouteImport } from './routes/api/github/callback'
 import { Route as ApiGithubWebhookRouteImport } from './routes/api/github/webhook'
 import { Route as ApiGoogleCallbackRouteImport } from './routes/api/google/callback'
@@ -20,9 +23,24 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AboutRoute = AboutRouteImport.update({
+  id: '/about',
+  path: '/about',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiDashClaimRoute = ApiDashClaimRouteImport.update({
   id: '/api/dash/claim',
   path: '/api/dash/claim',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDashHandledRoute = ApiDashHandledRouteImport.update({
+  id: '/api/dash/handled',
+  path: '/api/dash/handled',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiGithubCallbackRoute = ApiGithubCallbackRouteImport.update({
@@ -43,14 +61,20 @@ const ApiGoogleCallbackRoute = ApiGoogleCallbackRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/about': typeof AboutRoute
+  '/privacy': typeof PrivacyRoute
   '/api/dash/claim': typeof ApiDashClaimRoute
+  '/api/dash/handled': typeof ApiDashHandledRoute
   '/api/github/callback': typeof ApiGithubCallbackRoute
   '/api/github/webhook': typeof ApiGithubWebhookRoute
   '/api/google/callback': typeof ApiGoogleCallbackRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/about': typeof AboutRoute
+  '/privacy': typeof PrivacyRoute
   '/api/dash/claim': typeof ApiDashClaimRoute
+  '/api/dash/handled': typeof ApiDashHandledRoute
   '/api/github/callback': typeof ApiGithubCallbackRoute
   '/api/github/webhook': typeof ApiGithubWebhookRoute
   '/api/google/callback': typeof ApiGoogleCallbackRoute
@@ -58,7 +82,10 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/about': typeof AboutRoute
+  '/privacy': typeof PrivacyRoute
   '/api/dash/claim': typeof ApiDashClaimRoute
+  '/api/dash/handled': typeof ApiDashHandledRoute
   '/api/github/callback': typeof ApiGithubCallbackRoute
   '/api/github/webhook': typeof ApiGithubWebhookRoute
   '/api/google/callback': typeof ApiGoogleCallbackRoute
@@ -67,21 +94,30 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/about'
+    | '/privacy'
     | '/api/dash/claim'
+    | '/api/dash/handled'
     | '/api/github/callback'
     | '/api/github/webhook'
     | '/api/google/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/about'
+    | '/privacy'
     | '/api/dash/claim'
+    | '/api/dash/handled'
     | '/api/github/callback'
     | '/api/github/webhook'
     | '/api/google/callback'
   id:
     | '__root__'
     | '/'
+    | '/about'
+    | '/privacy'
     | '/api/dash/claim'
+    | '/api/dash/handled'
     | '/api/github/callback'
     | '/api/github/webhook'
     | '/api/google/callback'
@@ -89,7 +125,10 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AboutRoute: typeof AboutRoute
+  PrivacyRoute: typeof PrivacyRoute
   ApiDashClaimRoute: typeof ApiDashClaimRoute
+  ApiDashHandledRoute: typeof ApiDashHandledRoute
   ApiGithubCallbackRoute: typeof ApiGithubCallbackRoute
   ApiGithubWebhookRoute: typeof ApiGithubWebhookRoute
   ApiGoogleCallbackRoute: typeof ApiGoogleCallbackRoute
@@ -104,11 +143,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/about': {
+      id: '/about'
+      path: '/about'
+      fullPath: '/about'
+      preLoaderRoute: typeof AboutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/dash/claim': {
       id: '/api/dash/claim'
       path: '/api/dash/claim'
       fullPath: '/api/dash/claim'
       preLoaderRoute: typeof ApiDashClaimRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/dash/handled': {
+      id: '/api/dash/handled'
+      path: '/api/dash/handled'
+      fullPath: '/api/dash/handled'
+      preLoaderRoute: typeof ApiDashHandledRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/github/callback': {
@@ -137,7 +197,10 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AboutRoute: AboutRoute,
+  PrivacyRoute: PrivacyRoute,
   ApiDashClaimRoute: ApiDashClaimRoute,
+  ApiDashHandledRoute: ApiDashHandledRoute,
   ApiGithubCallbackRoute: ApiGithubCallbackRoute,
   ApiGithubWebhookRoute: ApiGithubWebhookRoute,
   ApiGoogleCallbackRoute: ApiGoogleCallbackRoute,
