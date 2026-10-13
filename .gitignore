@@ -40,3 +40,7 @@ dist-ssr
 
 # GitHub App private keys
 *.pem
+
+# Python / local tooling
+__pycache__/
+.claude/
