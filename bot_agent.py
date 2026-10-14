@@ -73,9 +73,13 @@ _TASK_PROPS = {
 def _milestone_tools(role: str) -> list:
     sid = {"startup_id": {"type": "string"}} if role == "mentor" else {}
     req = ["startup_id"] if role == "mentor" else []
+    # Mentors often relay another mentor's milestone ("Milestones for X by Arthur"): credit that mentor, not the sender.
+    issued = {"issued_by": {"type": "string", "description": (
+        "Name of the mentor who issued this milestone when the message says it comes from another mentor "
+        "(e.g. 'by Arthur'). Omit when it's the sender's own.")}} if role == "mentor" else {}
     return [
         _tool("add_milestone", "Create a milestone, optionally with its first goals.", {
-            **sid, "title": {"type": "string"}, "due_date": {"type": "string", "description": "YYYY-MM-DD, optional"},
+            **sid, **issued, "title": {"type": "string"}, "due_date": {"type": "string", "description": "YYYY-MM-DD, optional"},
             "goals": {"type": "array", "items": {"type": "string"}, "description": "Initial goals, optional"}},
             [*req, "title"]),
         _tool("update_milestone", "Edit a milestone: rename, change due date, mark done, or drop it.", {
@@ -164,6 +168,19 @@ def _parse_due(value):
         return date.fromisoformat(str(value)[:10]).isoformat() if value else None
     except ValueError:
         return None
+
+
+def match_mentor(name, mentors: list) -> dict | None:
+    """The one mentor a name like "Arthur" or "Arthur Pandaan" refers to, or None if no match or ambiguous."""
+    key = " ".join(str(name or "").lower().split())
+    if not key:
+        return None
+    exact = [m for m in mentors if " ".join(str(m.get("name", "")).lower().split()) == key]
+    if len(exact) == 1:
+        return exact[0]
+    words = key.split()
+    partial = [m for m in mentors if all(w in str(m.get("name", "")).lower().split() for w in words)]
+    return partial[0] if len(partial) == 1 else None
 
 
 def _label(startup):
@@ -464,13 +481,23 @@ class Agent:
             if not (startup_id and self._startup_ok(startup_id)):
                 return "⚠️ I couldn't tell which startup that milestone is for."
             due = _parse_due(args.get("due_date"))
-            mid = mem.add_milestone(startup_id, title, due, me, role)
+            author, credit = me, ""
+            issued_by = str(args.get("issued_by") or "").strip() if role == "mentor" else ""
+            if issued_by:
+                mentors = (self.sb.table("mentors").select("name,slack_user_id").execute().data or []) if self.sb else []
+                match = match_mentor(issued_by, [m for m in mentors if m.get("slack_user_id")])
+                if match:
+                    author, credit = match["slack_user_id"], f", set by {match['name']}"
+                else:
+                    credit = f". I couldn't tell which mentor \"{issued_by}\" is, so it's recorded as from you"
+            mid = mem.add_milestone(startup_id, title, due, author, role)
             if not mid:
                 return "⚠️ I couldn't save that milestone (is the milestones table created?)."
             goals = [str(g).strip() for g in (args.get("goals") or []) if str(g).strip()][:12]
             for g in goals:
-                mem.add_goal(mid, g, me)
-            return f"🎯 Milestone added: {title}" + (f" (due {due})" if due else "") + (f" with {len(goals)} goal{'s' if len(goals) != 1 else ''}." if goals else ".")
+                mem.add_goal(mid, g, author)
+            return (f"🎯 Milestone added: {title}" + (f" (due {due})" if due else "")
+                    + (f" with {len(goals)} goal{'s' if len(goals) != 1 else ''}" if goals else "") + credit + ".")
         locked = "🔒 That milestone was set by your mentor, so only they can change it. You can still tick its goals off as you finish them."
         if name in ("update_milestone", "add_goal"):
             m = self._find(ident, args.get("milestone_ref"), "m")

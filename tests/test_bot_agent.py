@@ -73,7 +73,8 @@ class FakeMemory:
 
     def add_milestone(self, startup_id, title, due, by, role):
         mid = f"mmmmmm{len(self.ms)}"
-        self.ms.append({"id": mid, "startup_id": startup_id, "title": title, "due_date": due, "goals": [], "startups": {"name": "S"}})
+        self.ms.append({"id": mid, "startup_id": startup_id, "title": title, "due_date": due, "goals": [], "by": by,
+                        "startups": {"name": "S"}})
         return mid
 
     def update_milestone(self, mid, patch):
@@ -174,6 +175,30 @@ class AgentTests(unittest.TestCase):
         agent, mem = self.agent([("add_milestone", {"title": "Pricing test", "startup_id": "startup-auvira"})])
         agent.respond(MENTOR, "x")
         self.assertEqual(mem.ms[0]["startup_id"], "startup-auvira")
+
+    def test_mentor_can_credit_a_milestone_to_another_mentor(self):
+        mentors = [{"name": "Arthur Andre Pandaan", "slack_user_id": "UARTHUR"},
+                   {"name": "Gwen Lim", "slack_user_id": "UGWEN"}, {"name": "Benjamin Lim", "slack_user_id": "UBEN"}]
+        mem = FakeMemory()
+        agent = Agent(fake_ai([("add_milestone", {"title": "Revenue models", "startup_id": "startup-auvira",
+                                                    "issued_by": "Arthur", "goals": ["Draft"]})]),
+                      "m", FakeSB({"startups": STARTUPS, "mentors": mentors}), mem)
+        out = agent.respond(MENTOR, "Milestones for Auvira by Arthur: ...")
+        self.assertEqual(mem.ms[0]["by"], "UARTHUR")
+        self.assertIn("set by Arthur Andre Pandaan", out["text"])
+
+    def test_unclear_issuer_falls_back_to_the_sender_and_says_so(self):
+        mentors = [{"name": "Gwen Lim", "slack_user_id": "UGWEN"}, {"name": "Benjamin Lim", "slack_user_id": "UBEN"}]
+        mem = FakeMemory()
+        agent = Agent(fake_ai([("add_milestone", {"title": "X", "startup_id": "startup-auvira", "issued_by": "Lim"})]),
+                      "m", FakeSB({"startups": STARTUPS, "mentors": mentors}), mem)
+        out = agent.respond(MENTOR, "x")
+        self.assertEqual(mem.ms[0]["by"], MENTOR["slack_id"])
+        self.assertIn("couldn't tell which mentor", out["text"])
+
+    def test_founders_cannot_credit_someone_else(self):
+        tool = next(t for t in build_tools("founder") if t["function"]["name"] == "add_milestone")
+        self.assertNotIn("issued_by", tool["function"]["parameters"]["properties"])
 
     def test_tick_goal_by_ref(self):
         agent, mem = self.agent([("update_goal", {"goal_ref": "gggggg0", "done": True})])
