@@ -20,7 +20,9 @@ const ORDER: GateState[] = ["blocked", "behind", "no_update", "on_track", "submi
 
 /** Where every startup stands on one gate's deliverable, with the evidence behind it. */
 export function GateBoard({ founders, program, subs, signals, now, openStartup }: Common) {
-  const [week, setWeek] = useState(program.week);
+  // Today only looks forward: finished gates live in the Program tab's grid.
+  const [picked, setWeek] = useState(program.week);
+  const week = Math.max(picked, program.week);
   const w = program.weeks.find((x) => x.week === week) ?? program.weeks[0];
   if (!w) return null;
   const rows = founders
@@ -58,7 +60,7 @@ export function GateBoard({ founders, program, subs, signals, now, openStartup }
           <button
             type="button"
             aria-label="Previous week"
-            disabled={week <= 1}
+            disabled={week <= program.week}
             onClick={() => setWeek(week - 1)}
           >
             <ChevronLeft size={16} />
