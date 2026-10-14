@@ -38,11 +38,6 @@ def build_dev_home(state: dict) -> list:
     blocks = [{"type": "header", "text": {"type": "plain_text", "text": "Developer"}}, mode_switch("dev"),
               {"type": "context", "elements": [{"type": "mrkdwn", "text": state.get("status") or "Status unknown"}]}]
 
-    last = state.get("last")
-    if last:
-        blocks.append({"type": "section", "text": {"type": "mrkdwn",
-                       "text": f"*{last['label']}*{NL}```{(last['text'] or 'Done.')[:2800]}```"}})
-
     blocks += [{"type": "divider"},
                {"type": "section", "text": {"type": "mrkdwn", "text": (
                    "*Channels the bot reads*" + NL + "Only channels turned on here. The bot keeps their last 7 days and "
@@ -50,6 +45,8 @@ def build_dev_home(state: dict) -> list:
                    "`/invite @Venture Buddy` first.")},
                 "accessory": {"type": "button", "text": {"type": "plain_text", "text": "Refresh list"},
                               "action_id": "dev_refresh_channels"}}]
+    if state.get("channels_note"):
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": state["channels_note"][:2000]}]})
     if not chans:
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "No channels found yet. Press Refresh list."}]})
     shown = sorted(chans, key=lambda c: (not c.get("enabled"), c.get("name") or ""))[:MAX_CHANNELS]
@@ -82,10 +79,28 @@ def build_dev_home(state: dict) -> list:
                    {"type": "button", "text": {"type": "plain_text", "text": "Republish Home tabs"}, "action_id": "dev_cmd_republish_homes", "value": "republish_homes"},
                    {"type": "button", "text": {"type": "plain_text", "text": "Clear my chat memory"}, "action_id": "dev_cmd_clear_history", "value": "clear_history"},
                ]}]
+    blocks += result_blocks(state.get("last"))
 
     warnings = state.get("warnings") or []
     blocks += [{"type": "divider"}, {"type": "section", "text": {"type": "mrkdwn", "text": (
         "*Recent warnings and errors*" + NL + (f"```{NL.join(warnings)[:2800]}```" if warnings else "None in the last 3 days."))}}]
+    return blocks
+
+
+def result_blocks(last: dict | None, chunk: int = 2900, max_chunks: int = 8) -> list:
+    """The latest tool result, in a box right under the Tools buttons (long results split over several blocks)."""
+    if not last:
+        return []
+    text = (last.get("text") or "Done.").strip()
+    head = {"type": "section", "text": {"type": "mrkdwn", "text": f"*{last['label']}*"[:3000]},
+            "accessory": {"type": "button", "text": {"type": "plain_text", "text": "Clear"}, "action_id": "dev_clear_result"}}
+    if last.get("working"):
+        return [head, {"type": "context", "elements": [{"type": "mrkdwn", "text": "⏳ Working…"}]}]
+    parts = [text[i:i + chunk] for i in range(0, len(text), chunk)]
+    blocks = [head] + [{"type": "section", "text": {"type": "mrkdwn", "text": f"```{p}```"}} for p in parts[:max_chunks]]
+    if len(parts) > max_chunks:
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn",
+                       "text": f"Showing the first {chunk * max_chunks:,} of {len(text):,} characters."}]})
     return blocks
 
 
@@ -109,7 +124,7 @@ def build_test_modal() -> dict:
             "submit": {"type": "plain_text", "text": "Ask"}, "close": {"type": "plain_text", "text": "Cancel"},
             "blocks": [
                 {"type": "context", "elements": [{"type": "mrkdwn", "text": (
-                    "The bot answers as if this person had messaged it, and DMs the answer to you. "
+                    "The bot answers as if this person had messaged it. The answer appears on your Developer view; nothing is sent to them. "
                     "Actions such as adding tasks are real; confirmation cards are only described.")}]},
                 {"type": "input", "block_id": "who", "label": {"type": "plain_text", "text": "Ask as"},
                  "element": {"type": "users_select", "action_id": "v"}},

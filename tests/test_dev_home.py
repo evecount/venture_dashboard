@@ -1,7 +1,7 @@
 import unittest
 
 from dev_controls import DEFAULTS
-from dev_home import build_dev_home, build_settings_modal, build_test_modal, mode_switch
+from dev_home import build_dev_home, build_settings_modal, build_test_modal, mode_switch, result_blocks
 
 
 def action_ids(block):
@@ -43,6 +43,16 @@ class DevHomeTest(unittest.TestCase):
     def test_mode_switch_highlights_current(self):
         dev = mode_switch("dev")["elements"]
         self.assertEqual([e.get("style") for e in dev], [None, "primary"])
+
+    def test_result_sits_under_tools_and_splits_long_text(self):
+        blocks = build_dev_home(self.state())
+        tools = next(i for i, b in enumerate(blocks) if b.get("block_id") == "dev_tools")
+        self.assertEqual(blocks[tools + 1]["text"]["text"], "*Status & scopes*")
+        long = result_blocks({"label": "What the bot sees", "text": "x" * 30000})
+        self.assertEqual(len(long), 1 + 8 + 1)  # heading, 8 chunks, "showing the first" note
+        self.assertTrue(all(len(b["text"]["text"]) <= 3000 for b in long if b["type"] == "section"))
+        working = result_blocks({"label": "Ask", "working": True})
+        self.assertIn("Working", working[1]["elements"][0]["text"])
 
     def test_modals(self):
         m = build_settings_modal({"ai_model": "x", "extra_instructions": ""})

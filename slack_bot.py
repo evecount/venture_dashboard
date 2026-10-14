@@ -2072,7 +2072,8 @@ DEV_COMMANDS = {
 # --- DEVELOPER VIEW ON THE SLACK HOME TAB (developers only; every handler re-checks) ---
 
 _home_mode: dict = {}   # slack_id -> "dev" | "mentor"
-_dev_last: dict = {}    # slack_id -> {"label", "text"}: last tool result shown on the Developer view
+_dev_last: dict = {}    # slack_id -> {"label", "text", "working"}: tool result shown under the Tools buttons
+_channels_note: dict = {}  # slack_id -> result of the last "Refresh list", shown under the Channels heading
 _scope_cache = {"at": 0.0, "scopes": []}
 DEV_LABELS = {"status": "Status & scopes", "show_context": "What the bot sees", "daily_preview": "Preview daily prompts",
               "republish_homes": "Republish Home tabs", "clear_history": "Clear my chat memory",
@@ -2098,7 +2099,8 @@ def dev_home_state(uid: str) -> dict:
         warnings = [f"{r['created_at'][5:16].replace('T', ' ')} {r['line'][:300]}" for r in logs]
     except Exception:
         warnings = []
-    return {"status": status, "settings": settings.all(), "channels": chans, "last": _dev_last.get(uid), "warnings": warnings}
+    return {"status": status, "settings": settings.all(), "channels": chans, "last": _dev_last.get(uid), "warnings": warnings,
+            "channels_note": _channels_note.get(uid)}
 
 
 def publish_dev_home(uid: str, client=None):
@@ -2166,7 +2168,9 @@ def handle_dev_refresh_channels(ack, body, client):
     uid = _developer(body)
     if uid:
         def run():
-            _dev_last[uid] = {"label": "Refresh channel list", "text": channels.refresh_list()}
+            _channels_note[uid] = "⏳ Refreshing…"
+            publish_dev_home(uid, client)
+            _channels_note[uid] = channels.refresh_list()
             publish_dev_home(uid, client)
         _in_background(run)
 
@@ -2215,13 +2219,28 @@ def handle_dev_test_submit(ack, body, client, view):
     values = view["state"]["values"]
     who, text = values["who"]["v"].get("selected_user"), values["text"]["v"].get("value") or ""
 
+    label = f"Test as <@{who}>: “{text[:200]}”"
+    print(f"[Dev] test as {who} by {uid}")
+
     def run():
+        _dev_last[uid] = {"label": label, "working": True}
+        publish_dev_home(uid, client)
         try:
             answer = dev_ask({"as_slack_id": who, "text": text}, uid)
         except Exception as e:
             answer = f"Error: {type(e).__name__}: {e}"
-        client.chat_postMessage(channel=uid, text=f"🧪 *Test as <@{who}>:* {text}\n\n{answer}"[:39000])
+        _dev_last[uid] = {"label": label, "text": answer}
+        publish_dev_home(uid, client)
     _in_background(run)
+
+
+@app.action("dev_clear_result")
+def handle_dev_clear_result(ack, body, client):
+    ack()
+    uid = _developer(body)
+    if uid:
+        _dev_last.pop(uid, None)
+        publish_dev_home(uid, client)
 
 
 @app.action(re.compile(r"^dev_cmd_"))
@@ -2232,8 +2251,10 @@ def handle_dev_cmd(ack, body, client):
     if not uid or cmd not in DEV_COMMANDS:
         return
 
+    print(f"[Dev] {cmd} by {uid}")
+
     def run():
-        _dev_last[uid] = {"label": DEV_LABELS.get(cmd, cmd), "text": "Working…"}
+        _dev_last[uid] = {"label": DEV_LABELS.get(cmd, cmd), "working": True}
         publish_dev_home(uid, client)
         try:
             result = DEV_COMMANDS[cmd]({}, uid)
@@ -2241,13 +2262,16 @@ def handle_dev_cmd(ack, body, client):
             result = f"Error: {type(e).__name__}: {e}"
         if cmd == "status":
             _scope_cache["at"] = 0.0
-        if cmd == "show_context":  # too long for the Home tab: send it as DMs
-            for i in range(0, min(len(result), 36000), 3500):
-                client.chat_postMessage(channel=uid, text=f"```{result[i:i + 3500]}```")
-            result = f"Sent to your DMs ({len(result)} characters)."
         _dev_last[uid] = {"label": DEV_LABELS.get(cmd, cmd), "text": result}
         publish_dev_home(uid, client)
     _in_background(run)
+
+
+@app.event("message")
+def handle_other_message_events(event):
+    """Registered last: catches channel messages no listener above took (e.g. a file shared with no text)."""
+    if event.get("channel_type") in ("channel", "group") and not (event.get("subtype") or "").startswith("message_"):
+        channels.ingest(event)
 
 
 # Initialize scheduler if available (all times Singapore time)

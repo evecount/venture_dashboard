@@ -109,6 +109,9 @@ class ChannelMemory:
 
     def _row(self, channel_id: str, msg: dict) -> dict | None:
         text = msg.get("text") or ""
+        files = [f.get("name") or f.get("title") or "a file" for f in msg.get("files") or []]
+        if files:
+            text = (text + " " if text.strip() else "") + f"[shared: {', '.join(files)[:300]}]"
         if not text.strip() or msg.get("subtype") in ("channel_join", "channel_leave", "message_deleted"):
             return None
         who = msg.get("user")
