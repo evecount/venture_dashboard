@@ -31,6 +31,25 @@ def build_nudge(first_name: str) -> str:
             "A one-liner on what you're working on is enough, and tell me if anything's blocking you.")
 
 
+def stale_blockers(subs: list, now: datetime, hours: int = 48) -> list:
+    """Each founder's LATEST confirmed check-in, kept only if it is still Blocked and older than `hours`.
+    An older Blocked check-in followed by a newer one is resolved and never reported."""
+    latest = {}
+    for s in sorted(subs, key=lambda s: s.get("created_at") or ""):
+        if s.get("founder_id"):
+            latest[s["founder_id"]] = s
+    cutoff = (now - timedelta(hours=hours)).astimezone(timezone.utc).isoformat()
+    return [s for s in latest.values() if s.get("status") == "Blocked" and (s.get("created_at") or "") < cutoff]
+
+
+def build_blocker_followup(first_name: str, blocker: str) -> str:
+    return (f"Hey {first_name}, your last check-in said you were blocked on: *{blocker or 'something'}*. "
+            "Is that still the case?" + NL + NL +
+            "• *Sorted?* Tell me what changed and I'll update your check-in." + NL +
+            "• *Still stuck?* Tell me more, or name a mentor and a time (e.g. _\"set up a call with Mo tomorrow at 2 PM\"_) "
+            "and I'll set it up. Mentors can already see the blocker on their side.")
+
+
 def _first_name(full: str) -> str:
     return (full or "there").split()[0]
 

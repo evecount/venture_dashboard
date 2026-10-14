@@ -32,5 +32,18 @@ class HowToTests(unittest.TestCase):
         self.assertIn("How to use Venture Buddy", b.blocks_to_text(view["blocks"]))
 
 
+
+
+class GreetingTests(unittest.TestCase):
+    def test_bare_greetings_match(self):
+        for t in ["hi", "Hello!", "hey there", "help", "start", "hi 👋", "  Hey  "]:
+            self.assertTrue(b.GREETING_RE.match(t), t)
+
+    def test_updates_that_start_like_a_greeting_reach_the_agent(self):
+        for t in ["Hired a designer today", "Started customer interviews, 3 calls done", "Help, I'm stuck on pricing",
+                  "Highlights: shipped login", "hey I finished the deck", "hi, quick question about gate 3"]:
+            self.assertFalse(b.GREETING_RE.match(t), t)
+
+
 if __name__ == "__main__":
     unittest.main()

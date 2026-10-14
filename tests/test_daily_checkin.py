@@ -82,5 +82,28 @@ class DailyTests(unittest.TestCase):
         self.assertEqual(c.sent, [])
 
 
+
+
+class BlockerFollowupTests(unittest.TestCase):
+    NOW = datetime(2026, 10, 14, 1, 0, tzinfo=d.timezone.utc)
+
+    def test_only_latest_check_in_counts(self):
+        subs = [
+            {"id": "a1", "founder_id": "ann", "status": "Blocked", "created_at": "2026-10-01T09:00:00+00:00"},
+            {"id": "a2", "founder_id": "ann", "status": "On Track", "created_at": "2026-10-05T09:00:00+00:00"},
+            {"id": "b1", "founder_id": "bob", "status": "Blocked", "created_at": "2026-10-10T09:00:00+00:00"},
+            {"id": "c1", "founder_id": "cat", "status": "Blocked", "created_at": "2026-10-13T09:00:00+00:00"},
+        ]
+        # Ann's blocker was replaced by a newer check-in; Cat's is under 48h old.
+        self.assertEqual([s["id"] for s in d.stale_blockers(subs, self.NOW)], ["b1"])
+
+    def test_follow_up_names_the_blocker_and_both_ways_out(self):
+        text = d.build_blocker_followup("Ann", "pricing")
+        self.assertIn("pricing", text)
+        self.assertIn("Sorted?", text)
+        self.assertIn("Still stuck?", text)
+        self.assertNotIn("lead", text.lower())
+
+
 if __name__ == "__main__":
     unittest.main()

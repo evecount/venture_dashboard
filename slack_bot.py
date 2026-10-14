@@ -112,6 +112,7 @@ import google_calendar
 import meetings
 import integrations
 from profile_rules import match_person, looks_like_email, norm_name
+import daily_checkin
 from daily_checkin import send_daily_prompts, send_nudges
 from bot_agent import Agent
 from bot_memory import Memory
@@ -1324,7 +1325,12 @@ def handle_app_home_opened(event, client):
 
 # --- SLACK HANDLERS ---
 
-@app.message(re.compile(r"^(help|onboard|hi|hello|start)", re.IGNORECASE))
+# Only a bare greeting: Bolt runs just the first matching listener, so "Hired a designer" or
+# "Help, stuck on pricing" must fall through to the agent instead of getting the welcome text.
+GREETING_RE = re.compile(r"^\s*(help|onboard|hi|hii+|hello|hey|heya|yo|start|get started)( there)?\s*[!.?👋]*\s*$", re.IGNORECASE)
+
+
+@app.message(GREETING_RE)
 def handle_greeting(message, say):
     user_id = message.get("user")
     if user_id and get_role(user_id) == "mentor":
@@ -1644,44 +1650,37 @@ def handle_edit_checkin(ack, body, client):
 
 # --- BACKGROUND PROACTIVE CHASER & NUDGE WORKER ---
 
-def audit_deadlines_and_blockers():
+def audit_deadlines_and_blockers(dry_run: bool = False) -> list:
     """
-    Runs daily to:
-    1. Alert teams with upcoming deadlines (<48h) lacking a submission.
-    2. Proactively DM founders stuck on blockers for >48h.
+    Daily 09:00 on program days: a founder whose LATEST check-in is still Blocked after 48h gets one follow-up
+    per blocker (never repeated, never for a blocker a newer check-in replaced). The message goes into their
+    conversation history so a reply ("sorted now", "yes, set up a call") is understood.
     """
-    print(f"[{datetime.now().isoformat()}] Running proactive studio audit...")
-    if not supabase:
-        print("Supabase connection not active; skipping automated chaser pass.")
-        return
-
+    if not (supabase and syllabus.has_session(_today_sgt())):
+        return []
     try:
-        # Check blocked items older than 48 hours
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
-        res = (
-            supabase.table("submissions")
-            .select("*, startups(*), founders(*)")
-            .eq("status", "Blocked")
-            .lt("created_at", cutoff)
-            .execute()
-        )
-        for item in res.data or []:
-            founder = item.get("founders", {})
-            slack_id = founder.get("slack_user_id")
-            startup = item.get("startups", {})
-            lead = startup.get("lead", "Studio Lead")
-
-            if slack_id and SLACK_BOT_TOKEN:
-                app.client.chat_postMessage(
-                    channel=slack_id,
-                    text=(
-                        f"Hey {founder.get('name', 'there')}! 👋 The dashboard shows you've been blocked on: "
-                        f"*{item.get('blocker')}* for over 48 hours.\n\n"
-                        f"Would you like me to schedule a priority unblocking sync with your lead ({lead})?"
-                    ),
-                )
+        subs = (supabase.table("submissions").select("id,founder_id,status,blocker,created_at")
+                .eq("confirmed", True).order("created_at", desc=True).limit(500).execute().data or [])
+        founders = {f["id"]: f for f in daily_checkin.linked_founders(supabase)}
     except Exception as e:
         print(f"[Audit Error]: {e}")
+        return []
+    sent = []
+    for item in daily_checkin.stale_blockers(subs, datetime.now(timezone.utc)):
+        founder, key = founders.get(item["founder_id"]), f"blocker-dm:{item['id']}"
+        if not founder or alert_seen(key):
+            continue
+        text = daily_checkin.build_blocker_followup(daily_checkin._first_name(founder["name"]), item.get("blocker"))
+        sent.append((founder["slack_user_id"], text))
+        if dry_run:
+            continue
+        try:
+            app.client.chat_postMessage(channel=founder["slack_user_id"], text=text)
+            memory.log(founder["slack_user_id"], "assistant", text)
+            alert_mark(key)
+        except Exception as e:
+            print(f"[Audit Error] {founder['slack_user_id']}: {e}")
+    return sent
 
 
 # --- SCHEDULING MEETINGS ---
@@ -2655,6 +2654,7 @@ if __name__ == "__main__":
         for uid, text in send_daily_prompts(None, supabase, memory, dry_run=True):
             print(f"--- to {uid}" + chr(10) + text)
         print("Nudges that would be sent now:", len(send_nudges(None, supabase, memory, dry_run=True)))
+        print("Blocker follow-ups that would be sent now:", len(audit_deadlines_and_blockers(dry_run=True)))
         sys.exit(0)
     if "--simulate" in sys.argv or "--dry-run" in sys.argv:
         print("\n=== RUNNING SIMULATED INBOUND CHECK-IN (DRY RUN) ===")
