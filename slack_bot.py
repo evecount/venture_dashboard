@@ -526,8 +526,10 @@ def safe_snapshot() -> list:
         return []
 
 
-def build_mentor_blocks(summaries: list, title: str = "Cohort pulse", tasks: list | None = None) -> list:
-    return mentor_blocks(summaries, tasks=tasks, title=title, footer=dashboard_button_blocks())
+def build_mentor_blocks(summaries: list, title: str = "Cohort pulse", tasks: list | None = None,
+                        slack_user_id: str | None = None) -> list:
+    # Pass slack_user_id only where the blocks go to that mentor alone (Home tab, DM): it makes a personal sign-in link.
+    return mentor_blocks(summaries, tasks=tasks, title=title, footer=dashboard_button_blocks(slack_user_id=slack_user_id))
 
 
 def link_mentor_by_email(slack_user_id: str, email: str):
@@ -734,7 +736,7 @@ def onboard_member(slack_user_id: str, client=None):
         client.chat_postMessage(
             channel=slack_user_id,
             text=f"Welcome, {mentor['name']}! You're signed in as a mentor. Ask me for the cohort pulse any time.",
-            blocks=build_mentor_blocks(safe_snapshot()),
+            blocks=build_mentor_blocks(safe_snapshot(), slack_user_id=slack_user_id),
         )
         publish_home(slack_user_id, client)
         return True
@@ -963,8 +965,8 @@ def handle_mentor_submit(ack, body, client, view):
 STATUS_EMOJI = {"Blocked": "🔴", "Completed": "✅", "On Track": "🟢", "In progress": "🟡"}
 
 
-def dashboard_button_blocks(founder_id: str | None = None) -> list:
-    url = integrations.dashboard_url(DASHBOARD_URL, STATE_SECRET, founder_id)
+def dashboard_button_blocks(founder_id: str | None = None, slack_user_id: str | None = None) -> list:
+    url = integrations.dashboard_url(DASHBOARD_URL, STATE_SECRET, founder_id, slack_user_id)
     if not url:
         return []
     return [{
@@ -1151,7 +1153,7 @@ def publish_home(slack_user_id: str, client=None):
         role = get_role(slack_user_id)
         if role == "mentor":
             mine = [t for t in memory.open_tasks() if t.get("owner_slack_id") == slack_user_id]
-            blocks = build_mentor_blocks(safe_snapshot(), title="Mentor view", tasks=mine) + studio_connect_blocks(slack_user_id)
+            blocks = build_mentor_blocks(safe_snapshot(), title="Mentor view", tasks=mine, slack_user_id=slack_user_id) + studio_connect_blocks(slack_user_id)
             client.views_publish(user_id=slack_user_id, view={"type": "home", "blocks": blocks})
             return
         context = resolve_founder_context(slack_user_id) if role else None
