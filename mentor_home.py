@@ -8,7 +8,7 @@ Health rules (kept deliberately simple and explainable):
   on track = everything else
 """
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import syllabus
 
@@ -73,8 +73,24 @@ def _short(text: str, n: int = 160) -> str:
     return text if len(text) <= n else text[: n - 1].rstrip() + "…"
 
 
+def _label(d: date, today: date) -> str:
+    return "Today" if d == today else "Tomorrow" if d == today + timedelta(days=1) else syllabus.fmt_date(d)
+
+
+def coming_up(today: date, meetings: list | None = None, limit: int = 6) -> list:
+    """Program schedule items (office hours, deliverables) merged with real meetings, in date and time order."""
+    items = []
+    for e in syllabus.upcoming(today):
+        if e["deliverable"]:
+            items.append(((e["date"], -1), f"📦 {_label(e['date'], today)}: *Deliverable due*, {e['deliverable']}"))
+        elif "Office Hours" in (e["focus"] or ""):
+            items.append(((e["date"], -1), f"🗓 {_label(e['date'], today)}: {e['focus']}"))
+    items += list(meetings or [])
+    return [line for _, line in sorted(items, key=lambda it: it[0])[:limit]]
+
+
 def build_mentor_blocks(summaries: list, today: date | None = None, tasks: list | None = None,
-                        title: str = "Cohort pulse", footer: list | None = None) -> list:
+                        title: str = "Cohort pulse", footer: list | None = None, meetings: list | None = None) -> list:
     today = today or date.today()
     cur = syllabus.current(today)
     attention = [s for s in summaries if s["health"] != "on_track"]
@@ -110,9 +126,8 @@ def build_mentor_blocks(summaries: list, today: date | None = None, tasks: list 
                          f"{NL}> {_short(lat['digest'])}" + (f"{NL}> 💻 {s['work']}" if s.get("work") else ""))
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*On track*" + NL + (NL * 2).join(lines)}})
 
-    events = [e for e in syllabus.upcoming(today) if e["deliverable"] or "Office Hours" in (e["focus"] or "")][:4]
-    if events:
-        lines = [("📦 " if e["deliverable"] else "🗓 ") + syllabus.describe(e) for e in events]
+    lines = coming_up(today, meetings)
+    if lines:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Coming up*" + NL + NL.join(lines)}})
 
     if tasks:

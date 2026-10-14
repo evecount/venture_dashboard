@@ -126,3 +126,25 @@ def visible_to(ev: dict, email: str | None, is_mentor: bool) -> bool:
     if is_mentor:
         return True
     return bool(email) and any((a.get("email") or "").lower() == email.lower() for a in (ev.get("attendees") or []))
+
+
+def day_label(d: date, today: date) -> str:
+    if d == today:
+        return "Today"
+    if d == today + timedelta(days=1):
+        return "Tomorrow"
+    return f"{d.strftime('%a %b')} {d.day}"
+
+
+def upcoming_item(ev: dict, today: date) -> tuple | None:
+    """A real studio-calendar meeting as ((date, minute_of_day), line) for the 'Coming up' list, or None if it has no time."""
+    stamp = (ev.get("start") or {}).get("dateTime")
+    if not stamp:
+        return None
+    begin = datetime.fromisoformat(stamp.replace("Z", "+00:00")).astimezone(SGT)
+    end_stamp = (ev.get("end") or {}).get("dateTime")
+    end = datetime.fromisoformat(end_stamp.replace("Z", "+00:00")).astimezone(SGT) if end_stamp else None
+    where = ev.get("location") or ("Google Meet" if ev.get("hangoutLink") else "")
+    span = time_12h(begin) + (f"–{time_12h(end)}" if end else "")
+    line = f"👥 {day_label(begin.date(), today)}, {span}: *{ev.get('summary', 'Meeting')}*" + (f" · {where}" if where else "")
+    return (begin.date(), begin.hour * 60 + begin.minute), line

@@ -145,5 +145,26 @@ class StudioEventTests(unittest.TestCase):
         self.assertTrue(m.visible_to(self.EV, None, True))
 
 
+class ComingUpTests(unittest.TestCase):
+    def test_real_meetings_merge_with_the_schedule_in_order_with_12_hour_times(self):
+        import mentor_home
+        from datetime import date
+        today = date(2026, 10, 14)
+        ev = {"summary": "Fortnightly sprint", "location": "111 Somerset",
+              "start": {"dateTime": "2026-10-15T15:00:00+08:00"}, "end": {"dateTime": "2026-10-15T16:00:00+08:00"}}
+        lines = mentor_home.coming_up(today, [m.upcoming_item(ev, today)])
+        text = chr(10).join(lines)
+        self.assertIn("Tomorrow, 3:00 PM–4:00 PM: *Fortnightly sprint* · 111 Somerset", text)
+        self.assertTrue(lines[0].startswith("🗓 Today"))          # today's office hours first
+        self.assertLess(text.index("Tomorrow"), text.index("Fri Oct 16"))   # sprint before Friday's deliverable
+        self.assertNotIn("(Mamba Program Lead)", text)             # no repeated role in double brackets
+
+    def test_day_labels(self):
+        from datetime import date
+        self.assertEqual(m.day_label(date(2026, 10, 14), date(2026, 10, 14)), "Today")
+        self.assertEqual(m.day_label(date(2026, 10, 15), date(2026, 10, 14)), "Tomorrow")
+        self.assertEqual(m.day_label(date(2026, 10, 20), date(2026, 10, 14)), "Tue Oct 20")
+
+
 if __name__ == "__main__":
     unittest.main()

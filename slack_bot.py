@@ -196,6 +196,24 @@ def studio_events_fn(days: int):
         return []
 
 
+_studio_cache = {"at": 0.0, "items": []}
+
+
+def upcoming_meeting_items() -> list:
+    """Real meetings the bot created, as 'Coming up' items. Cached for a minute so Home refreshes stay quick."""
+    import time as _time
+    if _time.time() - _studio_cache["at"] < 60:
+        return _studio_cache["items"]
+    today = datetime.now(timezone(timedelta(hours=8))).date()
+    items = []
+    for ev in (studio_events_fn(7) or []):
+        item = meetings.upcoming_item(ev, today)
+        if item:
+            items.append(item)
+    _studio_cache.update(at=_time.time(), items=items)
+    return items
+
+
 def studio_link(slack_id: str) -> str | None:
     return google_calendar.connect_url(GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI, STATE_SECRET, slack_id, "studio", studio=True) if gcal else None
 
@@ -529,7 +547,8 @@ def safe_snapshot() -> list:
 def build_mentor_blocks(summaries: list, title: str = "Cohort pulse", tasks: list | None = None,
                         slack_user_id: str | None = None) -> list:
     # Pass slack_user_id only where the blocks go to that mentor alone (Home tab, DM): it makes a personal sign-in link.
-    return mentor_blocks(summaries, tasks=tasks, title=title, footer=dashboard_button_blocks(slack_user_id=slack_user_id))
+    return mentor_blocks(summaries, tasks=tasks, title=title, footer=dashboard_button_blocks(slack_user_id=slack_user_id),
+                         meetings=upcoming_meeting_items())
 
 
 def link_mentor_by_email(slack_user_id: str, email: str):
