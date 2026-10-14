@@ -174,22 +174,3 @@ export function blockedDays(startupId: string, subs: SubLike[], now: Date): numb
   if (since !== null) total += now.getTime() - since;
   return Math.round(total / DAY);
 }
-
-export type MentorLike = { id: string; name: string; title?: string | null };
-
-export const isUnassigned = (lead: string | null | undefined) =>
-  !lead || ["unassigned", "studio lead", ""].includes(lead.trim().toLowerCase());
-
-/** The mentor a startup's lead points at (the bot stores a name or a role title). */
-export function leadMentor(
-  lead: string | null | undefined,
-  mentors: MentorLike[],
-): MentorLike | null {
-  if (isUnassigned(lead)) return null;
-  const key = lead!.trim().toLowerCase();
-  return (
-    mentors.find(
-      (m) => m.name.trim().toLowerCase() === key || m.title?.trim().toLowerCase() === key,
-    ) ?? null
-  );
-}

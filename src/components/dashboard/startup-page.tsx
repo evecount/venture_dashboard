@@ -1,16 +1,9 @@
-import { ArrowLeft, Flag, MessageSquare, NotebookPen, Users } from "lucide-react";
+import { ArrowLeft, Flag, MessageSquare, NotebookPen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { DashSnapshot } from "@/hooks/use-dash-data";
 import type { Founder } from "./data";
 import { formatDay, type ProgramState } from "./program";
-import {
-  blockedDays,
-  checkinStreak,
-  gateStatus,
-  isUnassigned,
-  leadMentor,
-  weeklyProgress,
-} from "./insights";
+import { blockedDays, checkinStreak, gateStatus, weeklyProgress } from "./insights";
 import {
   GatePill,
   HealthPill,
@@ -47,7 +40,6 @@ export function StartupPage({
   const streak = checkinStreak(founder.id, snapshot.submissions, program, now);
   const blocked = blockedDays(founder.id, snapshot.submissions, now);
   const series = weeklyProgress(founder.id, snapshot.submissions, program.weeks);
-  const mentor = leadMentor(founder.lead, snapshot.mentors);
   const notes = snapshot.notes.filter((n) => n.startup_id === founder.id);
   const tasks = snapshot.tasks.filter((t) => t.startup_id === founder.id);
   const blocker = founder.blocker && founder.blocker !== "None" ? founder.blocker : null;
@@ -70,10 +62,6 @@ export function StartupPage({
         <div className="flex flex-wrap items-center justify-end gap-2">
           <HealthPill founder={founder} />
           <StreamTag founder={founder} />
-          <span className="pill pill-neutral" title="Lead advisor">
-            <Users size={12} />
-            {isUnassigned(founder.lead) ? "No lead yet" : (mentor?.name ?? founder.lead)}
-          </span>
         </div>
       </div>
 

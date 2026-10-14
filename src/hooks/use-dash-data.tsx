@@ -34,7 +34,6 @@ export type SignalRow = {
   merged?: boolean;
   created_at: string;
 };
-export type MentorRow = { id: string; name: string; title: string | null };
 export type NoteRow = {
   id: string;
   startup_id: string | null;
@@ -71,7 +70,6 @@ export type DashSnapshot = {
   signals: SignalRow[];
   handled: Array<{ startup_id: string; handled_at: string }>;
   milestones: Milestone[];
-  mentors: MentorRow[];
   notes: NoteRow[];
   tasks: TaskRow[];
 };

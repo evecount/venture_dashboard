@@ -42,45 +42,34 @@ export const Route = createFileRoute("/api/dash/snapshot")({
           identity.role === "mentor"
             ? admin<T>(path)
             : Promise.resolve({ ok: true, data: [] as T });
-        const [
-          startups,
-          founders,
-          submissions,
-          signals,
-          repos,
-          handled,
-          milestones,
-          mentors,
-          notes,
-          tasks,
-        ] = await Promise.all([
-          admin(`startups?select=id,name,tagline,stream,lead${by("id")}`),
-          admin(`founders?select=id,name,startup_id,profile,target_audience${by("startup_id")}`),
-          admin(
-            `submissions?select=id,startup_id,founder_id,deliverable_id,status,progress,blocker,digest,raw_transcript,artifact_url,created_at` +
-              `&confirmed=eq.true&order=created_at.desc&limit=300${by("startup_id")}`,
-          ),
-          admin<SignalRow[]>(
-            `signals?select=id,startup_id,type,headline,detail,stream,meta,created_at&order=created_at.desc&limit=200${by("startup_id")}`,
-          ),
-          admin<Repos[]>(
-            `integrations?select=startup_id,repos,selected_repos&provider=eq.github${by("startup_id")}`,
-          ),
-          mentorOnly("blocker_reviews?select=startup_id,handled_at"),
-          admin<MilestoneRow[]>(
-            `milestones?select=id,startup_id,title,due_date,status,created_by,created_by_role,goals(id,title,done,created_by)&status=neq.dropped` +
-              `&order=due_date.asc.nullslast${by("startup_id")}`,
-          ),
-          mentorOnly("mentors?select=id,name,title&order=name"),
-          // Mentor notes about a startup are for the studio team, not the founders.
-          mentorOnly(
-            "notes?select=id,startup_id,author_name,body,created_at&order=created_at.desc&limit=200",
-          ),
-          admin(
-            `tasks?select=id,startup_id,owner_slack_id,title,due_date,status,created_at&status=eq.open` +
-              `&order=due_date.asc.nullslast&limit=200${by("startup_id")}`,
-          ),
-        ]);
+        const [startups, founders, submissions, signals, repos, handled, milestones, notes, tasks] =
+          await Promise.all([
+            admin(`startups?select=id,name,tagline,stream,lead${by("id")}`),
+            admin(`founders?select=id,name,startup_id,profile,target_audience${by("startup_id")}`),
+            admin(
+              `submissions?select=id,startup_id,founder_id,deliverable_id,status,progress,blocker,digest,raw_transcript,artifact_url,created_at` +
+                `&confirmed=eq.true&order=created_at.desc&limit=300${by("startup_id")}`,
+            ),
+            admin<SignalRow[]>(
+              `signals?select=id,startup_id,type,headline,detail,stream,meta,created_at&order=created_at.desc&limit=200${by("startup_id")}`,
+            ),
+            admin<Repos[]>(
+              `integrations?select=startup_id,repos,selected_repos&provider=eq.github${by("startup_id")}`,
+            ),
+            mentorOnly("blocker_reviews?select=startup_id,handled_at"),
+            admin<MilestoneRow[]>(
+              `milestones?select=id,startup_id,title,due_date,status,created_by,created_by_role,goals(id,title,done,created_by)&status=neq.dropped` +
+                `&order=due_date.asc.nullslast${by("startup_id")}`,
+            ),
+            // Mentor notes about a startup are for the studio team, not the founders.
+            mentorOnly(
+              "notes?select=id,startup_id,author_name,body,created_at&order=created_at.desc&limit=200",
+            ),
+            admin(
+              `tasks?select=id,startup_id,owner_slack_id,title,due_date,status,created_at&status=eq.open` +
+                `&order=due_date.asc.nullslast&limit=200${by("startup_id")}`,
+            ),
+          ]);
         if (!startups.ok) return json({ error: "unavailable" }, 502);
 
         // Who set each milestone or goal: Slack IDs become names here, so the browser never sees Slack IDs.
@@ -145,7 +134,6 @@ export const Route = createFileRoute("/api/dash/snapshot")({
               goals: (goals ?? []).map(({ created_by: by, ...g }) => ({ ...g, set_by: setBy(by) })),
             }),
           ),
-          mentors: mentors.data ?? [],
           notes: notes.data ?? [],
           tasks: tasks.data ?? [],
         });

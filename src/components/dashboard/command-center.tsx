@@ -20,7 +20,6 @@ import {
   Search,
   Sun,
   Undo2,
-  Users,
   Video,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -28,7 +27,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { type Founder, type DemoPerspective, isStudioRole } from "./data";
 import { attentionReason, isHandled, relativeTime } from "./roster";
 import { formatDay, programState, sgtDate, type ProgramState, type SyllabusEvent } from "./program";
-import { gateStatus, isUnassigned, leadMentor, weeklyProgress, type MentorLike } from "./insights";
+import { gateStatus, weeklyProgress } from "./insights";
 import { GateBoard, GateMatrix } from "./gates";
 import { StartupPage } from "./startup-page";
 import { DeveloperLink } from "./developer-link";
@@ -37,6 +36,7 @@ import {
   HealthPill,
   Kpi,
   PageHead,
+  StreamTag,
   Progress,
   WeekBars,
   gateLabel,
@@ -44,7 +44,7 @@ import {
   initials,
   startupName,
 } from "./parts";
-import { TeamPopover, ViewAs } from "./studio-perspectives";
+import { ViewAs } from "./studio-perspectives";
 
 type Tab = "today" | "cohort" | "activity" | "program";
 
@@ -98,14 +98,6 @@ function AccountMenu({ identity, onSignOut }: { identity: Identity; onSignOut: (
   );
 }
 
-/** Startups whose lead is the signed-in mentor (the bot stores a lead as a name or a role title). */
-function ledBy(founders: Founder[], mentors: MentorLike[], identity: Identity): Set<string> {
-  if (identity.role !== "mentor") return new Set();
-  return new Set(
-    founders.filter((f) => leadMentor(f.lead, mentors)?.id === identity.mentorId).map((f) => f.id),
-  );
-}
-
 function Dashboard({
   initialPerspective = "coordinator",
   onPerspectiveChange,
@@ -128,11 +120,6 @@ function Dashboard({
     : founderList.find((f) => f.id === perspective || f.founderIds?.includes(perspective));
   const isMember = !isMentor || memberRow !== undefined;
   const program = useMemo(() => programState(now), [now]);
-  const mentors = useMemo(() => snapshot?.mentors ?? [], [snapshot]);
-  const mine = useMemo(
-    () => ledBy(founderList, mentors, identity),
-    [founderList, mentors, identity],
-  );
   const opened =
     isMentor && !isMember ? founderList.find((f) => f.id === openStartupId) : undefined;
 
@@ -256,7 +243,6 @@ function Dashboard({
         program={program}
         now={now}
         snapshot={snapshot}
-        mine={mine}
         handled={handled}
         handledError={handledError}
         onHandle={setHandled}
@@ -270,7 +256,6 @@ function Dashboard({
         program={program}
         now={now}
         snapshot={snapshot}
-        mine={mine}
         openStartup={openStartup}
         searchRef={searchRef}
       />
@@ -330,7 +315,6 @@ function Dashboard({
               <span className={`live-dot ${liveConnected ? "" : "off"}`} />
               <span className="hide-sm">{syncText}</span>
             </span>
-            <TeamPopover perspective={perspective} mentors={mentors} founders={founderList} />
             {isMentor && (
               <ViewAs perspective={perspective} members={founderList} onChange={setPerspective} />
             )}
@@ -355,7 +339,6 @@ function TodayView({
   program,
   now,
   snapshot,
-  mine,
   handled,
   handledError,
   onHandle,
@@ -365,13 +348,11 @@ function TodayView({
   program: ProgramState;
   now: Date;
   snapshot: DashSnapshot;
-  mine: Set<string>;
   handled: Record<string, string>;
   handledError: boolean;
   onHandle: (startupId: string, value: boolean) => void;
   openStartup: (id: string) => void;
 }) {
-  const [onlyMine, setOnlyMine] = useState(false);
   const n = founders.length;
   const quiet = founders.filter((f) => f.health === "quiet").length;
   const blocked = founders.filter(
@@ -384,11 +365,9 @@ function TodayView({
         return s === "behind" || s === "blocked" || s === "no_update";
       }).length
     : 0;
-  const scope = onlyMine ? founders.filter((f) => mine.has(f.id)) : founders;
-  const attention = scope.filter((f) => attentionReason(f) !== null);
+  const attention = founders.filter((f) => attentionReason(f) !== null);
   const open = attention.filter((f) => !isHandled(f, handled[f.id]));
   const done = attention.filter((f) => isHandled(f, handled[f.id]));
-  const unassigned = founders.filter((f) => isUnassigned(f.lead));
 
   return (
     <>
@@ -450,16 +429,6 @@ function TodayView({
             <div className="panel-head">
               <h2 id="needs-you">Needs you</h2>
               {open.length > 0 && <span className="pill pill-warning">{open.length}</span>}
-              {mine.size > 0 && (
-                <div className="seg ml-auto" role="group" aria-label="Whose startups">
-                  <button type="button" aria-pressed={!onlyMine} onClick={() => setOnlyMine(false)}>
-                    All
-                  </button>
-                  <button type="button" aria-pressed={onlyMine} onClick={() => setOnlyMine(true)}>
-                    Mine · {mine.size}
-                  </button>
-                </div>
-              )}
             </div>
             {handledError && (
               <p className="mb-2 text-xs text-danger">
@@ -470,7 +439,7 @@ function TodayView({
               <div className="empty">
                 <Check size={18} className="text-success" />
                 <p className="font-medium text-foreground">All clear</p>
-                <p>No startup{onlyMine ? " you lead" : ""} is blocked or quiet right now.</p>
+                <p>No startup is blocked or quiet right now.</p>
               </div>
             ) : (
               <ul className="rows">
@@ -522,31 +491,6 @@ function TodayView({
               </details>
             )}
           </section>
-
-          {unassigned.length > 0 && (
-            <section className="panel" aria-labelledby="no-lead">
-              <div className="panel-head">
-                <h2 id="no-lead">No lead advisor yet</h2>
-                <span className="pill pill-neutral">{unassigned.length}</span>
-              </div>
-              <div className="chips">
-                {unassigned.map((f) => (
-                  <button
-                    key={f.id}
-                    type="button"
-                    className="chip"
-                    onClick={() => openStartup(f.id)}
-                  >
-                    <Users size={13} /> {startupName(f)}
-                  </button>
-                ))}
-              </div>
-              <p className="muted-note mt-3">
-                To assign one, tell the bot in Slack, e.g. &ldquo;make me lead of{" "}
-                {startupName(unassigned[0]!)}&rdquo;.
-              </p>
-            </section>
-          )}
         </div>
         <ThisWeek program={program} now={now} />
       </div>
@@ -583,7 +527,6 @@ function CohortView({
   program,
   now,
   snapshot,
-  mine,
   openStartup,
   searchRef,
 }: {
@@ -591,7 +534,6 @@ function CohortView({
   program: ProgramState;
   now: Date;
   snapshot: DashSnapshot;
-  mine: Set<string>;
   openStartup: (id: string) => void;
   searchRef: React.RefObject<HTMLInputElement | null>;
 }) {
@@ -602,9 +544,7 @@ function CohortView({
   ).sort();
   const matches: Record<string, (f: Founder) => boolean> = {
     All: () => true,
-    ...(mine.size ? { "My startups": (f: Founder) => mine.has(f.id) } : {}),
     "Needs attention": (f) => attentionReason(f) !== null,
-    "No lead": (f) => isUnassigned(f.lead),
     ...Object.fromEntries(streams.map((s) => [s, (f: Founder) => f.stream === s])),
   };
   const w = program.weeks.find((x) => x.week === program.week);
@@ -665,7 +605,6 @@ function CohortView({
         <div className="card-grid">
           {visible.map((f) => {
             const g = w ? gateStatus(f.id, w, snapshot.submissions, snapshot.signals, now) : null;
-            const lead = leadMentor(f.lead, snapshot.mentors);
             return (
               <button
                 key={f.id}
@@ -692,9 +631,7 @@ function CohortView({
                     {g && <GatePill state={g.state} title={g.reason} />}
                     <span className="truncate">{f.time === "—" ? "No check-in yet" : f.time}</span>
                   </span>
-                  <span className="truncate" title="Lead advisor">
-                    {isUnassigned(f.lead) ? "No lead" : (lead?.name ?? f.lead)}
-                  </span>
+                  <StreamTag founder={f} />
                 </span>
               </button>
             );

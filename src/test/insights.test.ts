@@ -5,8 +5,6 @@ import {
   checkinStreak,
   expectedProgress,
   gateStatus,
-  isUnassigned,
-  leadMentor,
   weeklyProgress,
 } from "@/components/dashboard/insights";
 
@@ -95,16 +93,5 @@ describe("trends", () => {
       sub({ status: "Blocked", created_at: "2026-10-13T02:00:00Z" }),
     ];
     expect(blockedDays("s1", subs, now)).toBe(4); // 3 days, then 1 day and counting
-  });
-});
-
-describe("ownership", () => {
-  const mentors = [{ id: "m1", name: "Alex Tan", title: "Technical Advisor" }];
-  it("matches a lead by mentor name or title", () => {
-    expect(leadMentor("alex tan", mentors)?.id).toBe("m1");
-    expect(leadMentor("Technical Advisor", mentors)?.id).toBe("m1");
-    expect(leadMentor("Someone Else", mentors)).toBeNull();
-    expect(isUnassigned("Unassigned")).toBe(true);
-    expect(isUnassigned("Studio Lead")).toBe(true);
   });
 });
