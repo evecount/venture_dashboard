@@ -78,7 +78,7 @@ def resolve_attendees(specs: list, founders: list, mentors: list, requester_slac
 
 
 def build_event_body(title: str, begin: datetime, end: datetime, where: str, attendees: list, description: str,
-                     repeat: str | None = None) -> dict:
+                     repeat: str | None = None, requester_slack: str | None = None) -> dict:
     """Google Calendar event: 'virtual' gets a Meet link, anything else is the location text."""
     body = {
         "summary": title[:200], "description": description[:1000],
@@ -86,7 +86,7 @@ def build_event_body(title: str, begin: datetime, end: datetime, where: str, att
         "end": {"dateTime": end.isoformat(), "timeZone": "Asia/Singapore"},
         "attendees": [{"email": a["email"]} for a in attendees],
         "reminders": {"useDefault": True},
-        "extendedProperties": {"private": {"ventureos": "1"}},  # lets the bot find ITS meetings and nothing else
+        "extendedProperties": {"private": {"ventureos": "1", **({"requester": requester_slack} if requester_slack else {})}},  # lets the bot find ITS meetings and nothing else
     }
     if (where or "virtual").strip().lower() in ("virtual", "virtually", "online", "remote", "zoom", "meet", "google meet"):
         body["conferenceData"] = {"createRequest": {"requestId": secrets.token_hex(8),
@@ -118,6 +118,8 @@ def describe_event(ev: dict, show_attendees: bool) -> str:
     if show_attendees:
         names = [a.get("displayName") or a.get("email", "") for a in (ev.get("attendees") or []) if not a.get("self")]
         who = f" · with {', '.join(names[:8])}" + (f" and {len(names) - 8} more" if len(names) > 8 else "") if names else ""
+        rsvp = rsvp_summary(ev)
+        who += f" · {rsvp}" if rsvp else ""
     return f"- {when}: {ev.get('summary', '(no title)')}" + (f" ({where})" if where else "") + who
 
 
@@ -148,3 +150,52 @@ def upcoming_item(ev: dict, today: date) -> tuple | None:
     span = time_12h(begin) + (f"–{time_12h(end)}" if end else "")
     line = f"👥 {day_label(begin.date(), today)}, {span}: *{ev.get('summary', 'Meeting')}*" + (f" · {where}" if where else "")
     return (begin.date(), begin.hour * 60 + begin.minute), line
+
+
+# ---------- working with existing studio-calendar events ----------
+
+def event_times(ev: dict) -> tuple | None:
+    s_, e_ = (ev.get("start") or {}).get("dateTime"), (ev.get("end") or {}).get("dateTime")
+    if not s_:
+        return None
+    begin = datetime.fromisoformat(s_.replace("Z", "+00:00")).astimezone(SGT)
+    end = datetime.fromisoformat(e_.replace("Z", "+00:00")).astimezone(SGT) if e_ else begin + timedelta(hours=1)
+    return begin, end
+
+
+def rsvp_summary(ev: dict) -> str:
+    """'✅ 3 yes · ❌ 1 no · ⏳ 2 waiting' for everyone invited except the organiser."""
+    states = [(a.get("responseStatus") or "needsAction") for a in (ev.get("attendees") or []) if not a.get("self") and not a.get("organizer")]
+    if not states:
+        return ""
+    yes, no = states.count("accepted"), states.count("declined")
+    maybe = states.count("tentative")
+    wait = len(states) - yes - no - maybe
+    parts = [f"✅ {yes} yes", f"❌ {no} no"] + ([f"🤔 {maybe} maybe"] if maybe else []) + [f"⏳ {wait} waiting"]
+    return " · ".join(parts)
+
+
+def find_events(events: list, query: str) -> list:
+    """Events whose title contains the query (case-insensitive). An empty query matches everything."""
+    q = (query or "").strip().lower()
+    return [e for e in events if q in (e.get("summary") or "").lower()]
+
+
+def overlaps(begin: datetime, end: datetime, ev: dict) -> bool:
+    t = event_times(ev)
+    return bool(t) and begin < t[1] and t[0] < end
+
+
+def can_change(ev: dict, slack_id: str, is_mentor: bool) -> bool:
+    """Mentors can change any meeting the bot created; others only the ones they asked for."""
+    if is_mentor:
+        return True
+    return ((ev.get("extendedProperties") or {}).get("private") or {}).get("requester") == slack_id
+
+
+def reminder_due(ev: dict, now: datetime, from_minutes: int = 50, to_minutes: int = 65) -> bool:
+    t = event_times(ev)
+    if not t:
+        return False
+    delta = (t[0] - now).total_seconds() / 60
+    return from_minutes <= delta <= to_minutes

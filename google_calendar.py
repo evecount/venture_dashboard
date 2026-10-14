@@ -27,7 +27,9 @@ TOKEN_URL = "https://oauth2.googleapis.com/token"
 USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
 SCOPES = "openid email https://www.googleapis.com/auth/calendar.events.readonly"
-STUDIO_SCOPES = "openid email https://www.googleapis.com/auth/calendar.events"  # create meetings on the studio calendar
+STUDIO_SCOPES = ("openid email https://www.googleapis.com/auth/calendar.events "
+                 "https://www.googleapis.com/auth/meetings.space.settings")  # settings: let invitees join Meet without being admitted  # create meetings on the studio calendar
+MEET_API = "https://meet.googleapis.com/v2/spaces/{code}"
 SYNC_DAYS = 14
 
 
@@ -65,7 +67,7 @@ def _default_http(method: str, url: str, headers: dict | None = None, data: dict
     import requests
     r = requests.request(method, url, headers=headers, data=data, params=params, json=json, timeout=20)
     r.raise_for_status()
-    return r.json()
+    return r.json() if r.content else {}  # DELETE answers with no body
 
 
 class GoogleCalendar:
@@ -98,6 +100,37 @@ class GoogleCalendar:
         return self.http("POST", EVENTS_URL, headers={"Authorization": f"Bearer {token}"},
                          params={"conferenceDataVersion": 1, "sendUpdates": "all"}, json=body)
 
+    def open_meet(self, encrypted_refresh: str, meet_code: str) -> bool:
+        """
+        Lets anyone with the link join the Meet without the host admitting them (access type OPEN), so nobody has to sign in
+        to the studio account to let guests in. Returns False if the account hasn't granted the Meet settings permission.
+        """
+        token = self.access_token(encrypted_refresh)
+        if not token:
+            return False
+        try:
+            self.http("PATCH", MEET_API.format(code=meet_code), headers={"Authorization": f"Bearer {token}"},
+                      params={"updateMask": "config.accessType"}, json={"config": {"accessType": "OPEN"}})
+            return True
+        except Exception as e:  # noqa: BLE001
+            print(f"[Meet Access Warning] {e}")
+            return False
+
+    def update_event(self, encrypted_refresh: str, event_id: str, patch: dict) -> dict:
+        """Changes an event (e.g. its time) and emails the update to everyone invited."""
+        token = self.access_token(encrypted_refresh)
+        if not token:
+            raise RuntimeError("could not read the calendar token")
+        return self.http("PATCH", f"{EVENTS_URL}/{event_id}", headers={"Authorization": f"Bearer {token}"},
+                         params={"sendUpdates": "all"}, json=patch)
+
+    def delete_event(self, encrypted_refresh: str, event_id: str) -> None:
+        """Cancels an event and emails the cancellation to everyone invited."""
+        token = self.access_token(encrypted_refresh)
+        if not token:
+            raise RuntimeError("could not read the calendar token")
+        self.http("DELETE", f"{EVENTS_URL}/{event_id}", headers={"Authorization": f"Bearer {token}"}, params={"sendUpdates": "all"})
+
     def events(self, encrypted_refresh: str, since: datetime, until: datetime, only_ours: bool = False) -> list:
         token = self.access_token(encrypted_refresh)
         if not token:
@@ -106,7 +139,7 @@ class GoogleCalendar:
         while True:
             params = {"timeMin": since.isoformat(), "timeMax": until.isoformat(), "singleEvents": "true",
                       "orderBy": "startTime", "maxResults": 250,
-                      "fields": "nextPageToken,items(summary,start,end,status,attendees(email,displayName,self,responseStatus),visibility,location,hangoutLink)"}
+                      "fields": "nextPageToken,items(id,summary,start,end,status,attendees(email,displayName,self,responseStatus),visibility,location,hangoutLink,extendedProperties/private)"}
             if only_ours:
                 params["privateExtendedProperty"] = "ventureos=1"  # never read anyone's other calendar events
             if page:
@@ -200,3 +233,10 @@ def upcoming_text(gc: GoogleCalendar, encrypted_refresh: str, days: int = 2, now
         when = (start.get("dateTime") or start.get("date") or "")[:16].replace("T", " ")
         lines.append(f"- {when}: {e.get('summary', '(no title)')}")
     return chr(10).join(lines)
+
+
+def meet_code(url: str | None) -> str | None:
+    """'https://meet.google.com/abc-defg-hij' -> 'abc-defg-hij'."""
+    import re
+    m = re.search(r"meet\.google\.com/([a-z]{3}-[a-z]{4}-[a-z]{3})", url or "")
+    return m.group(1) if m else None

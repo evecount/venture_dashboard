@@ -106,6 +106,15 @@ def _meeting_tools(role: str) -> list:
                       "description": "'everyone', 'mentors', 'founders', Slack ids from mentions like U0ABC123, or people's names"},
         "repeat": {"type": "string", "enum": ["none", "weekly", "fortnightly", "monthly"]},
     }, ["title", "date", "start_time", "where", "attendees"])]
+    tools.append(_tool("change_meeting", (
+        "Propose rescheduling or cancelling an existing meeting on the studio calendar. The person confirms before anyone is notified. "
+        "Mentors can change any meeting; others only meetings they asked for."), {
+        "title": {"type": "string", "description": "Part of the meeting's title, to find it"},
+        "action": {"type": "string", "enum": ["reschedule", "cancel"]},
+        "new_date": {"type": "string", "description": "YYYY-MM-DD (reschedule only)"},
+        "new_start_time": {"type": "string", "description": "24-hour HH:MM converted from the user's 12-hour time (reschedule only)"},
+        "duration_minutes": {"type": "integer", "description": "Keep the old length unless they say otherwise"},
+    }, ["title", "action"]))
     tools.append(_tool("upcoming_meetings", (
         "List real meetings on the shared studio Google Calendar (the ones set up through this assistant). Use it for questions like "
         "'what meetings are coming up?', 'what's happening on Thursday?', 'who is it with?'. Founders only see meetings they are invited to."),
@@ -437,6 +446,8 @@ class Agent:
                 return "📅 Studio calendar:" + chr(10) + chr(10).join(meetings.describe_event(e, role == "mentor") for e in shown[:15])
             if name == "schedule_meeting":
                 return self._schedule(ident, args, out)
+            if name == "change_meeting":
+                return self._change(ident, args, out)
             if name == "connect_github" and role == "founder":
                 url = self.connect_url(ident["context"]["founder_id"], ident["context"]["startup_id"]) if self.connect_url else None
                 return (f"🔗 <{url}|Connect GitHub>. GitHub lets you pick all repositories or just your startup's. I only get read access."
@@ -570,10 +581,58 @@ class Agent:
                 f" (No match or email for: {', '.join(got['missing'])}.)" if got["missing"] else "")
         where = str(args.get("where") or "virtual").strip()
         repeat = args.get("repeat") if args.get("repeat") in meetings.RECURRENCE else None
+        conflicts = []
+        try:
+            invited = {p["email"].lower() for p in people}
+            today = datetime.now(SGT).date()
+            for ev in (self.studio_events((begin.date() - today).days + 2) or []) if self.studio_events else []:
+                emails = {(a.get("email") or "").lower() for a in (ev.get("attendees") or [])}
+                if meetings.overlaps(begin, end, ev) and invited & emails:
+                    conflicts.append(f"{ev.get('summary', 'a meeting')} ({meetings.format_when(*meetings.event_times(ev))})")
+        except Exception as e:  # noqa: BLE001 - a failed overlap check must not block scheduling
+            print(f"[Agent Warning] conflict check: {e}")
         payload = {"title": str(args.get("title") or "Meeting")[:200], "begin": begin.isoformat(), "end": end.isoformat(),
-                   "where": where, "attendees": people, "repeat": repeat, "requester": ident["name"], "missing": got["missing"]}
+                   "where": where, "attendees": people, "repeat": repeat, "requester": ident["name"], "requester_slack": me,
+                   "missing": got["missing"], "conflicts": conflicts}
         meeting_id = self.memory.save_meeting(me, payload)
         if not meeting_id:
             return "⚠️ I couldn't prepare that meeting (is the pending_meetings table created?)."
+        out["meeting"] = {"id": meeting_id, **payload}
+        return ""
+
+    def _change(self, ident: dict, args: dict, out: dict) -> str:
+        role, me = ident["role"], ident["slack_id"]
+        if not self.studio_events:
+            return "The studio calendar isn't set up yet."
+        found = self.studio_events(60)
+        if found is None:
+            return "📅 The studio calendar isn't connected yet, so I can't see any meetings."
+        matches = meetings.find_events(found, args.get("title"))
+        if not matches:
+            return f"📅 I couldn't find an upcoming meeting matching \"{args.get('title')}\" that I created."
+        allowed = [e for e in matches if meetings.can_change(e, me, role == "mentor")]
+        if not allowed:
+            return "🔒 That meeting was set up by someone else, so only a mentor (or its organiser) can change it."
+        if len(allowed) > 1:
+            lines = [meetings.describe_event(e, False) for e in allowed[:6]]
+            return "Which one do you mean?" + chr(10) + chr(10).join(lines) + chr(10) + "Tell me a bit more of the title or the date."
+        ev = allowed[0]
+        old_begin, old_end = meetings.event_times(ev)
+        payload = {"kind": "change", "action": args.get("action"), "event_id": ev["id"], "title": ev.get("summary", "Meeting"),
+                   "old": meetings.format_when(old_begin, old_end), "requester": ident["name"], "requester_slack": me,
+                   "mentor": role == "mentor", "attendee_count": max(0, len(ev.get("attendees") or []) - 1)}
+        if args.get("action") == "reschedule":
+            minutes = int(args.get("duration_minutes") or (old_end - old_begin).total_seconds() / 60)
+            when = meetings.parse_when(args.get("new_date"), args.get("new_start_time"), minutes)
+            if not when:
+                return "⚠️ I need the new date and time to reschedule (for example \"Friday at 4 PM\")."
+            if when[0] < datetime.now(SGT):
+                return "⚠️ That new time is in the past. Which day did you mean?"
+            payload.update(new_begin=when[0].isoformat(), new_end=when[1].isoformat(), new=meetings.format_when(*when))
+        elif args.get("action") != "cancel":
+            return ""
+        meeting_id = self.memory.save_meeting(me, payload)
+        if not meeting_id:
+            return "⚠️ I couldn't prepare that change (is the pending_meetings table created?)."
         out["meeting"] = {"id": meeting_id, **payload}
         return ""

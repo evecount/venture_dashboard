@@ -210,22 +210,34 @@ def studio_events_fn(days: int):
         return []
 
 
-_studio_cache = {"at": 0.0, "items": []}
+_studio_cache = {"at": 0.0, "events": []}
+
+
+def studio_events_cached(days: int = 14) -> list:
+    """Raw studio-calendar events (the bot's own meetings), cached for a minute so Home refreshes stay quick."""
+    import time as _time
+    if _time.time() - _studio_cache["at"] >= 60:
+        _studio_cache.update(at=_time.time(), events=studio_events_fn(14) or [])
+    return _studio_cache["events"]
 
 
 def upcoming_meeting_items() -> list:
-    """Real meetings the bot created, as 'Coming up' items. Cached for a minute so Home refreshes stay quick."""
-    import time as _time
-    if _time.time() - _studio_cache["at"] < 60:
-        return _studio_cache["items"]
+    """Real meetings the bot created, as 'Coming up' items for the mentor view."""
     today = datetime.now(timezone(timedelta(hours=8))).date()
-    items = []
-    for ev in (studio_events_fn(7) or []):
-        item = meetings.upcoming_item(ev, today)
-        if item:
-            items.append(item)
-    _studio_cache.update(at=_time.time(), items=items)
-    return items
+    items = [meetings.upcoming_item(ev, today) for ev in studio_events_cached()]
+    return [i for i in items if i and i[0][0] <= today + timedelta(days=7)]
+
+
+def founder_meeting_lines(slack_user_id: str) -> list:
+    """A founder's own upcoming meetings (only ones they are invited to), as Home-tab lines."""
+    try:
+        rows = supabase.table("founders").select("email").eq("slack_user_id", slack_user_id).limit(1).execute().data
+        email = rows[0]["email"] if rows else None
+    except Exception:
+        return []
+    today = datetime.now(timezone(timedelta(hours=8))).date()
+    items = [meetings.upcoming_item(ev, today) for ev in studio_events_cached() if meetings.visible_to(ev, email, False)]
+    return [line for _, line in sorted(i for i in items if i)][:5]
 
 
 def studio_link(slack_id: str) -> str | None:
@@ -1155,7 +1167,8 @@ def build_task_blocks(tasks: list) -> list:
     return [{"type": "section", "text": {"type": "mrkdwn", "text": "*Follow-ups*" + nl + nl.join(lines)}}]
 
 
-def build_home_view(context: dict | None, latest: dict | None, tasks: list | None = None, milestones: list | None = None, conns: list | None = None, gcal_rows: list | None = None) -> dict:
+def build_home_view(context: dict | None, latest: dict | None, tasks: list | None = None, milestones: list | None = None, conns: list | None = None, gcal_rows: list | None = None,
+                    meeting_lines: list | None = None) -> dict:
     """Founder's personal sprint radar. context=None means the user isn't on the roster yet."""
     if context is None:
         return {"type": "home", "blocks": [{"type": "header", "text": {"type": "plain_text", "text": "Your sprint radar"}}] + build_onboarding_card()}
@@ -1183,6 +1196,8 @@ def build_home_view(context: dict | None, latest: dict | None, tasks: list | Non
     blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": (
         f"*Due this week*{nl}{d['title']}" + (f"{nl}📅 Due {due_text}" if due_text else ""))}})
 
+    if meeting_lines:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Your upcoming meetings*" + nl + nl.join(meeting_lines)}})
     if latest:
         emoji = STATUS_EMOJI.get(latest["status"], "⚪")
         text = f"{emoji} *{latest['status']}* · {latest.get('progress', 0)}%{nl}_{latest['digest']}_"
@@ -1234,7 +1249,8 @@ def publish_home(slack_user_id: str, client=None):
             )
             latest = res.data[0] if res.data else None
         client.views_publish(user_id=slack_user_id, view=build_home_view(context, latest, memory.open_tasks(context["startup_id"]) if context else [], memory.milestones(context["startup_id"]) if context else [], integrations.github_connections(supabase, context["startup_id"]) if context else [],
-                                               integrations.google_connections(supabase, context["startup_id"]) if context else []))
+                                               integrations.google_connections(supabase, context["startup_id"]) if context else [],
+                                               meeting_lines=founder_meeting_lines(slack_user_id) if context else []))
     except Exception as e:
         print(f"[Home Tab Error] {e}")
 
@@ -1610,9 +1626,24 @@ def audit_deadlines_and_blockers():
 # --- SCHEDULING MEETINGS ---
 
 def build_meeting_card(m: dict) -> list:
+    nl = chr(10)
+    if m.get("kind") == "change":
+        if m["action"] == "cancel":
+            body = (f"I'll *cancel* {m['title']} ({m['old']}). The {m['attendee_count']} people invited will be told.")
+            yes, no = "Cancel meeting & notify", "Keep it"
+        else:
+            body = (f"I'll *move* {m['title']}{nl}From: {m['old']}{nl}To: *{m['new']}*{nl}"
+                    f"The {m['attendee_count']} people invited get an updated invitation.")
+            yes, no = "Reschedule & notify", "Keep as is"
+        return [
+            {"type": "section", "text": {"type": "mrkdwn", "text": body}},
+            {"type": "actions", "elements": [
+                {"type": "button", "style": "primary" if m["action"] != "cancel" else "danger", "text": {"type": "plain_text", "text": yes},
+                 "action_id": "confirm_meeting", "value": m["id"]},
+                {"type": "button", "text": {"type": "plain_text", "text": no}, "action_id": "cancel_meeting", "value": m["id"]}]},
+        ]
     begin = datetime.fromisoformat(m["begin"])
     end = datetime.fromisoformat(m["end"])
-    nl = chr(10)
     names = ", ".join(a["name"] for a in m["attendees"][:12]) + (f" and {len(m['attendees']) - 12} more" if len(m["attendees"]) > 12 else "")
     where = "Online (a Google Meet link will be added)" if meetings.is_virtual(m["where"]) else m["where"]
     repeat = {"weekly": "every week", "fortnightly": "every two weeks", "monthly": "every month"}.get(m.get("repeat") or "", "")
@@ -1620,6 +1651,8 @@ def build_meeting_card(m: dict) -> list:
              f"📍 {where}", f"👥 {len(m['attendees'])} invited: {names}"]
     if m.get("missing"):
         lines.append("⚠️ Not invited (no match or no email on file): " + ", ".join(m["missing"]))
+    for c in m.get("conflicts") or []:
+        lines.append(f"⚠️ Overlaps with *{c}* for some of the same people")
     return [
         {"type": "section", "text": {"type": "mrkdwn", "text": "Here's the meeting I'll create. Invitations are emailed as soon as you confirm." + nl + nl.join(lines)}},
         {"type": "actions", "elements": [
@@ -1647,22 +1680,43 @@ def handle_confirm_meeting(ack, body, client):
         return
     m, studio = row["payload"], studio_row()
     if not (gcal and studio):
-        finish("⚠️ The studio calendar isn't connected, so I couldn't create the meeting.")
+        finish("⚠️ The studio calendar isn't connected, so I couldn't do that.")
         return
     try:
+        if m.get("kind") == "change":
+            if not (get_role(user_id) == "mentor" or m.get("requester_slack") == user_id):
+                client.chat_postEphemeral(channel=channel, user=user_id, text="Only a mentor or the person who set this meeting up can change it.")
+                return
+            if m["action"] == "cancel":
+                gcal.delete_event(studio["refresh_token"], m["event_id"])
+                finish(f"🗑 *{m['title']}* ({m['old']}) is cancelled. Everyone invited was told.")
+            else:
+                gcal.update_event(studio["refresh_token"], m["event_id"], {
+                    "start": {"dateTime": m["new_begin"], "timeZone": "Asia/Singapore"},
+                    "end": {"dateTime": m["new_end"], "timeZone": "Asia/Singapore"}})
+                finish(f"✅ *{m['title']}* moved to *{m['new']}*. Everyone invited got an updated invitation.")
+            memory.delete_meeting(row["id"])
+            _studio_cache["at"] = 0.0
+            return
         begin, end = datetime.fromisoformat(m["begin"]), datetime.fromisoformat(m["end"])
-        description = f"Requested by {m['requester']} through VentureOS."
+        description = (f"Requested by {m['requester']} through VentureOS. Join with the Google account this invitation was sent to.")
         event = gcal.create_event(studio["refresh_token"], meetings.build_event_body(
-            m["title"], begin, end, m["where"], m["attendees"], description, m.get("repeat")))
+            m["title"], begin, end, m["where"], m["attendees"], description, m.get("repeat"), m.get("requester_slack")))
         memory.delete_meeting(row["id"])
-        link = event.get("htmlLink")
-        meet = event.get("hangoutLink")
+        _studio_cache["at"] = 0.0
+        link, meet = event.get("htmlLink"), event.get("hangoutLink")
+        note = ""
+        if meet:  # let guests in without anyone signing in to the studio account to admit them
+            code = google_calendar.meet_code(meet)
+            ok = bool(code) and gcal.open_meet(studio["refresh_token"], code)
+            note = (" Guests can join without being admitted." if ok else
+                    " ⚠️ Guests may need to be admitted: a mentor needs to reconnect the studio calendar once to allow open joining.")
         finish(f"✅ *{m['title']}* is on the calendar for {meetings.format_when(begin, end)}. Invitations went to "
                f"{len(m['attendees'])} people." + (f" <{meet}|Google Meet link>" if meet else f" 📍 {m['where']}")
-               + (f" · <{link}|Open in Google Calendar>" if link else ""))
+               + (f" · <{link}|Open in Google Calendar>" if link else "") + note)
     except Exception as e:
         print(f"[Meeting Create Error] {e}")
-        finish("⚠️ Google wouldn't create that meeting. The studio calendar connection may need renewing; a mentor can reconnect it.")
+        finish("⚠️ Google wouldn't do that. The studio calendar connection may need renewing; a mentor can reconnect it.")
 
 
 @app.action("cancel_meeting")
@@ -1674,10 +1728,18 @@ def handle_cancel_meeting(ack, body, client):
 
 
 def studio_connect_blocks(slack_id: str) -> list:
-    """Mentor Home: one-time connect of the shared studio calendar."""
+    """Mentor Home: connect the shared studio calendar once, or reconnect it (e.g. to grant a new permission)."""
     url = studio_link(slack_id)
-    if not url or studio_connected():
+    if not url:
         return []
+    row = studio_row()
+    if row:
+        return [
+            {"type": "section", "text": {"type": "mrkdwn", "text": "*Meetings* 🗓" + chr(10) + f"Studio calendar: *{row.get('account', 'connected')}*. "
+                                         "Ask me to set up, move or cancel a meeting."}},
+            {"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": "Reconnect studio calendar"},
+                                              "url": url, "action_id": "connect_studio"}]},
+        ]
     return [
         {"type": "section", "text": {"type": "mrkdwn", "text": (
             "*Meetings* 🗓" + chr(10) + "Connect the studio Google Calendar once and I can set up meetings with the cohort when you ask "
@@ -1875,6 +1937,36 @@ def run_weekly_digest():
 def run_alerts():
     if MENTOR_ALERTS and SLACK_BOT_TOKEN:
         print(f"[Alerts] {len(run_mentor_alerts())} new alert(s)")
+
+
+# --- MEETING REMINDERS ---
+
+def send_meeting_reminders():
+    """About an hour before a studio-calendar meeting, DM each invited person who is in Slack (once per person per meeting)."""
+    if not (gcal and supabase and SLACK_BOT_TOKEN and studio_connected()):
+        return
+    now = datetime.now(timezone.utc)
+    due = [ev for ev in studio_events_cached() if meetings.reminder_due(ev, now)]
+    if not due:
+        return
+    people = {}
+    for table in ("founders", "mentors"):
+        for r in supabase.table(table).select("email,slack_user_id").execute().data or []:
+            if r.get("email") and re.fullmatch(r"[UW][A-Z0-9]{8,}", r.get("slack_user_id") or ""):
+                people[r["email"].lower()] = r["slack_user_id"]
+    for ev in due:
+        begin, end = meetings.event_times(ev)
+        where = f"<{ev['hangoutLink']}|Join the Google Meet>" if ev.get("hangoutLink") else (ev.get("location") or "")
+        text = f"⏰ *{ev.get('summary', 'Meeting')}* starts in about an hour ({meetings.time_12h(begin)}–{meetings.time_12h(end)})" + (f" · {where}" if where else "")
+        for a in ev.get("attendees") or []:
+            uid = people.get((a.get("email") or "").lower())
+            key = f"remind:{ev.get('id')}:{begin.isoformat()}:{uid}"
+            if uid and a.get("responseStatus") != "declined" and not alert_seen(key):
+                try:
+                    app.client.chat_postMessage(channel=uid, text=text)
+                    alert_mark(key)
+                except Exception as e:
+                    print(f"[Reminder Error] {uid}: {e}")
 
 
 # --- HEALTH HEARTBEAT ---
@@ -2470,6 +2562,7 @@ if BackgroundScheduler:
     scheduler.add_job(poll_new_connections, "interval", seconds=10, max_instances=1)
     scheduler.add_job(refresh_changed_homes, "interval", seconds=15, max_instances=1)
     scheduler.add_job(beat, "interval", seconds=30, max_instances=1)
+    scheduler.add_job(send_meeting_reminders, "interval", minutes=5, max_instances=1)
     scheduler.add_job(run_weekly_digest, "cron", day_of_week="mon", hour=9, minute=0)
     scheduler.add_job(run_alerts, "cron", day_of_week="mon-fri", hour=9, minute=15)
     scheduler.add_job(process_google_pending, "interval", seconds=10, max_instances=1)
