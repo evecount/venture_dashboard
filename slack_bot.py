@@ -1141,6 +1141,56 @@ def _milestone_lines(items: list) -> list:
     return lines
 
 
+HOW_TO = {
+    "founder": [
+        ("📝 Check in", [
+            "_\"Finished 3 customer interviews, but I'm stuck on pricing\"_",
+            "Send a voice note instead: I'll write out what I heard and you confirm the check-in"]),
+        ("🎯 Milestones & tasks", [
+            "_\"Set a milestone: 10 customer interviews by Oct 23. Goals: draft script, book 10 calls\"_",
+            "_\"I finished the script\"_ (I tick the goal off)",
+            "_\"Remind me to send the deck on Friday\"_"]),
+        ("❓ Ask me", [
+            "_\"What's due this week?\"_  ·  _\"What did I report last time?\"_",
+            "_\"What's on my calendar tomorrow?\"_  ·  _\"What meetings do I have coming up?\"_"]),
+        ("🗓 Meetings", [
+            "_\"Set up a meeting with Mo on Thursday at 3 PM, virtually\"_ (name the people; mentors can invite everyone)",
+            "_\"Move our Thursday meeting to 4 PM\"_ or _\"Cancel it\"_ for meetings you set up"]),
+        ("🔌 Connect your work", [
+            "Use the buttons above, or say _\"connect my GitHub\"_ / _\"connect my Google Calendar\"_",
+            "_\"Rename my startup to Acme\"_"]),
+    ],
+    "mentor": [
+        ("🔎 Ask me about the cohort", [
+            "_\"How is Auvira doing?\"_  ·  _\"What is Takshma working on?\"_",
+            "_\"Who's blocked?\"_  ·  _\"Who hasn't checked in?\"_  ·  _\"What's due tomorrow?\"_  ·  _pulse_"]),
+        ("📌 Notes, tasks & milestones", [
+            "_\"Note on SharedOut: needs a technical review\"_ (private to mentors)",
+            "_\"Add a task for Auvira: send the deck by Friday\"_  ·  _\"Mark the deck task done\"_",
+            "_\"Set a milestone for Auvira: Landing page live by Oct 20. Goals: copy approved, page published\"_ (founders see it as set by mentors)",
+            "_\"Assign Auvira to the GTM stream\"_  ·  _\"Rename SharedOut to Acme\"_"]),
+        ("🗓 Meetings", [
+            "_\"Set up a meet with everyone at 3 PM on Thursday at 111 Somerset\"_ or _\"...virtually\"_ (I show a card first)",
+            "_\"Set up a fortnightly sprint with Takshma and Matthew, Thursdays at 3 PM\"_",
+            "_\"Move Thursday's sprint to 4 PM\"_  ·  _\"Cancel the sprint\"_  ·  _\"What meetings are coming up?\"_"]),
+        ("🤖 Automatic", [
+            "Monday 9:00 AM digest, and a 9:15 AM nudge when a startup is blocked, quiet, or checking in without code activity",
+            "Reminders an hour before meetings, and a 5:00 PM daily prompt to founders"]),
+    ],
+}
+
+
+def how_to_blocks(role: str) -> list:
+    """A short, copy-able 'how to use Venture Buddy' section, different for founders and mentors."""
+    nl = chr(10)
+    blocks = [{"type": "divider"}, {"type": "header", "text": {"type": "plain_text", "text": "How to use Venture Buddy"}},
+              {"type": "context", "elements": [{"type": "mrkdwn", "text": "Chat with me in the *Messages* tab. Just write naturally; these are examples. "
+                                                "I always show a card to confirm before anything is saved or sent."}]}]
+    for title, lines in HOW_TO[role]:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f"*{title}*{nl}" + nl.join("• " + l for l in lines)}})
+    return blocks
+
+
 def build_milestone_blocks(milestones: list) -> list:
     """Two kinds: ones the founder set for themselves, and ones issued by mentors/advisors."""
     nl = chr(10)
@@ -1213,8 +1263,7 @@ def build_home_view(context: dict | None, latest: dict | None, tasks: list | Non
     blocks += build_connections_blocks(context["founder_id"], context["startup_id"], conns or [])
     blocks += build_calendar_blocks(context["founder_id"], context["startup_id"], gcal_rows or [])
     blocks += build_task_blocks(tasks or [])
-    blocks.append({"type": "divider"})
-    blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "Chat with me any time in the *Messages* tab: updates, blockers, goals or questions. You confirm before anything is saved."}]})
+    blocks += how_to_blocks("founder")
     blocks += dashboard_button_blocks(context["founder_id"])
     return {"type": "home", "blocks": blocks}
 
@@ -1230,7 +1279,8 @@ def publish_home(slack_user_id: str, client=None):
                 publish_dev_home(slack_user_id, client)
                 return
             mine = [t for t in memory.open_tasks() if t.get("owner_slack_id") == slack_user_id]
-            blocks = build_mentor_blocks(safe_snapshot(), title="Mentor view", tasks=mine, slack_user_id=slack_user_id) + studio_connect_blocks(slack_user_id)
+            blocks = (build_mentor_blocks(safe_snapshot(), title="Mentor view", tasks=mine, slack_user_id=slack_user_id)
+                      + studio_connect_blocks(slack_user_id) + how_to_blocks("mentor"))
             if developer:
                 blocks.insert(1, dev_home.mode_switch("mentor"))
             client.views_publish(user_id=slack_user_id, view={"type": "home", "blocks": blocks})
