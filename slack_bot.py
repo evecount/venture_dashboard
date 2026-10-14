@@ -580,9 +580,9 @@ def safe_snapshot() -> list:
 
 
 def build_mentor_blocks(summaries: list, title: str = "Cohort pulse", tasks: list | None = None,
-                        slack_user_id: str | None = None) -> list:
+                        slack_user_id: str | None = None, footer_button: bool = True) -> list:
     # Pass slack_user_id only where the blocks go to that mentor alone (Home tab, DM): it makes a personal sign-in link.
-    return mentor_blocks(summaries, tasks=tasks, title=title, footer=dashboard_button_blocks(slack_user_id=slack_user_id),
+    return mentor_blocks(summaries, tasks=tasks, title=title, footer=dashboard_button_blocks(slack_user_id=slack_user_id) if footer_button else [],
                          meetings=upcoming_meeting_items())
 
 
@@ -1035,19 +1035,29 @@ def handle_mentor_submit(ack, body, client, view):
 STATUS_EMOJI = {"Blocked": "🔴", "Completed": "✅", "On Track": "🟢", "In progress": "🟡"}
 
 
-def dashboard_button_blocks(founder_id: str | None = None, slack_user_id: str | None = None) -> list:
+def dashboard_button_element(founder_id: str | None = None, slack_user_id: str | None = None) -> dict | None:
     url = integrations.dashboard_url(DASHBOARD_URL, STATE_SECRET, founder_id, slack_user_id)
     if not url:
-        return []
-    return [{
-        "type": "actions",
-        "elements": [{
-            "type": "button",
-            "text": {"type": "plain_text", "text": "Open dashboard"},
-            "url": url,
-            "action_id": "open_dashboard",
-        }],
-    }]
+        return None
+    return {"type": "button", "text": {"type": "plain_text", "text": "Open dashboard"}, "url": url, "action_id": "open_dashboard"}
+
+
+def dashboard_button_blocks(founder_id: str | None = None, slack_user_id: str | None = None) -> list:
+    el = dashboard_button_element(founder_id, slack_user_id)
+    return [{"type": "actions", "elements": [el]}] if el else []
+
+
+def add_to_top_row(blocks: list, element: dict | None) -> list:
+    """Puts the Open dashboard button on the top row of a Home tab: beside the Mentor view / Developer switch if there is one."""
+    if not element:
+        return blocks
+    for bl in blocks:
+        if bl.get("block_id") == "home_mode":
+            if all(e.get("action_id") != "open_dashboard" for e in bl["elements"]):
+                bl["elements"].append(element)
+            return blocks
+    blocks.insert(1, {"type": "actions", "elements": [element]})
+    return blocks
 
 
 @app.action("open_dashboard")
@@ -1264,8 +1274,7 @@ def build_home_view(context: dict | None, latest: dict | None, tasks: list | Non
     blocks += build_calendar_blocks(context["founder_id"], context["startup_id"], gcal_rows or [])
     blocks += build_task_blocks(tasks or [])
     blocks += how_to_blocks("founder")
-    blocks += dashboard_button_blocks(context["founder_id"])
-    return {"type": "home", "blocks": blocks}
+    return {"type": "home", "blocks": add_to_top_row(blocks, dashboard_button_element(context["founder_id"]))}
 
 
 def publish_home(slack_user_id: str, client=None):
@@ -1279,10 +1288,12 @@ def publish_home(slack_user_id: str, client=None):
                 publish_dev_home(slack_user_id, client)
                 return
             mine = [t for t in memory.open_tasks() if t.get("owner_slack_id") == slack_user_id]
-            blocks = (build_mentor_blocks(safe_snapshot(), title="Mentor view", tasks=mine, slack_user_id=slack_user_id)
+            blocks = (build_mentor_blocks(safe_snapshot(), title="Mentor view", tasks=mine, slack_user_id=slack_user_id,
+                                          footer_button=False)
                       + studio_connect_blocks(slack_user_id) + how_to_blocks("mentor"))
             if developer:
                 blocks.insert(1, dev_home.mode_switch("mentor"))
+            blocks = add_to_top_row(blocks, dashboard_button_element(slack_user_id=slack_user_id))
             client.views_publish(user_id=slack_user_id, view={"type": "home", "blocks": blocks})
             return
         context = resolve_founder_context(slack_user_id) if role else None
@@ -2405,7 +2416,8 @@ def dev_home_state(uid: str) -> dict:
 
 def publish_dev_home(uid: str, client=None):
     try:
-        (client or app.client).views_publish(user_id=uid, view={"type": "home", "blocks": dev_home.build_dev_home(dev_home_state(uid))})
+        blocks = add_to_top_row(dev_home.build_dev_home(dev_home_state(uid)), dashboard_button_element(slack_user_id=uid))
+        (client or app.client).views_publish(user_id=uid, view={"type": "home", "blocks": blocks})
     except Exception as e:
         print(f"[Dev Home Error] {e}")
 
