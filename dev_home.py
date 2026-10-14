@@ -83,7 +83,7 @@ def build_dev_home(state: dict) -> list:
 
     warnings = state.get("warnings") or []
     blocks += [{"type": "divider"}, {"type": "section", "text": {"type": "mrkdwn", "text": (
-        "*Recent warnings and errors*" + NL + (f"```{NL.join(warnings)[:2800]}```" if warnings else "None in the last 3 days."))}}]
+        "*Recent warnings and errors* (Singapore time)" + NL + (f"```{NL.join(warnings)[:2800]}```" if warnings else "None in the last 3 days."))}}]
     return blocks
 
 

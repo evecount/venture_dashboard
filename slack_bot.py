@@ -89,7 +89,12 @@ ai_client = (
     else None
 )
 
-# Initialize Supabase Client
+# Initialize Supabase Client (retrying requests whose idle connection the server closed)
+try:
+    import db_retry
+    db_retry.install(SUPABASE_URL)
+except ImportError:
+    pass
 supabase: Client = (
     create_client(SUPABASE_URL, SUPABASE_KEY)
     if (create_client and SUPABASE_URL and SUPABASE_KEY)
@@ -2096,7 +2101,9 @@ def dev_home_state(uid: str) -> dict:
     try:
         logs = (supabase.table("bot_logs").select("line,created_at").or_("line.ilike.*warning*,line.ilike.*error*")
                 .order("id", desc=True).limit(8).execute().data or [])
-        warnings = [f"{r['created_at'][5:16].replace('T', ' ')} {r['line'][:300]}" for r in logs]
+        sgt = timezone(timedelta(hours=8))
+        warnings = [datetime.strptime(r["created_at"][:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+                    .astimezone(sgt).strftime("%d %b %I:%M %p") + f"  {r['line'][:300]}" for r in logs]
     except Exception:
         warnings = []
     return {"status": status, "settings": settings.all(), "channels": chans, "last": _dev_last.get(uid), "warnings": warnings,
