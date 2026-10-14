@@ -461,60 +461,51 @@ def build_confirmation_card(context: dict, parsed: dict, raw_text: str) -> list:
         "raw_transcript": raw_text[:500],
     }
 
-    status_emoji = "🔴" if parsed["status"] == "Blocked" else ("🟢" if parsed["status"] == "Completed" else "🟡")
-
     blocks = [
-        {
-            "type": "header",
-            "text": {
-                "type": "plain_text",
-                "text": "🎯 Dashboard Check-In Preview",
-                "emoji": True,
-            },
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"Hey *{context['name']}* ({context['startup_name']}), I've prepared your update for the Venture Command Center.",
-            },
-        },
-        {
-            "type": "section",
-            "fields": [
-                {"type": "mrkdwn", "text": f"*Deliverable:*\n{deliverable['week']} · {deliverable['title']}"},
-                {"type": "mrkdwn", "text": f"*Status:*\n{status_emoji} {parsed['status']} ({parsed['progress']}%)"},
-                {"type": "mrkdwn", "text": f"*Workstream:*\n{parsed['stream']} · Lead: {context['lead']}"},
-                {"type": "mrkdwn", "text": f"*Blocker Flag:*\n{parsed['blocker']}"},
-            ],
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*AI Synthesis for Mentors:*\n> _{parsed['digest']}_",
-            },
-        },
-        {
-            "type": "actions",
-            "block_id": "confirmation_actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "✅ Confirm & Sync Dashboard", "emoji": True},
-                    "style": "primary",
-                    "action_id": "confirm_checkin",
-                    "value": json.dumps(payload_to_store),
-                },
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "✏️ Adjust Details", "emoji": True},
-                    "action_id": "edit_checkin",
-                    "value": json.dumps(payload_to_store),
-                },
-            ],
-        },
+        {"type": "header", "text": {"type": "plain_text", "text": "📝 Your check-in", "emoji": True}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"Here's what I'll save for *{context['startup_name']}*. Look right?"}},
+        *checkin_summary_blocks(payload_to_store, deliverable),
+        {"type": "actions", "block_id": "confirmation_actions", "elements": [
+            {"type": "button", "text": {"type": "plain_text", "text": "✅ Save check-in", "emoji": True}, "style": "primary",
+             "action_id": "confirm_checkin", "value": json.dumps(payload_to_store)},
+            {"type": "button", "text": {"type": "plain_text", "text": "✏️ Edit", "emoji": True},
+             "action_id": "edit_checkin", "value": json.dumps(payload_to_store)},
+        ]},
+        {"type": "context", "elements": [{"type": "mrkdwn", "text":
+            "Nothing is saved until you press *Save*. Saved check-ins are what your mentors see on the program dashboard."}]},
     ]
+    return blocks
+
+
+def _has_blocker(blocker) -> bool:
+    return bool(blocker) and str(blocker).strip().lower() not in ("none", "no", "n/a", "-", "")
+
+
+def checkin_summary_blocks(value: dict, deliverable: dict | None = None) -> list:
+    """The founder's words first, then status, blocker and what it counts toward. Shared by the preview and the saved card."""
+    nl = chr(10)
+    status = value.get("status", "In progress")
+    progress = value.get("progress")
+    status_text = f"{STATUS_EMOJI.get(status, '🟡')} {status}"
+    if isinstance(progress, int) and status not in ("Completed",):
+        status_text += f" · about {progress}% of this week's deliverable"
+    fields = [{"type": "mrkdwn", "text": f"*Status*{nl}{status_text}"},
+              {"type": "mrkdwn", "text": f"*Blocker*{nl}" + (value["blocker"] if _has_blocker(value.get("blocker")) else "None")}]
+    if deliverable and deliverable.get("title"):
+        num = re.sub(r"\D", "", str(deliverable.get("week", "")))
+        week = f"Week {int(num)}" if num else ""
+        fields.append({"type": "mrkdwn", "text": f"*Counts toward*{nl}{(week + ': ') if week else ''}{deliverable['title']}"})
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": f"*What you did*{nl}> _{value.get('digest', '')}_"}},
+            {"type": "section", "fields": fields}]
+
+
+def saved_checkin_blocks(value: dict) -> list:
+    """What the check-in card turns into once saved (no buttons, so it can't be saved twice)."""
+    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "✅ *Check-in saved.* Your mentors can see it now."}},
+              *checkin_summary_blocks(value)]
+    if value.get("status") == "Blocked":
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text":
+            "Stuck? Tell me more, or name a mentor and a time (e.g. _\"set up a call with Mo tomorrow at 2 PM\"_) and I'll set it up."}]})
     return blocks
 
 
@@ -768,6 +759,42 @@ def link_by_email(slack_user_id: str, email: str):
         return None
 
 
+def where_we_are_text(today=None) -> str:
+    """'Week 3 of 12 · this week's deliverable ... due Fri Oct 16', or '' outside the program."""
+    today = today or datetime.now(timezone(timedelta(hours=8))).date()
+    cur = syllabus.current(today)
+    if not cur:
+        return ""
+    due = syllabus.week_deliverable(cur["week"])
+    text = f"We're in *week {int(cur['week'].split()[-1])} of 12* ({cur['phase']})."
+    if due:
+        text += f" This week's deliverable is *{due['deliverable']}*, due {syllabus.fmt_date(due['date'])}."
+    return text
+
+
+def founder_welcome_text(name: str, startup_name: str, intro: str | None = None) -> str:
+    nl = chr(10)
+    first = (name or "there").split()[0]
+    lines = [intro or f"👋 Welcome, {first}! You're set up with *{startup_name}*.", "",
+             "I'm *Venture Buddy*, the program's assistant. There are no forms here. This is how it works:",
+             "• *Tell me what you're working on*, in a line or two or as a voice note. I write it up as a short check-in "
+             "and show it to you first. Nothing is saved until you press *Save*.",
+             "• *On program days at 5 PM* I'll ask how your day went.",
+             "• *Your mentors see* the check-ins you save, your milestones and, if you connect it, your GitHub activity.",
+             "• *Ask me anything* about the program: what's due, who the mentors are, or to set up a meeting."]
+    where = where_we_are_text()
+    if where:
+        lines += ["", where]
+    lines += ["", "*Try it now:* tell me what you're working on this week.",
+              "_Your *Home* tab has your checklist and milestones. Type *help* any time to see everything I can do._"]
+    return nl.join(lines)
+
+
+def founder_welcome_blocks(name: str, startup_name: str, founder_id: str, startup_id: str, intro: str | None = None) -> list:
+    text = founder_welcome_text(name, startup_name, intro)
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": text}}, *connect_blocks(founder_id, startup_id)]
+
+
 def onboard_member(slack_user_id: str, client=None):
     """
     Called when someone joins the workspace/channel (or messages the bot unregistered).
@@ -799,16 +826,10 @@ def onboard_member(slack_user_id: str, client=None):
     founder = link_by_email(slack_user_id, email)
     if founder:
         startup = (founder.get("startups") or {}).get("name", "your startup")
-        welcome = (
-            f"👋 Welcome, {founder['name']}! You're linked to *{startup}*.\n\n"
-            f"No forms or Jira here: message me any update, blocker or voice note and I'll turn it "
-            f"into a check-in for you to confirm. Mentors see it live on the Venture Command Center."
-        )
         client.chat_postMessage(
             channel=slack_user_id,
-            text=welcome,
-            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": welcome}}, *dashboard_button_blocks(founder["id"]),
-                    *connect_blocks(founder["id"], founder["startup_id"])],
+            text=f"Welcome, {founder['name']}! You're set up with {startup}.",
+            blocks=founder_welcome_blocks(founder["name"], startup, founder["id"], founder["startup_id"]),
         )
         publish_home(slack_user_id, client)
         return True
@@ -969,20 +990,21 @@ def handle_founder_submit(ack, body, client, view):
         if verdict == "claim":
             supabase.table("founders").update({"slack_user_id": user_id, "email": email.lower()}).eq("id", row["id"]).execute()
             st_name = next((st["name"] for st in startups if st["id"] == row["startup_id"]), "your startup")
-            msg = f"✅ Welcome, {row['name']}! I found your invite and linked it to *{st_name}*."
-            ids = (row["id"], row["startup_id"])
+            name, ids = row["name"], (row["id"], row["startup_id"])
+            intro = f"✅ Welcome, {name.split()[0]}! I found your invite and linked you to *{st_name}*."
         else:
             if not startup:
                 startup = create_startup(new_name or "Untitled startup")
             register_founder(user_id, name, startup["id"], email)
-            ids = (f"founder-{user_id.lower()}", startup["id"])
-            msg = (f"✅ You're in, {name}! You're set up with *{startup['name']}* (you can rename it later). "
-                   "Send me an update any time and I'll turn it into a check-in for you to confirm.")
+            st_name, ids = startup["name"], (f"founder-{user_id.lower()}", startup["id"])
+            intro = (f"✅ You're in, {name.split()[0]}! You're set up with *{st_name}*"
+                     + (" (no name yet? just say _\"rename my startup to ...\"_ when you have one)." if not new_name and not picked else "."))
+        msg = f"Welcome, {name}! You're set up with {st_name}."
+        blocks = founder_welcome_blocks(name, st_name, *ids, intro=intro)
     except Exception as e:
         print(f"[Onboarding Error] {e}")
         msg = "Something went wrong saving your profile. Please ask a mentor."
-        ids = None
-    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": msg}}] + (connect_blocks(*ids) if ids else [])
+        blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": msg}}]
     client.chat_postMessage(channel=user_id, text=msg, blocks=blocks)
     publish_home(user_id, client)
 
@@ -1099,11 +1121,10 @@ def connect_blocks(founder_id: str, startup_id: str) -> list:
     return [
         {"type": "divider"},
         {"type": "section", "text": {"type": "mrkdwn", "text": (
-            "*One more optional step: connect your work* 🔌" + chr(10) +
-            "Link your GitHub and I can see real progress (commits, pull requests) without you typing it. "
-            "GitHub lets you choose *all repositories* or just the ones for your startup. I only get read access. "
-            "Code in a GitHub *organisation*? If you're not an owner, GitHub asks an owner to approve first. "
-            "Press the second button and tell me the organisation's name; I'll link it the moment it's approved.")}},
+            "*Optional: connect your GitHub* 🔌" + chr(10) +
+            "I'll see your commits and pull requests, so your work shows up without you typing it. "
+            "Read-only, and you choose which repositories. Code in a GitHub organisation you don't own? "
+            "Use the second button and I'll link it once an owner approves.")}},
         {"type": "actions", "elements": [
             {"type": "button", "style": "primary", "text": {"type": "plain_text", "text": "Connect GitHub"},
              "url": url, "action_id": "connect_github"},
@@ -1162,7 +1183,8 @@ HOW_TO = {
             "_\"I finished the script\"_ (I tick the goal off)",
             "_\"Remind me to send the deck on Friday\"_"]),
         ("❓ Ask me", [
-            "_\"What's due this week?\"_  ·  _\"What did I report last time?\"_",
+            "_\"What's due this week?\"_  ·  _\"What does the program look like?\"_  ·  _\"Who are the mentors?\"_",
+            "_\"Who sees my updates?\"_  ·  _\"What did I report last time?\"_",
             "_\"What's on my calendar tomorrow?\"_  ·  _\"What meetings do I have coming up?\"_"]),
         ("🗓 Meetings", [
             "_\"Set up a meeting with Mo on Thursday at 3 PM, virtually\"_ (name the people; mentors can invite everyone)",
@@ -1228,6 +1250,28 @@ def build_task_blocks(tasks: list) -> list:
     return [{"type": "section", "text": {"type": "mrkdwn", "text": "*Follow-ups*" + nl + nl.join(lines)}}]
 
 
+def getting_started_blocks(founder_id: str, latest: dict | None, milestones: list, conns: list, gcal_rows: list,
+                           github_ready: bool = True) -> list:
+    """A short checklist at the top of a new founder's Home tab. Disappears once the steps that matter are done."""
+    mine = [r for r in conns if r.get("founder_id") == founder_id]
+    steps = [("Set up your profile", True, ""),
+             ("Send your first update", bool(latest), "message me what you're working on, a line or two is enough")]
+    if github_ready:
+        steps.append(("Connect GitHub and pick your repository", any(integrations.monitored_repos(r) for r in mine),
+                      "buttons further down" if not mine else "pick the repository further down"))
+    steps.append(("Set your first milestone", any(m.get("created_by_role") != "mentor" for m in milestones),
+                  "e.g. _\"Set a milestone: 10 customer interviews by Oct 30\"_"))
+    done = sum(1 for _, ok, _ in steps if ok)
+    if done == len(steps):
+        return []
+    nl = chr(10)
+    lines = [("✅ ~" + t + "~") if ok else (f"⬜ *{t}*" + (f" · {how}" if how else "")) for t, ok, how in steps]
+    if not any(r.get("founder_id") == founder_id for r in gcal_rows):
+        lines.append("➕ _Optional:_ share your Google Calendar so customer meetings count too")
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": f"*Getting started* · {done} of {len(steps)} done{nl}" + nl.join(lines)}},
+            {"type": "divider"}]
+
+
 def build_home_view(context: dict | None, latest: dict | None, tasks: list | None = None, milestones: list | None = None, conns: list | None = None, gcal_rows: list | None = None,
                     meeting_lines: list | None = None) -> dict:
     """Founder's personal sprint radar. context=None means the user isn't on the roster yet."""
@@ -1243,10 +1287,10 @@ def build_home_view(context: dict | None, latest: dict | None, tasks: list | Non
         bits.append(f"Week {int(cur['week'].split()[-1])} of 12 · {cur['phase']}")
     if context.get("stream") not in (None, "", "Unassigned", "General"):
         bits.append(f"{context['stream']} stream")
-    if context.get("lead") not in (None, "", "Unassigned"):
-        bits.append(f"Advisor: {context['lead']}")
     if bits:
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(bits)}]})
+    blocks += getting_started_blocks(context["founder_id"], latest, milestones or [], conns or [], gcal_rows or [],
+                                     github_ready=bool(github_link(context["founder_id"], context["startup_id"])))
 
     d = context["deliverable"]
     due = str(d.get("due_date", ""))[:10]
@@ -1335,20 +1379,30 @@ def is_direct_message(message) -> bool:
     return message.get("channel_type") == "im"
 
 
+def greeting_reply(role: str | None, name: str = "", text: str = "") -> tuple:
+    """(text, blocks) for a bare greeting or 'help'. 'help' always shows the real how-to; a greeting gets one next step."""
+    if role and text.strip().lower().startswith("help"):
+        return "How to use Venture Buddy", how_to_blocks(role)[1:]  # no leading divider in a message
+    if role == "mentor":
+        return "Cohort pulse", build_mentor_blocks(safe_snapshot())
+    if role == "founder":
+        first = (name or "there").split()[0]
+        msg = (f"Hey {first} 👋 What are you working on? Tell me in a line or two and I'll write it up as a check-in for you to look over."
+               + chr(10) + "_Type *help* to see everything I can do._")
+    else:
+        msg = ("Hi! 👋 I'm *Venture Buddy*, the program's assistant. Founders tell me what they're working on and I keep "
+               "the mentors up to date, so there are no forms to fill in. First, let's get you set up.")
+    return msg, [{"type": "section", "text": {"type": "mrkdwn", "text": msg}}]
+
+
 @app.message(GREETING_RE, matchers=[is_direct_message])
 def handle_greeting(message, say):
     user_id = message.get("user")
-    if user_id and get_role(user_id) == "mentor":
-        say(blocks=build_mentor_blocks(safe_snapshot()), text="Cohort pulse")
-        return
-    say(
-        f"Hey <@{user_id}>! 👋 I'm *Venture Buddy*, your automated venture studio lead.\n\n"
-        f"You don't need to log into Jira or fill out forms. Whenever you work, hit a blocker, or finish customer interviews, "
-        f"just send me a voice note or type an update right here!\n\n"
-        f"I'll automatically parse your progress against the syllabus, generate a confirmation card for you to approve, "
-        f"and sync it live to the Venture Command Center for your mentors."
-    )
-    if user_id and not is_registered(user_id):
+    role = get_role(user_id) if user_id else None
+    name = (resolve_founder_context(user_id) or {}).get("name") or "" if role == "founder" else ""
+    text, blocks = greeting_reply(role, name, message.get("text", ""))
+    say(text=text, blocks=blocks)
+    if user_id and role is None:
         onboard_member(user_id)
 
 
@@ -1557,100 +1611,73 @@ def commit_checkin(action_value: dict, actor: str):
         print(f"[Supabase Commit Error]: {e}")
 
 
+CHECKIN_STATUSES = ["In progress", "On Track", "Blocked", "Completed"]
+
+
 @app.view("modal_edit_checkin")
 def handle_edit_checkin_submit(ack, body, client, view):
-    """Founder saved the Adjust Details modal: commit the edited values."""
+    """Founder saved the Edit modal: commit the edited values and turn the original card into the saved state."""
     ack()
-    action_value = json.loads(view["private_metadata"])
+    meta = json.loads(view["private_metadata"])
+    action_value, where = meta.get("value", meta), meta.get("card")
     values = view["state"]["values"]
-    action_value["blocker"] = values["blocker_input"]["blocker_text"]["value"] or "None"
     action_value["digest"] = values["digest_input"]["digest_text"]["value"] or action_value["digest"]
+    action_value["blocker"] = (values["blocker_input"]["blocker_text"].get("value") or "").strip() or "None"
+    picked = (values.get("status_input", {}).get("status_select", {}).get("selected_option") or {}).get("value")
+    if picked in CHECKIN_STATUSES:
+        action_value["status"] = picked
     commit_checkin(action_value, body["user"]["name"])
     user_id = body["user"]["id"]
-    client.chat_postMessage(channel=user_id, text="✅ Your adjusted check-in is synced to the dashboard.")
+    blocks = saved_checkin_blocks(action_value)
+    try:
+        client.chat_update(channel=where["channel"], ts=where["ts"], text="Check-in saved", blocks=blocks)
+    except Exception:  # card location unknown (older card): post the saved state instead
+        client.chat_postMessage(channel=user_id, text="Check-in saved", blocks=blocks)
     publish_home(user_id, client)
 
 
 @app.action("confirm_checkin")
 def handle_confirm_checkin(ack, body, client):
-    """
-    Founder clicked 'Confirm': Write to Supabase & Emit Live Signal
-    """
+    """Founder pressed Save: write the check-in and lock the card so it can't be saved twice."""
     ack()
     action_value = json.loads(body["actions"][0]["value"])
     user_id = body["user"]["id"]
-    channel_id = body["channel"]["id"]
-    message_ts = body["message"]["ts"]
-
     commit_checkin(action_value, body["user"]["name"])
+    client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text="Check-in saved",
+                       blocks=saved_checkin_blocks(action_value))
     publish_home(user_id, client)
-
-    # 3. Update original Slack card to locked confirmed state
-    client.chat_update(
-        channel=channel_id,
-        ts=message_ts,
-        text="✅ Synchronized to Venture Dashboard!",
-        blocks=[
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": (
-                        f"✅ *Logged to Venture Command Center!*\n"
-                        f"• Deliverable: *{action_value['deliverable_id']}*\n"
-                        f"• Status: *{action_value['status']} ({action_value['progress']}%)*\n"
-                        f"• Synthesis: _{action_value['digest']}_\n"
-                        f"• Mentors notified on live dashboard."
-                    ),
-                },
-            }
-        ],
-    )
 
 
 @app.action("edit_checkin")
 def handle_edit_checkin(ack, body, client):
-    """
-    Founder clicked 'Adjust Details': Opens Slack modal for quick override.
-    """
+    """Founder pressed Edit: change the summary, status or blocker before saving."""
     ack()
-    trigger_id = body["trigger_id"]
     action_value = json.loads(body["actions"][0]["value"])
-
-    client.views_open(
-        trigger_id=trigger_id,
-        view={
-            "type": "modal",
-            "callback_id": "modal_edit_checkin",
-            "private_metadata": json.dumps(action_value),
-            "title": {"type": "plain_text", "text": "Adjust Check-In"},
-            "submit": {"type": "plain_text", "text": "Save & Sync"},
-            "close": {"type": "plain_text", "text": "Cancel"},
-            "blocks": [
-                {
-                    "type": "input",
-                    "block_id": "blocker_input",
-                    "label": {"type": "plain_text", "text": "Blocker Details"},
-                    "element": {
-                        "type": "plain_text_input",
-                        "action_id": "blocker_text",
-                        "initial_value": action_value.get("blocker", "None"),
-                    },
-                },
-                {
-                    "type": "input",
-                    "block_id": "digest_input",
-                    "label": {"type": "plain_text", "text": "Summary for Mentors"},
-                    "element": {
-                        "type": "plain_text_input",
-                        "action_id": "digest_text",
-                        "initial_value": action_value.get("digest", ""),
-                        "multiline": True,
-                    },
-                },
-            ],
-        },
-    )
+    meta = {"value": action_value, "card": {"channel": body["channel"]["id"], "ts": body["message"]["ts"]}}
+    while len(json.dumps(meta)) > 3000 and action_value.get("raw_transcript"):  # Slack's private_metadata limit
+        action_value["raw_transcript"] = action_value["raw_transcript"][:len(action_value["raw_transcript"]) // 2]
+    status = action_value.get("status") if action_value.get("status") in CHECKIN_STATUSES else "In progress"
+    option = lambda v: {"text": {"type": "plain_text", "text": f"{STATUS_EMOJI.get(v, '')} {v}".strip()}, "value": v}
+    blocker = action_value.get("blocker", "")
+    client.views_open(trigger_id=body["trigger_id"], view={
+        "type": "modal", "callback_id": "modal_edit_checkin", "private_metadata": json.dumps(meta),
+        "title": {"type": "plain_text", "text": "Edit check-in"},
+        "submit": {"type": "plain_text", "text": "Save check-in"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": [
+            {"type": "input", "block_id": "digest_input", "label": {"type": "plain_text", "text": "What you did"},
+             "element": {"type": "plain_text_input", "action_id": "digest_text", "multiline": True,
+                         "initial_value": action_value.get("digest", "")}},
+            {"type": "input", "block_id": "status_input", "label": {"type": "plain_text", "text": "Status"},
+             "element": {"type": "static_select", "action_id": "status_select",
+                         "options": [option(v) for v in CHECKIN_STATUSES], "initial_option": option(status)}},
+            {"type": "input", "block_id": "blocker_input", "optional": True,
+             "label": {"type": "plain_text", "text": "Anything blocking you?"},
+             "hint": {"type": "plain_text", "text": "Leave empty if nothing is."},
+             "element": {"type": "plain_text_input", "action_id": "blocker_text",
+                         **({"initial_value": blocker} if _has_blocker(blocker) else {})}},
+        ],
+    })
 
 
 # --- BACKGROUND PROACTIVE CHASER & NUDGE WORKER ---

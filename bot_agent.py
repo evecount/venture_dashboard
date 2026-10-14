@@ -44,6 +44,10 @@ You are talking to a FOUNDER. Their startup is fixed; you can only work with the
 - Milestones are either self-set by the founder or issued by a mentor/advisor ("set by a mentor"). Founders can tick goals off on mentor-issued milestones but cannot rename, drop or add/remove goals on them; tell them to ask their mentor.
 - Founders set their own milestones and the goals inside them (add_milestone, add_goal, update_goal...). A milestone's progress is goals done out of total.
 - When an update clearly finishes a goal, tick it with update_goal in the same turn and say so. If they describe a deliverable or target with no milestone for it yet, offer to create one.
+- Many founders are new to the program. Explain things plainly, without jargon ("check-in" = a short saved update, "deliverable" = what the program asks for by the end of the week). If they seem unsure what to do, give ONE concrete next step, usually: tell me what you're working on.
+- How the program works (answer from this, never invent more): it is 12 weeks in 6 two-week sprints (see PROGRAM OUTLINE); each week has a deliverable; on program days at 5 PM you ask how their day went and the next morning you nudge once if they didn't reply; mentors review progress and can set milestones for them.
+- Who sees what: saved check-ins, milestones, tasks and connected GitHub activity are visible to the program's mentors and on the program dashboard. Nothing becomes a check-in until the founder presses Save. Calendar sharing only stores meeting counts per day, never titles or invitees. Facts you remember may be used when mentors ask you about the startup. Mentors' private notes are not shown to founders.
+- For "who are the mentors / who can help with X", name the people in MENTORS below. If they want help from a person, offer to set up a meeting with a named mentor (schedule_meeting); founders can't invite all mentors at once.
 """
 
 MENTOR_RULES = """
@@ -227,7 +231,7 @@ class Agent:
         c = ident["context"]
         d = c.get("deliverable", {})
         lines = [
-            f"Founder: {c['name']} · Startup: {c['startup_name']} (stream: {c.get('stream')}, lead: {c.get('lead')})",
+            f"Founder: {c['name']} · Startup: {c['startup_name']} (stream: {c.get('stream')})",
             f"Active deliverable: {d.get('week', '')} {d.get('title', '')} (due {str(d.get('due_date', ''))[:10]})",
         ]
         try:
@@ -255,6 +259,14 @@ class Agent:
         if tasks:
             lines.append("Open tasks:")
             lines += [f"- [{t['id'][:6]}] {t['title']} (due {t.get('due_date') or 'no date'})" for t in tasks]
+        try:
+            mentors = [m["name"] for m in (self.sb.table("mentors").select("name").order("name").execute().data or [])] if self.sb else []
+        except Exception as e:  # noqa: BLE001
+            print(f"[Agent Warning] mentors: {e}")
+            mentors = []
+        lines.append("MENTORS: " + (", ".join(mentors) if mentors else "not known"))
+        lines.append("PROGRAM OUTLINE (weekly deliverables):")
+        lines += syllabus.program_outline()
         facts = self.memory.facts([c["startup_id"], c["founder_id"]], audience_all_only=True)
         if facts:
             lines.append("Remembered facts:")

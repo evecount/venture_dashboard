@@ -70,6 +70,16 @@ def schedule_lines(today: date) -> list:
     return lines
 
 
+def program_outline() -> list:
+    """One line per week: 'Week 3 (Sprint 2: ...): deliverable, due Fri Oct 16'. The shape of the whole program for newcomers."""
+    lines, seen = [], set()
+    for e in EVENTS:
+        if e["deliverable"] and e["week"] not in seen:
+            seen.add(e["week"])
+            lines.append(f"- Week {int(str(e['week']).split()[-1])} ({e['phase']}): {e['deliverable']}, due {fmt_date(e['date'])}")
+    return lines
+
+
 def has_session(d: date) -> bool:
     """True if the program schedule has anything on this date (so weekends and off days are skipped)."""
     return any(e["date"] == d for e in EVENTS)
