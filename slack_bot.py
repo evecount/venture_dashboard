@@ -104,6 +104,7 @@ supabase: Client = (
 from mentor_home import build_mentor_blocks as mentor_blocks, summarize_startups
 import threading
 
+import digest
 import github_app
 import syllabus
 import google_calendar
@@ -544,9 +545,16 @@ def cohort_overview() -> list:
         .eq("confirmed", True).order("created_at", desc=True).limit(300).execute().data or []
     )
     summaries = summarize_startups(startups, founders, subs)
+    now = datetime.now(timezone.utc)
     for sm in summaries:
-        conn = integrations.connections(supabase, sm["id"])
-        sm["work"] = integrations.activity_line(integrations.activity_summary(supabase, sm["id"]), "github" in conn)
+        rows = integrations.github_connections(supabase, sm["id"])
+        activity = integrations.activity_summary(supabase, sm["id"])
+        sm["work"] = integrations.activity_line(activity, bool(rows))
+        sm["checkins_7d"] = digest.count_recent(subs, sm["id"], now)
+        sm["gap"] = digest.building_gap(sm["checkins_7d"], any(integrations.monitored_repos(r) for r in rows), activity)
+        ms = memory.milestones(sm["id"])
+        goals = [g for m in ms for g in (m.get("goals") or [])]
+        sm["goals_total"], sm["goals_done"] = len(goals), sum(1 for g in goals if g.get("done"))
     return summaries
 
 
@@ -1726,6 +1734,106 @@ def process_google_pending():
             print(f"[Calendar Connect Error] {e}")
 
 
+# --- MENTOR DIGEST & NUDGES ---
+
+WEEKLY_DIGEST = os.environ.get("WEEKLY_DIGEST", "on").lower() != "off"
+MENTOR_ALERTS = os.environ.get("MENTOR_ALERTS", "on").lower() != "off"
+_alerts_seen_memory: set = set()  # fallback while the mentor_alerts table doesn't exist
+
+
+def mentor_slack_ids() -> list:
+    try:
+        rows = supabase.table("mentors").select("slack_user_id").execute().data or []
+    except Exception as e:
+        print(f"[Mentor Lookup Warning] {e}")
+        return []
+    return [r["slack_user_id"] for r in rows if re.fullmatch(r"[UW][A-Z0-9]{8,}", r.get("slack_user_id") or "")]
+
+
+def alert_seen(key: str) -> bool:
+    if key in _alerts_seen_memory:
+        return True
+    try:
+        return bool(supabase.table("mentor_alerts").select("key").eq("key", key).execute().data)
+    except Exception:
+        return False
+
+
+def alert_mark(key: str):
+    _alerts_seen_memory.add(key)
+    try:
+        supabase.table("mentor_alerts").upsert({"key": key}).execute()
+    except Exception:
+        pass  # table not created yet: the in-memory set still prevents repeats until the next restart
+
+
+def blocks_to_text(blocks: list) -> str:
+    out = []
+    for bl in blocks:
+        if isinstance(bl.get("text"), dict):
+            out.append(bl["text"].get("text", ""))
+        for el in bl.get("elements", []) if isinstance(bl.get("elements"), list) else []:
+            if isinstance(el.get("text"), str):
+                out.append(el["text"])
+    return chr(10).join(t for t in out if t)
+
+
+def _today_sgt():
+    return datetime.now(timezone(timedelta(hours=8))).date()
+
+
+def send_weekly_digest(dry_run: bool = False):
+    """Monday-morning summary DM for every mentor. Also marks today's nudge candidates as told, so they aren't repeated."""
+    today = _today_sgt()
+    if not (supabase and syllabus.has_session(today)):
+        return []
+    summaries = safe_snapshot()
+    blocks = digest.build_digest_blocks(summaries, today, upcoming_meeting_items(), memory.open_tasks())
+    if dry_run:
+        return blocks
+    sent = []
+    for uid in mentor_slack_ids():
+        try:
+            app.client.chat_postMessage(channel=uid, text="Weekly digest", blocks=blocks + dashboard_button_blocks(slack_user_id=uid))
+            sent.append(uid)
+        except Exception as e:
+            print(f"[Digest Error] {uid}: {e}")
+    for a in digest.alert_candidates(summaries, today):
+        alert_mark(a["key"])
+    return sent
+
+
+def run_mentor_alerts(dry_run: bool = False) -> list:
+    """Daily 09:15: tell mentors about NEW things that need them (blocked 3+ days, gone quiet, talking but not building)."""
+    today = _today_sgt()
+    if not (supabase and syllabus.has_session(today)):
+        return []
+    fresh = [a for a in digest.alert_candidates(safe_snapshot(), today) if not alert_seen(a["key"])]
+    if not fresh or dry_run:
+        return fresh
+    text = "*Heads up from Venture Buddy*" + chr(10) + chr(10).join(a["text"] for a in fresh)
+    for uid in mentor_slack_ids():
+        try:
+            app.client.chat_postMessage(channel=uid, text="Heads up", blocks=[
+                {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+                {"type": "context", "elements": [{"type": "mrkdwn", "text": "Ask me about any of them, e.g. _\"what's going on with Auvira?\"_"}]}])
+        except Exception as e:
+            print(f"[Alert Error] {uid}: {e}")
+    for a in fresh:
+        alert_mark(a["key"])
+    return fresh
+
+
+def run_weekly_digest():
+    if WEEKLY_DIGEST and SLACK_BOT_TOKEN:
+        print(f"[Digest] sent to {len(send_weekly_digest())} mentor(s)")
+
+
+def run_alerts():
+    if MENTOR_ALERTS and SLACK_BOT_TOKEN:
+        print(f"[Alerts] {len(run_mentor_alerts())} new alert(s)")
+
+
 # --- HEALTH HEARTBEAT ---
 
 _socket_handler = None  # set when the Socket Mode connection starts
@@ -2316,6 +2424,8 @@ if BackgroundScheduler:
     scheduler.add_job(poll_new_connections, "interval", seconds=10, max_instances=1)
     scheduler.add_job(refresh_changed_homes, "interval", seconds=15, max_instances=1)
     scheduler.add_job(beat, "interval", seconds=30, max_instances=1)
+    scheduler.add_job(run_weekly_digest, "cron", day_of_week="mon", hour=9, minute=0)
+    scheduler.add_job(run_alerts, "cron", day_of_week="mon-fri", hour=9, minute=15)
     scheduler.add_job(process_google_pending, "interval", seconds=10, max_instances=1)
     scheduler.add_job(sync_all_calendars, "interval", minutes=60, max_instances=1)
     scheduler.add_job(link_org_claims, "interval", seconds=60, max_instances=1)
@@ -2332,6 +2442,13 @@ if BackgroundScheduler:
 # --- CLI SIMULATOR / ENTRY POINT ---
 
 if __name__ == "__main__":
+    if "--digest-dry-run" in sys.argv:
+        print("=== Weekly digest preview (nothing is sent) ===")
+        print(blocks_to_text(send_weekly_digest(dry_run=True) or []))
+        print(chr(10) + "=== New mentor nudges right now ===")
+        for a in run_mentor_alerts(dry_run=True):
+            print("-", a["text"])
+        sys.exit(0)
     if "--daily-dry-run" in sys.argv:
         print("Prompts that would be sent now (nothing is sent):")
         for uid, text in send_daily_prompts(None, supabase, memory, dry_run=True):

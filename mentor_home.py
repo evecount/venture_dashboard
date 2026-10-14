@@ -39,7 +39,7 @@ def summarize_startups(startups: list, founders: list, subs: list, now: datetime
         mine = sorted((s for s in subs if s["startup_id"] == st["id"]), key=lambda s: s["created_at"], reverse=True)
         names = [f["name"] for f in founders if f["startup_id"] == st["id"]]
         latest = mine[0] if mine else None
-        health, detail = "on_track", ""
+        health, detail, blocked_days, idle_days = "on_track", "", 0, None
         if latest is None:
             health, detail = "quiet", "No check-ins yet"
         else:
@@ -51,6 +51,7 @@ def summarize_startups(startups: list, founders: list, subs: list, now: datetime
                         break
                     since = s["created_at"]
                 days = (now - _parse(since)).days
+                blocked_days = days
                 health = "blocked"
                 detail = "Blocked " + ("for " + str(days) + " day" + ("s" if days != 1 else "") if days else "since today")
             elif idle_days >= QUIET_DAYS:
@@ -59,6 +60,7 @@ def summarize_startups(startups: list, founders: list, subs: list, now: datetime
             "id": st["id"], "name": st["name"], "stream": st.get("stream"), "lead": st.get("lead"),
             "founders": names, "latest": latest, "recent": mine[:3], "health": health, "detail": detail,
             "last_seen": relative(latest["created_at"], now) if latest else None,
+            "blocked_days": blocked_days, "idle_days": idle_days,
         })
     order = {"blocked": 0, "quiet": 1, "on_track": 2}
     return sorted(out, key=lambda s: (order[s["health"]], s["name"].lower()))
@@ -113,6 +115,8 @@ def build_mentor_blocks(summaries: list, today: date | None = None, tasks: list 
                 head += f"{NL}> Last update {s['last_seen']}: {_short(s['latest']['digest'])}"
             if s.get("work"):
                 head += f"{NL}> 💻 {s['work']}"
+            if s.get("gap"):
+                head += f"{NL}> ⚠️ Checking in but no code activity this week"
             lines.append(head)
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Needs your attention*" + NL + (NL * 2).join(lines)}})
     else:
@@ -123,7 +127,8 @@ def build_mentor_blocks(summaries: list, today: date | None = None, tasks: list 
         for s in healthy:
             lat = s["latest"]
             lines.append(f"🟢 *{s['name']}* ({_who(s)}) · {lat['progress']}% · checked in {s['last_seen']}"
-                         f"{NL}> {_short(lat['digest'])}" + (f"{NL}> 💻 {s['work']}" if s.get("work") else ""))
+                         f"{NL}> {_short(lat['digest'])}" + (f"{NL}> 💻 {s['work']}" if s.get("work") else "")
+                         + (f"{NL}> ⚠️ Checking in but no code activity this week" if s.get("gap") else ""))
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*On track*" + NL + (NL * 2).join(lines)}})
 
     lines = coming_up(today, meetings)

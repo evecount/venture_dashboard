@@ -5,7 +5,7 @@ Any small Linux VM works. Only run ONE copy at a time: stop the one on your comp
 
 1. Create the VM (Google Cloud e2-micro in us-central1/us-west1/us-east1 is free; Oracle Always Free ARM also works). Ubuntu 22.04+.
 2. On your computer, zip the bot (not node_modules, .output or .git):
-   - slack_bot.py bot_agent.py bot_memory.py mentor_home.py syllabus.py integrations.py github_app.py daily_checkin.py profile_rules.py google_calendar.py meetings.py
+   - slack_bot.py bot_agent.py bot_memory.py mentor_home.py syllabus.py integrations.py github_app.py daily_checkin.py profile_rules.py google_calendar.py meetings.py digest.py
    - requirements.txt, .env, your *.pem GitHub key, deploy/, and src/data/syllabus.json (keep that folder path)
 3. Copy it up and unzip, e.g. `scp venturebot.zip user@VM_IP:~` then `unzip venturebot.zip -d venturebot && cd venturebot`.
 4. `sudo bash deploy/setup.sh` (installs Python, creates a locked-down service user, starts the bot on boot, restarts it if it crashes).
