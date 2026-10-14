@@ -11,12 +11,15 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
+import { Route as DevRouteImport } from './routes/dev'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiDashClaimRouteImport } from './routes/api/dash/claim'
 import { Route as ApiDashHandledRouteImport } from './routes/api/dash/handled'
 import { Route as ApiDashSessionRouteImport } from './routes/api/dash/session'
 import { Route as ApiDashSnapshotRouteImport } from './routes/api/dash/snapshot'
+import { Route as ApiDevActionRouteImport } from './routes/api/dev/action'
+import { Route as ApiDevStateRouteImport } from './routes/api/dev/state'
 import { Route as ApiGithubCallbackRouteImport } from './routes/api/github/callback'
 import { Route as ApiGithubWebhookRouteImport } from './routes/api/github/webhook'
 import { Route as ApiGoogleCallbackRouteImport } from './routes/api/google/callback'
@@ -31,6 +34,11 @@ const IndexRoute = IndexRouteImport.update({
 const AboutRoute = AboutRouteImport.update({
   id: '/about',
   path: '/about',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DevRoute = DevRouteImport.update({
+  id: '/dev',
+  path: '/dev',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PrivacyRoute = PrivacyRouteImport.update({
@@ -63,6 +71,16 @@ const ApiDashSnapshotRoute = ApiDashSnapshotRouteImport.update({
   path: '/api/dash/snapshot',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiDevActionRoute = ApiDevActionRouteImport.update({
+  id: '/api/dev/action',
+  path: '/api/dev/action',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDevStateRoute = ApiDevStateRouteImport.update({
+  id: '/api/dev/state',
+  path: '/api/dev/state',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiGithubCallbackRoute = ApiGithubCallbackRouteImport.update({
   id: '/api/github/callback',
   path: '/api/github/callback',
@@ -92,12 +110,15 @@ const ApiAuthSlackCallbackRoute = ApiAuthSlackCallbackRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/dev': typeof DevRoute
   '/privacy': typeof PrivacyRoute
   '/api/health': typeof ApiHealthRoute
   '/api/dash/claim': typeof ApiDashClaimRoute
   '/api/dash/handled': typeof ApiDashHandledRoute
   '/api/dash/session': typeof ApiDashSessionRoute
   '/api/dash/snapshot': typeof ApiDashSnapshotRoute
+  '/api/dev/action': typeof ApiDevActionRoute
+  '/api/dev/state': typeof ApiDevStateRoute
   '/api/github/callback': typeof ApiGithubCallbackRoute
   '/api/github/webhook': typeof ApiGithubWebhookRoute
   '/api/google/callback': typeof ApiGoogleCallbackRoute
@@ -107,12 +128,15 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/dev': typeof DevRoute
   '/privacy': typeof PrivacyRoute
   '/api/health': typeof ApiHealthRoute
   '/api/dash/claim': typeof ApiDashClaimRoute
   '/api/dash/handled': typeof ApiDashHandledRoute
   '/api/dash/session': typeof ApiDashSessionRoute
   '/api/dash/snapshot': typeof ApiDashSnapshotRoute
+  '/api/dev/action': typeof ApiDevActionRoute
+  '/api/dev/state': typeof ApiDevStateRoute
   '/api/github/callback': typeof ApiGithubCallbackRoute
   '/api/github/webhook': typeof ApiGithubWebhookRoute
   '/api/google/callback': typeof ApiGoogleCallbackRoute
@@ -123,12 +147,15 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/dev': typeof DevRoute
   '/privacy': typeof PrivacyRoute
   '/api/health': typeof ApiHealthRoute
   '/api/dash/claim': typeof ApiDashClaimRoute
   '/api/dash/handled': typeof ApiDashHandledRoute
   '/api/dash/session': typeof ApiDashSessionRoute
   '/api/dash/snapshot': typeof ApiDashSnapshotRoute
+  '/api/dev/action': typeof ApiDevActionRoute
+  '/api/dev/state': typeof ApiDevStateRoute
   '/api/github/callback': typeof ApiGithubCallbackRoute
   '/api/github/webhook': typeof ApiGithubWebhookRoute
   '/api/google/callback': typeof ApiGoogleCallbackRoute
@@ -140,12 +167,15 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/about'
+    | '/dev'
     | '/privacy'
     | '/api/health'
     | '/api/dash/claim'
     | '/api/dash/handled'
     | '/api/dash/session'
     | '/api/dash/snapshot'
+    | '/api/dev/action'
+    | '/api/dev/state'
     | '/api/github/callback'
     | '/api/github/webhook'
     | '/api/google/callback'
@@ -155,12 +185,15 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/about'
+    | '/dev'
     | '/privacy'
     | '/api/health'
     | '/api/dash/claim'
     | '/api/dash/handled'
     | '/api/dash/session'
     | '/api/dash/snapshot'
+    | '/api/dev/action'
+    | '/api/dev/state'
     | '/api/github/callback'
     | '/api/github/webhook'
     | '/api/google/callback'
@@ -170,12 +203,15 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/about'
+    | '/dev'
     | '/privacy'
     | '/api/health'
     | '/api/dash/claim'
     | '/api/dash/handled'
     | '/api/dash/session'
     | '/api/dash/snapshot'
+    | '/api/dev/action'
+    | '/api/dev/state'
     | '/api/github/callback'
     | '/api/github/webhook'
     | '/api/google/callback'
@@ -186,12 +222,15 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
+  DevRoute: typeof DevRoute
   PrivacyRoute: typeof PrivacyRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiDashClaimRoute: typeof ApiDashClaimRoute
   ApiDashHandledRoute: typeof ApiDashHandledRoute
   ApiDashSessionRoute: typeof ApiDashSessionRoute
   ApiDashSnapshotRoute: typeof ApiDashSnapshotRoute
+  ApiDevActionRoute: typeof ApiDevActionRoute
+  ApiDevStateRoute: typeof ApiDevStateRoute
   ApiGithubCallbackRoute: typeof ApiGithubCallbackRoute
   ApiGithubWebhookRoute: typeof ApiGithubWebhookRoute
   ApiGoogleCallbackRoute: typeof ApiGoogleCallbackRoute
@@ -213,6 +252,13 @@ declare module '@tanstack/react-router' {
       path: '/about'
       fullPath: '/about'
       preLoaderRoute: typeof AboutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dev': {
+      id: '/dev'
+      path: '/dev'
+      fullPath: '/dev'
+      preLoaderRoute: typeof DevRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/privacy': {
@@ -257,6 +303,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiDashSnapshotRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/dev/action': {
+      id: '/api/dev/action'
+      path: '/api/dev/action'
+      fullPath: '/api/dev/action'
+      preLoaderRoute: typeof ApiDevActionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/dev/state': {
+      id: '/api/dev/state'
+      path: '/api/dev/state'
+      fullPath: '/api/dev/state'
+      preLoaderRoute: typeof ApiDevStateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/github/callback': {
       id: '/api/github/callback'
       path: '/api/github/callback'
@@ -298,12 +358,15 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
+  DevRoute: DevRoute,
   PrivacyRoute: PrivacyRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiDashClaimRoute: ApiDashClaimRoute,
   ApiDashHandledRoute: ApiDashHandledRoute,
   ApiDashSessionRoute: ApiDashSessionRoute,
   ApiDashSnapshotRoute: ApiDashSnapshotRoute,
+  ApiDevActionRoute: ApiDevActionRoute,
+  ApiDevStateRoute: ApiDevStateRoute,
   ApiGithubCallbackRoute: ApiGithubCallbackRoute,
   ApiGithubWebhookRoute: ApiGithubWebhookRoute,
   ApiGoogleCallbackRoute: ApiGoogleCallbackRoute,

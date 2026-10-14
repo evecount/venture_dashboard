@@ -55,6 +55,9 @@ Founder/Mentor in Slack ──► Venture Buddy (Python, Socket Mode, always on)
 | `github_app.py` | GitHub App API (installation tokens from the private key): repo listing, 14-day backfill, org lookups. |
 | `google_calendar.py` | Google OAuth, encrypted tokens, read-only event sync into counts, live "my calendar", studio-calendar event creation. |
 | `meetings.py` | Meeting requests: time parsing, 12-hour formatting, attendee resolution, event bodies. |
+| `channel_memory.py` | Reads only the Slack channels switched on in the Developer page, keeps 7 days of their messages, builds the per-person channel context (only channels that person is a member of). |
+| `dev_controls.py` | Developer-page settings (`bot_settings`), command queue (`bot_commands`) and console copy (`bot_logs`). |
+| `src/routes/dev.tsx`, `src/routes/api/dev/*`, `src/lib/dev-auth.ts` | Developer page (channels, test console, controls, logs). Only for `DEV_EMAILS` (default ben@evecount.com) matched against `mentors.email`; everyone else gets 404. |
 | `src/routes/` | TanStack Start site: `index.tsx` (dashboard), `about.tsx`/`privacy.tsx` (public, needed for Google OAuth), `api/github/{callback,webhook}.ts`, `api/google/callback.ts`, `api/dash/*`, `api/health.ts`. |
 | `src/components/dashboard/`, `src/hooks/` | Dashboard UI and data hooks (live Supabase data; owned partly by another agent). |
 | `src/lib/integrations.ts`, `supabase-admin.ts` | Webhook signature checks, signed state, GitHub event mapping, server-side Supabase REST. |
@@ -67,7 +70,7 @@ Founder/Mentor in Slack ──► Venture Buddy (Python, Socket Mode, always on)
 ## 4. Data model (Supabase)
 
 Public-read (dashboard): `cohorts`, `startups`, `founders`, `deliverables`, `submissions` (confirmed check-ins), `signals` (activity feed: check-ins, commits, PRs, issues, meetings), `milestones`, `goals`.
-Service-role only: `mentors`, `notes`, `tasks`, `bot_messages`, `memories`, `integrations` (GitHub/Google, encrypted tokens), `github_installations`, `github_claims`, `google_pending`, `studio_calendar`, `pending_meetings`, `bot_heartbeat`, and any tables added by other agents' migrations.
+Service-role only: `mentors`, `notes`, `tasks`, `bot_messages`, `memories`, `integrations` (GitHub/Google, encrypted tokens), `github_installations`, `github_claims`, `google_pending`, `studio_calendar`, `pending_meetings`, `bot_heartbeat`, `bot_channels`, `channel_messages` (7-day window, pruned hourly), `bot_settings`, `bot_commands`, `bot_logs`, and any tables added by other agents' migrations.
 
 Health rules (Slack and dashboard must stay in sync): **blocked** = latest check-in is Blocked; **quiet** = no check-in for 7+ days; otherwise **on track**.
 
@@ -78,7 +81,7 @@ Health rules (Slack and dashboard must stay in sync): **blocked** = latest check
 - **Roles.** Mentors are verified with a mentor code (or pre-registered by email); founders are matched by Slack email or set up via the founder profile form. Duplicate/double entry is blocked by `profile_rules.py`.
 - **Founder messages** become answers, tasks, milestones/goals or a **check-in proposal** (confirm card). Founders cannot edit mentor-issued milestones (they can tick goals).
 - **Mentor messages** get cohort answers, notes, tasks, milestone issuing, stream/lead assignment, renames, meeting scheduling. `pulse` shows the cohort card.
-- **Memory.** Short-term: last 12 messages per user (`bot_messages`). Long-term: `memories` facts (`audience` all/mentors).
+- **Memory.** Short-term: last 12 messages per user (`bot_messages`). Long-term: `memories` facts (`audience` all/mentors). Channels: the last 7 days of channels enabled in the Developer page, shown to the agent only for channels the asker is a member of in Slack. Needs bot scopes `channels:read`, `channels:history`, `groups:read`, `groups:history`, `users:read` (+ `channels:join`) and bot events `message.channels`, `message.groups`.
 - **Daily rhythm.** 17:00 SGT on program days it asks each linked founder what they did (mentioning open goals); 09:30 next day one nudge if no reply; 09:00 blocker audit.
 - **Home tab.** Founder: "Your sprint radar – <startup>", due this week, last check-in, two milestone groups (mentor-issued vs own), connections (GitHub repo picker inline, calendar). Mentor: cohort view with attention items. Republished within ~15 s of relevant changes.
 - **Meetings.** "Set up a meet with everyone at 3 PM on Thursday at 111 Somerset" -> a proposal card -> on confirm, an event is created on the shared **studio Google Calendar** (connected once by a mentor) with a Meet link for virtual meetings and invitations emailed. Times are SGT, shown in 12-hour format. Founders cannot invite "everyone".
@@ -104,7 +107,7 @@ Health rules (Slack and dashboard must stay in sync): **blocked** = latest check
 
 ## 8. Environment variables (`.env`, never committed)
 
-`SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `VITE_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY` (+ optional `AI_MODEL`, default `gemini-3.8-flash`), `DASHBOARD_URL`, `STATE_SECRET`, `MENTOR_CODE`, `ONBOARDING_CODE` (optional), `GITHUB_APP_SLUG`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY_PATH` (or `GITHUB_APP_PRIVATE_KEY`), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`. The browser build reads `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from `.env.local` (publishable key only).
+`SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `VITE_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY` (+ optional `AI_MODEL`, default `gemini-3.8-flash`), `DASHBOARD_URL`, `STATE_SECRET`, `MENTOR_CODE`, `ONBOARDING_CODE` (optional), `GITHUB_APP_SLUG`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY_PATH` (or `GITHUB_APP_PRIVATE_KEY`), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `DEV_EMAILS` (optional, bot and Worker; default `ben@evecount.com`). The browser build reads `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from `.env.local` (publishable key only).
 
 ---
 

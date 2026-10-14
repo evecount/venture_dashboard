@@ -108,9 +108,15 @@ from profile_rules import match_person, looks_like_email, norm_name
 from daily_checkin import send_daily_prompts, send_nudges
 from bot_agent import Agent
 from bot_memory import Memory
+from channel_memory import ChannelMemory, NEEDED_SCOPES
+import dev_controls
 
+# Console output is also kept in bot_logs for the dashboard's Developer page.
+log_tee = dev_controls.install_log_tee() if "--simulate" not in sys.argv else None
 # Persistent memory + conversational agent (needs both an LLM and the database)
 memory = Memory(supabase)
+settings = dev_controls.Settings(supabase)  # Developer page settings (pause, model, daily prompts...)
+channels = ChannelMemory(supabase)  # last 7 days of the channels switched on in the Developer page
 gh = github_app.GitHubApp.from_env()  # None until GITHUB_APP_ID + a private key are configured
 
 
@@ -233,7 +239,8 @@ def github_link(founder_id: str, startup_id: str) -> str | None:
 
 
 agent = (Agent(ai_client, AI_MODEL, supabase, memory, connect_url=github_link, calendar_link=google_link, calendar_text=my_calendar_text,
-                studio_link=studio_link, studio_connected=studio_connected, studio_events=studio_events_fn)
+                studio_link=studio_link, studio_connected=studio_connected, studio_events=studio_events_fn,
+                settings=settings, channel_context=channels.context_for)
          if (ai_client and supabase) else None)
 
 # Initialize Slack Bolt App
@@ -251,6 +258,7 @@ else:
         def view(self, *args, **kwargs):
             return lambda f: f
     app = DummyApp()
+channels.client = getattr(app, "client", None)
 
 # Fallback in-memory roster & syllabus for offline/dry-run execution
 OFFLINE_ROSTER = {
@@ -792,7 +800,23 @@ def handle_team_join(event, client):
 
 @app.event("member_joined_channel")
 def handle_member_joined_channel(event, client):
+    channels.members_changed(event.get("channel"))
     onboard_member(event["user"], client)
+
+
+@app.event("member_left_channel")
+def handle_member_left_channel(event):
+    channels.members_changed(event.get("channel"))
+
+
+@app.event({"type": "message", "subtype": "message_changed"})
+def handle_message_changed(event):
+    channels.edited(event)
+
+
+@app.event({"type": "message", "subtype": "message_deleted"})
+def handle_message_deleted(event):
+    channels.deleted(event)
 
 
 def prompt_onboarding(say):
@@ -1230,6 +1254,8 @@ def handle_app_mention(event, say):
 def handle_direct_or_channel_message(message, say):
     # Only process if direct message (channel type 'im') or explicitly in checkin context
     channel_type = message.get("channel_type")
+    if channel_type != "im":
+        channels.ingest(message)  # remembered for 7 days only if the channel is switched on in the Developer page
     if channel_type != "im" and not message.get("text", "").startswith("/checkin"):
         return  # Avoid hijacking regular chatter in public channels
 
@@ -1273,6 +1299,9 @@ def process_inbound_message(user_id: str, text: str, files: list, say):
     (answers, notes, tasks, memory, check-in proposals). Falls back to plain extraction
     when no LLM or database is configured.
     """
+    if settings.get("paused") and not is_developer(user_id):
+        say("I'm being updated right now and will be back shortly. Please try again in a few minutes.")
+        return
     role = get_role(user_id)
     if role is None:
         if not onboard_member(user_id):
@@ -1924,18 +1953,127 @@ def link_org_claims():
             print(f"[Org Claim Warning] {e}")
 
 
+# --- DEVELOPER PAGE: commands queued from the dashboard (only the developer can queue them) ---
+
+DEV_EMAILS = {e.strip().lower() for e in os.environ.get("DEV_EMAILS", "ben@evecount.com").split(",") if e.strip()}
+
+
+def is_developer(slack_user_id: str) -> bool:
+    if not (supabase and slack_user_id):
+        return False
+    try:
+        rows = supabase.table("mentors").select("email").eq("slack_user_id", slack_user_id).limit(1).execute().data
+        return bool(rows and (rows[0].get("email") or "").lower() in DEV_EMAILS)
+    except Exception:
+        return False
+
+
+def prune_dev_data():
+    print(f"[Channels] pruned {channels.prune()} messages older than 7 days")
+    dev_controls.prune_logs(supabase)
+
+
+def granted_scopes() -> list:
+    try:
+        return sorted(s for s in (app.client.auth_test().headers.get("x-oauth-scopes") or "").replace(" ", "").split(",") if s)
+    except Exception as e:
+        print(f"[Dev Warning] scopes: {e}")
+        return []
+
+
+def dev_status(_args, _by) -> str:
+    scopes = granted_scopes()
+    missing = [s for s in NEEDED_SCOPES if s not in scopes]
+    try:
+        supabase.table("bot_heartbeat").update({"scopes": ",".join(scopes)}).eq("id", "main").execute()
+    except Exception as e:
+        print(f"[Dev Warning] heartbeat scopes: {e}")
+    connected = bool(_socket_handler and _socket_handler.client.is_connected())
+    return (f"Model: {settings.get('ai_model') or AI_MODEL} · agent {'on' if agent else 'OFF'} · "
+            f"Slack {'connected' if connected else 'NOT connected'}\n"
+            f"Scopes: {', '.join(scopes) or 'unknown'}\n"
+            + (f"Missing for channel reading: {', '.join(missing)}" if missing else "All channel-reading scopes granted."))
+
+
+def _dev_target(args, by):
+    who = str(args.get("as_slack_id") or by or "").strip()
+    return who, get_role(who) if who else None
+
+
+def dev_ask(args, by) -> str:
+    """Asks the agent as the developer (or as someone else, to preview their answer). Tools run for real."""
+    who, role = _dev_target(args, by)
+    if agent is None or role is None:
+        return "The agent is off, or that Slack id isn't a mentor or founder."
+    result = agent.respond(build_identity(who, role), str(args.get("text") or "")[:4000])
+    cards = [k for k in ("checkin", "rename", "meeting") if result.get(k)]
+    return result["text"] + (f"\n\n(In Slack this would also show a {', '.join(cards)} card to confirm.)" if cards else "")
+
+
+def dev_context(args, by) -> str:
+    who, role = _dev_target(args, by)
+    if agent is None or role is None:
+        return "The agent is off, or that Slack id isn't a mentor or founder."
+    return agent._system(build_identity(who, role))
+
+
+def dev_post(args, _by) -> str:
+    channel, text = str(args.get("channel_id") or ""), str(args.get("text") or "").strip()
+    if not (channel and text):
+        return "Pick a channel and write a message."
+    app.client.chat_postMessage(channel=channel, text=text)
+    return "Posted."
+
+
+def dev_republish(_args, _by) -> str:
+    ids = set()
+    for table in ("founders", "mentors"):
+        ids |= {r["slack_user_id"] for r in (supabase.table(table).select("slack_user_id").execute().data or [])
+                if r.get("slack_user_id")}
+    for uid in ids:
+        publish_home(uid, app.client)
+    return f"Republished {len(ids)} Home tabs."
+
+
+def dev_daily_preview(_args, _by) -> str:
+    prompts = send_daily_prompts(None, supabase, memory, dry_run=True)
+    nudges = send_nudges(None, supabase, memory, dry_run=True)
+    body = "\n\n".join(f"to {uid}:\n{text}" for uid, text in prompts) or "No prompts would go out right now."
+    return f"{body}\n\nNudges that would go out now: {len(nudges)}"
+
+
+def dev_clear_history(args, by) -> str:
+    who = str(args.get("as_slack_id") or by or "").strip()
+    supabase.table("bot_messages").delete().eq("slack_user_id", who).execute()
+    return f"Cleared the bot's recent conversation memory with {who}."
+
+
+DEV_COMMANDS = {
+    "status": dev_status,
+    "refresh_channels": lambda _a, _b: channels.refresh_list(),
+    "sync_channel": lambda a, _b: channels.activate(str(a.get("channel_id") or "")),
+    "prune": lambda _a, _b: f"Removed {channels.prune()} messages older than 7 days.",
+    "ask": dev_ask,
+    "show_context": dev_context,
+    "post_message": dev_post,
+    "republish_homes": dev_republish,
+    "daily_preview": dev_daily_preview,
+    "clear_history": dev_clear_history,
+}
+
+
 # Initialize scheduler if available (all times Singapore time)
 DAILY_CHECKIN = os.environ.get("DAILY_CHECKIN", "on").lower() != "off"
 DAILY_CHECKIN_HOUR = int(os.environ.get("DAILY_CHECKIN_HOUR", "17"))
 
 
 def run_daily_prompts():
-    if supabase and SLACK_BOT_TOKEN:
+    if supabase and SLACK_BOT_TOKEN and settings.get("daily_checkin"):
         print(f"[Daily] prompts sent: {len(send_daily_prompts(app.client, supabase, memory))}")
 
 
 def run_daily_nudges():
-    if supabase and SLACK_BOT_TOKEN:
+    if supabase and SLACK_BOT_TOKEN and settings.get("daily_checkin"):
         print(f"[Daily] nudges sent: {len(send_nudges(app.client, supabase, memory))}")
 
 
@@ -1948,6 +2086,10 @@ if BackgroundScheduler:
     scheduler.add_job(process_google_pending, "interval", seconds=10, max_instances=1)
     scheduler.add_job(sync_all_calendars, "interval", minutes=60, max_instances=1)
     scheduler.add_job(link_org_claims, "interval", seconds=60, max_instances=1)
+    scheduler.add_job(lambda: dev_controls.run_commands(supabase, DEV_COMMANDS), "interval", seconds=5, max_instances=1)
+    scheduler.add_job(lambda: dev_controls.flush_logs(supabase, log_tee), "interval", seconds=10, max_instances=1)
+    scheduler.add_job(prune_dev_data, "interval", minutes=60, max_instances=1)
+    scheduler.add_job(lambda: SLACK_BOT_TOKEN and channels.refresh_list(), "interval", hours=6, max_instances=1)
     if DAILY_CHECKIN:
         scheduler.add_job(run_daily_prompts, "cron", day_of_week="mon-fri", hour=DAILY_CHECKIN_HOUR, minute=0)
         scheduler.add_job(run_daily_nudges, "cron", day_of_week="mon-fri", hour=9, minute=30)

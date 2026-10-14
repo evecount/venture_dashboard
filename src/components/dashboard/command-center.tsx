@@ -31,6 +31,7 @@ import { formatDay, programState, sgtDate, type ProgramState, type SyllabusEvent
 import { gateStatus, isUnassigned, leadMentor, weeklyProgress, type MentorLike } from "./insights";
 import { GateBoard, GateMatrix } from "./gates";
 import { StartupPage } from "./startup-page";
+import { DeveloperLink } from "./developer-link";
 import {
   GatePill,
   HealthPill,
@@ -84,6 +85,7 @@ function AccountMenu({ identity, onSignOut }: { identity: Identity; onSignOut: (
               : "Founder · sees your venture"}
           </p>
         </div>
+        <DeveloperLink />
         <button
           type="button"
           className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm hover:bg-secondary"
