@@ -105,6 +105,7 @@ from mentor_home import build_mentor_blocks as mentor_blocks, summarize_startups
 import threading
 
 import digest
+import transcribe
 import github_app
 import syllabus
 import google_calendar
@@ -1313,6 +1314,40 @@ def build_rename_card(proposal: dict) -> list:
     ]
 
 
+def voice_hints() -> list:
+    """Real startup, founder and mentor names so spoken names are spelled right ("Auvira", not "our offer")."""
+    hints = ["Venture Buddy", "VentureOS", "GitHub", "milestone", "Slack"]
+    try:
+        for table, col in (("startups", "name"), ("founders", "name"), ("mentors", "name")):
+            hints += [r[col] for r in (supabase.table(table).select(col).execute().data or [])]
+    except Exception as e:
+        print(f"[Voice Hints Warning] {e}")
+    return hints
+
+
+def transcribe_voice(audio_files: list, say) -> str:
+    """Transcribes Slack voice notes with Gemini and replies with what was heard so mistakes can be spotted. '' on failure."""
+    if not (GEMINI_API_KEY and SLACK_BOT_TOKEN):
+        say("I can't transcribe voice notes yet (the transcription key isn't set up). Type it out for now?")
+        return ""
+    parts, hints = [], voice_hints()
+    for f in audio_files[:transcribe.MAX_FILES]:
+        try:
+            data = transcribe.download(f, SLACK_BOT_TOKEN)
+            parts.append(transcribe.transcribe_audio(data, transcribe.gemini_mime(f), GEMINI_API_KEY, AI_MODEL, hints=hints))
+        except Exception as e:
+            print(f"[Voice Error] {e}")
+            say("I couldn't transcribe that voice note. It may be too long or in a format I can't read. Could you try again or type it out?")
+            return ""
+    heard = chr(10).join(t for t in parts if t).strip()
+    if not heard:
+        say("I couldn't make out any speech in that voice note. Could you try again?")
+        return ""
+    quoted = chr(10).join("> " + line for line in heard.splitlines() if line.strip())
+    say(f"🎙 *I heard:*{chr(10)}{quoted}{chr(10)}_If I got something wrong, tell me and I'll fix it._")
+    return heard
+
+
 def process_inbound_message(user_id: str, text: str, files: list, say):
     """
     Core pipeline: resolve role, then hand the message to the conversational agent
@@ -1329,9 +1364,17 @@ def process_inbound_message(user_id: str, text: str, files: list, say):
         role = get_role(user_id)
         # Linked just now by email; welcome DM already sent, carry on.
 
-    # Read attached files if present (transcripts, voice memo exports)
-    if files:
-        for f in files:
+    # Voice notes: transcribe, show the founder what I heard, then treat it like a typed update.
+    audio = [f for f in (files or []) if transcribe.is_audio(f)]
+    if audio:
+        heard = transcribe_voice(audio, say)
+        if heard:
+            text = (text + chr(10) + heard).strip()
+        elif not text.strip():
+            return  # nothing intelligible and nothing typed: I already said so
+    # Other attached files (documents, exports): just note their names
+    for f in files or []:
+        if f not in audio:
             text += f"\n[Attachment: {f.get('name')}]"
 
     if role == "mentor" and PULSE_RE.match(text):
@@ -2397,8 +2440,11 @@ def resume_channel_syncs():
 
 
 @app.event("message")
-def handle_other_message_events(event):
-    """Registered last: catches channel messages no listener above took (e.g. a file shared with no text)."""
+def handle_other_message_events(event, say):
+    """Registered last: catches messages no listener above took (a file shared with no text)."""
+    if event.get("channel_type") == "im" and event.get("user") and any(transcribe.is_audio(f) for f in event.get("files") or []):
+        process_inbound_message(event["user"], (event.get("text") or "").strip(), event.get("files") or [], say)  # a voice note on its own
+        return
     if event.get("channel_type") in ("channel", "group") and not (event.get("subtype") or "").startswith("message_"):
         channels.ingest(event)
 
