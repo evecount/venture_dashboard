@@ -3,6 +3,7 @@ import { programState } from "@/components/dashboard/program";
 import {
   blockedDays,
   checkinStreak,
+  upcomingMilestones,
   expectedProgress,
   gateStatus,
   weeklyProgress,
@@ -93,5 +94,30 @@ describe("trends", () => {
       sub({ status: "Blocked", created_at: "2026-10-13T02:00:00Z" }),
     ];
     expect(blockedDays("s1", subs, now)).toBe(4); // 3 days, then 1 day and counting
+  });
+});
+
+describe("coming up", () => {
+  it("lists open milestones earliest due first, undated last, with overdue flagged", () => {
+    const m = (id: string, due_date: string | null, status = "open") => ({
+      id,
+      startup_id: "s1",
+      due_date,
+      status,
+    });
+    const out = upcomingMilestones(
+      [
+        m("late", "2026-10-30"),
+        m("none", null),
+        m("done", "2026-10-01", "done"),
+        m("soon", "2026-10-16"),
+        m("past", "2026-10-10"),
+        m("today", "2026-10-14"),
+      ],
+      "2026-10-14",
+    );
+    expect(out.map((x) => x.id)).toEqual(["past", "today", "soon", "late", "none"]);
+    expect(out[0]!.overdue).toBe(true);
+    expect(out[1]!.dueToday).toBe(true);
   });
 });

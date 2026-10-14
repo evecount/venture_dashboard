@@ -174,3 +174,24 @@ export function blockedDays(startupId: string, subs: SubLike[], now: Date): numb
   if (since !== null) total += now.getTime() - since;
   return Math.round(total / DAY);
 }
+
+type MilestoneLike = { id: string; startup_id: string; due_date: string | null; status: string };
+
+/** Open milestones, earliest due first and undated last, flagged when overdue or due today (SGT date). */
+export function upcomingMilestones<M extends MilestoneLike>(milestones: M[], today: string) {
+  return milestones
+    .filter((m) => m.status === "open")
+    .map((m) => {
+      const due = m.due_date ? m.due_date.slice(0, 10) : null;
+      return { ...m, due_date: due, overdue: !!due && due < today, dueToday: due === today };
+    })
+    .sort((a, b) =>
+      a.due_date === b.due_date
+        ? 0
+        : a.due_date === null
+          ? 1
+          : b.due_date === null
+            ? -1
+            : a.due_date.localeCompare(b.due_date),
+    );
+}

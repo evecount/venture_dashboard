@@ -27,7 +27,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { type Founder, type DemoPerspective, isStudioRole } from "./data";
 import { attentionReason, isHandled, relativeTime } from "./roster";
 import { formatDay, programState, sgtDate, type ProgramState, type SyllabusEvent } from "./program";
-import { gateStatus, weeklyProgress } from "./insights";
+import { gateStatus, upcomingMilestones, weeklyProgress } from "./insights";
+import { setByLabel } from "./milestones";
 import { GateBoard, GateMatrix } from "./gates";
 import { StartupPage } from "./startup-page";
 import { DeveloperLink } from "./developer-link";
@@ -492,31 +493,89 @@ function TodayView({
             )}
           </section>
         </div>
-        <ThisWeek program={program} now={now} />
+        <ComingUp founders={founders} snapshot={snapshot} now={now} openStartup={openStartup} />
       </div>
     </>
   );
 }
 
-function ThisWeek({ program, now }: { program: ProgramState; now: Date }) {
-  const today = sgtDate(now);
+/** Open milestones across the cohort, earliest due first (no due date last). */
+function ComingUp({
+  founders,
+  snapshot,
+  now,
+  openStartup,
+}: {
+  founders: Founder[];
+  snapshot: DashSnapshot;
+  now: Date;
+  openStartup: (id: string) => void;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const names = new Map(founders.map((f) => [f.id, startupName(f)]));
+  const items = upcomingMilestones(snapshot.milestones, sgtDate(now)).filter((m) =>
+    names.has(m.startup_id),
+  );
+  const LIMIT = 6;
+  const shown = showAll ? items : items.slice(0, LIMIT);
   return (
-    <section className="panel" aria-labelledby="this-week">
+    <section className="panel" aria-labelledby="coming-up">
       <div className="panel-head">
-        <h2 id="this-week">Coming up</h2>
+        <h2 id="coming-up">Coming up</h2>
+        {items.length > 0 && <span className="panel-meta">Milestones, earliest due first</span>}
       </div>
-      {program.upcoming.length === 0 ? (
-        <p className="empty">The program schedule is complete.</p>
+      {items.length === 0 ? (
+        <p className="muted-note">
+          No open milestones. Founders and mentors set them through the bot, e.g. &ldquo;Set a
+          milestone: 10 customer interviews by Oct 23&rdquo;.
+        </p>
       ) : (
         <ol className="agenda">
-          {program.upcoming.map((e) => (
-            <li key={e.date} className={e.date === today ? "now" : ""}>
-              <p className="agenda-when">{e.date === today ? "Today" : formatDay(e.date)}</p>
-              <p className="agenda-what">{e.deliverable ? `Gate: ${e.deliverable}` : e.focus}</p>
-              <p className="agenda-who">{e.owner}</p>
-            </li>
-          ))}
+          {shown.map((m) => {
+            const done = m.goals.filter((g) => g.done).length;
+            const by = setByLabel(m.set_by);
+            return (
+              <li key={m.id} className={m.overdue ? "overdue" : m.dueToday ? "now" : ""}>
+                <button
+                  type="button"
+                  className="agenda-btn"
+                  onClick={() => openStartup(m.startup_id)}
+                >
+                  <p className="agenda-when">
+                    {m.due_date === null
+                      ? "No due date"
+                      : m.overdue
+                        ? `Overdue · was due ${formatDay(m.due_date)}`
+                        : m.dueToday
+                          ? "Due today"
+                          : `Due ${formatDay(m.due_date)}`}
+                  </p>
+                  <p className="agenda-what">{m.title}</p>
+                  <p className="agenda-who">
+                    {names.get(m.startup_id)}
+                    {m.goals.length > 0 && (
+                      <>
+                        <span className="dot-sep">·</span>
+                        {done}/{m.goals.length} goals
+                      </>
+                    )}
+                    {by && (
+                      <>
+                        <span className="dot-sep">·</span>
+                        Set by {by}
+                      </>
+                    )}
+                  </p>
+                </button>
+              </li>
+            );
+          })}
         </ol>
+      )}
+      {items.length > LIMIT && (
+        <Button variant="quiet" size="sm" className="mt-3" onClick={() => setShowAll(!showAll)}>
+          {showAll ? "Show fewer" : `Show all ${items.length}`}
+        </Button>
       )}
     </section>
   );

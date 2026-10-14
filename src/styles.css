@@ -437,6 +437,25 @@ html {
 .agenda > li.now {
   border-left-color: var(--primary);
 }
+.agenda > li.overdue {
+  border-left-color: var(--destructive);
+}
+.agenda > li.overdue .agenda-when {
+  color: var(--destructive);
+}
+.agenda-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border-radius: 6px;
+}
+.agenda-btn:hover .agenda-what {
+  color: var(--primary);
+}
+.agenda-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
 .agenda > li.past {
   opacity: 0.55;
 }
