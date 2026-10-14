@@ -28,7 +28,8 @@ USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
 SCOPES = "openid email https://www.googleapis.com/auth/calendar.events.readonly"
 STUDIO_SCOPES = ("openid email https://www.googleapis.com/auth/calendar.events "
-                 "https://www.googleapis.com/auth/meetings.space.settings")  # settings: let invitees join Meet without being admitted  # create meetings on the studio calendar
+                 "https://www.googleapis.com/auth/meetings.space.settings "
+                 "https://www.googleapis.com/auth/meetings.space.created")  # created: make Meet rooms that anyone with the link can join  # create meetings on the studio calendar
 MEET_API = "https://meet.googleapis.com/v2/spaces/{code}"
 SYNC_DAYS = 14
 
@@ -99,6 +100,23 @@ class GoogleCalendar:
             raise RuntimeError("could not read the calendar token")
         return self.http("POST", EVENTS_URL, headers={"Authorization": f"Bearer {token}"},
                          params={"conferenceDataVersion": 1, "sendUpdates": "all"}, json=body)
+
+    def create_open_meet(self, encrypted_refresh: str) -> str | None:
+        """
+        Creates a Meet room whose access type is OPEN from the start: anyone with the link joins without the host admitting
+        them. (Changing a Calendar-created room afterwards is refused by Google for this kind of account.)
+        Returns the meeting link, or None if the account hasn't granted the permission or Google refuses.
+        """
+        token = self.access_token(encrypted_refresh)
+        if not token:
+            return None
+        try:
+            space = self.http("POST", "https://meet.googleapis.com/v2/spaces", headers={"Authorization": f"Bearer {token}"},
+                              json={"config": {"accessType": "OPEN"}})
+            return space.get("meetingUri")
+        except Exception as e:  # noqa: BLE001
+            print(f"[Open Meet Warning] {e}")
+            return None
 
     def open_meet(self, encrypted_refresh: str, meet_code: str) -> bool:
         """

@@ -1410,7 +1410,9 @@ def handle_greeting(message, say):
 def handle_app_mention(event, say):
     text = event.get("text", "")
     user_id = event.get("user")
-    process_inbound_message(user_id, text, event.get("files", []), say)
+    thread = event.get("thread_ts") or event.get("ts")
+    process_inbound_message(user_id, text, event.get("files", []),
+                            lambda *a, **k: say(*a, thread_ts=thread, **k) if event.get("channel_type") != "im" else say(*a, **k))
 
 
 @app.message(re.compile(r".+"))
@@ -1419,8 +1421,8 @@ def handle_direct_or_channel_message(message, say):
     channel_type = message.get("channel_type")
     if channel_type != "im":
         channels.ingest(message)  # remembered for 7 days only if the channel is switched on in the Developer page
-    if channel_type != "im" and not message.get("text", "").startswith("/checkin"):
-        return  # Avoid hijacking regular chatter in public channels
+    if channel_type != "im":
+        return  # silent in channels: people talk to each other there. I only reply to an @mention (handled separately)
 
     user_id = message.get("user")
     text = message.get("text", "").replace("/checkin", "").strip()
@@ -1792,17 +1794,19 @@ def handle_confirm_meeting(ack, body, client):
             return
         begin, end = datetime.fromisoformat(m["begin"]), datetime.fromisoformat(m["end"])
         description = (f"Requested by {m['requester']} through VentureOS. Join with the Google account this invitation was sent to.")
+        open_link = gcal.create_open_meet(studio["refresh_token"]) if meetings.is_virtual(m["where"]) else None
         event = gcal.create_event(studio["refresh_token"], meetings.build_event_body(
-            m["title"], begin, end, m["where"], m["attendees"], description, m.get("repeat"), m.get("requester_slack")))
+            m["title"], begin, end, m["where"], m["attendees"], description, m.get("repeat"), m.get("requester_slack"),
+            meet_link=open_link))
         memory.delete_meeting(row["id"])
         _studio_cache["at"] = 0.0
-        link, meet = event.get("htmlLink"), event.get("hangoutLink")
+        link, meet = event.get("htmlLink"), open_link or event.get("hangoutLink")
         note = ""
-        if meet:  # let guests in without anyone signing in to the studio account to admit them
-            code = google_calendar.meet_code(meet)
-            ok = bool(code) and gcal.open_meet(studio["refresh_token"], code)
-            note = (" Guests can join without being admitted." if ok else
-                    " ⚠️ Guests may need to be admitted: a mentor needs to reconnect the studio calendar once to allow open joining.")
+        if open_link:
+            note = " Anyone with the link can join without being admitted."
+        elif meet:
+            note = (" ⚠️ Guests may need to be admitted by the host: a mentor needs to reconnect the studio calendar once "
+                    "to allow open Meet rooms.")
         finish(f"✅ *{m['title']}* is on the calendar for {meetings.format_when(begin, end)}. Invitations went to "
                f"{len(m['attendees'])} people." + (f" <{meet}|Google Meet link>" if meet else f" 📍 {m['where']}")
                + (f" · <{link}|Open in Google Calendar>" if link else "") + note)
@@ -2048,7 +2052,8 @@ def send_meeting_reminders():
                 people[r["email"].lower()] = r["slack_user_id"]
     for ev in due:
         begin, end = meetings.event_times(ev)
-        where = f"<{ev['hangoutLink']}|Join the Google Meet>" if ev.get("hangoutLink") else (ev.get("location") or "")
+        meet_url = ev.get("hangoutLink") or (ev.get("location") if "meet.google.com" in (ev.get("location") or "") else None)
+        where = f"<{meet_url}|Join the Google Meet>" if meet_url else (ev.get("location") or "")
         text = f"⏰ *{ev.get('summary', 'Meeting')}* starts in about an hour ({meetings.time_12h(begin)}–{meetings.time_12h(end)})" + (f" · {where}" if where else "")
         for a in ev.get("attendees") or []:
             uid = people.get((a.get("email") or "").lower())

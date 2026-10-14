@@ -78,7 +78,8 @@ def resolve_attendees(specs: list, founders: list, mentors: list, requester_slac
 
 
 def build_event_body(title: str, begin: datetime, end: datetime, where: str, attendees: list, description: str,
-                     repeat: str | None = None, requester_slack: str | None = None) -> dict:
+                     repeat: str | None = None, requester_slack: str | None = None,
+                     meet_link: str | None = None) -> dict:
     """Google Calendar event: 'virtual' gets a Meet link, anything else is the location text."""
     body = {
         "summary": title[:200], "description": description[:1000],
@@ -88,7 +89,10 @@ def build_event_body(title: str, begin: datetime, end: datetime, where: str, att
         "reminders": {"useDefault": True},
         "extendedProperties": {"private": {"ventureos": "1", **({"requester": requester_slack} if requester_slack else {})}},  # lets the bot find ITS meetings and nothing else
     }
-    if (where or "virtual").strip().lower() in ("virtual", "virtually", "online", "remote", "zoom", "meet", "google meet"):
+    if meet_link:  # an OPEN Meet room made through the Meet API: attach its link as the location
+        body["location"] = meet_link
+        body["description"] = (body["description"] + " Join: " + meet_link)[:1000]
+    elif (where or "virtual").strip().lower() in ("virtual", "virtually", "online", "remote", "zoom", "meet", "google meet"):
         body["conferenceData"] = {"createRequest": {"requestId": secrets.token_hex(8),
                                                     "conferenceSolutionKey": {"type": "hangoutsMeet"}}}
     else:
@@ -113,7 +117,7 @@ def describe_event(ev: dict, show_attendees: bool) -> str:
         when = f"{begin.strftime('%a %b')} {begin.day}, {time_12h(begin)}" + (f"–{time_12h(end)}" if end else "")
     else:
         when = start.get("date", "")
-    where = ev.get("location") or ("Google Meet" if ev.get("hangoutLink") else "")
+    where = "Google Meet" if "meet.google.com" in (ev.get("location") or "") else (ev.get("location") or ("Google Meet" if ev.get("hangoutLink") else ""))
     who = ""
     if show_attendees:
         names = [a.get("displayName") or a.get("email", "") for a in (ev.get("attendees") or []) if not a.get("self")]
@@ -146,7 +150,7 @@ def upcoming_item(ev: dict, today: date) -> tuple | None:
     begin = datetime.fromisoformat(stamp.replace("Z", "+00:00")).astimezone(SGT)
     end_stamp = (ev.get("end") or {}).get("dateTime")
     end = datetime.fromisoformat(end_stamp.replace("Z", "+00:00")).astimezone(SGT) if end_stamp else None
-    where = ev.get("location") or ("Google Meet" if ev.get("hangoutLink") else "")
+    where = "Google Meet" if "meet.google.com" in (ev.get("location") or "") else (ev.get("location") or ("Google Meet" if ev.get("hangoutLink") else ""))
     span = time_12h(begin) + (f"–{time_12h(end)}" if end else "")
     line = f"👥 {day_label(begin.date(), today)}, {span}: *{ev.get('summary', 'Meeting')}*" + (f" · {where}" if where else "")
     return (begin.date(), begin.hour * 60 + begin.minute), line

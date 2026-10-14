@@ -83,8 +83,42 @@ class GoogleTests(unittest.TestCase):
         gc = g.GoogleCalendar("c", "s", "https://x/cb", "k", http=http)
         self.assertFalse(gc.open_meet(g.encrypt_token("r", "k"), "abc-defg-hij"))
 
+    def test_open_meet_rooms_are_created_with_open_access_and_attached_as_the_location(self):
+        seen = {}
+
+        def http(method, url, headers=None, data=None, params=None, json=None):
+            if url == g.TOKEN_URL:
+                return {"access_token": "at"}
+            seen.update(method=method, url=url, body=json)
+            return {"meetingUri": "https://meet.google.com/abc-defg-hij"}
+
+        gc = g.GoogleCalendar("c", "s", "https://x/cb", "k", http=http)
+        link = gc.create_open_meet(g.encrypt_token("r", "k"))
+        self.assertEqual((link, seen["method"], seen["body"]), ("https://meet.google.com/abc-defg-hij", "POST", {"config": {"accessType": "OPEN"}}))
+        b, e = m.parse_when("2026-10-16", "15:00")
+        body = m.build_event_body("T", b, e, "virtual", [], "d", meet_link=link)
+        self.assertEqual(body["location"], link)
+        self.assertNotIn("conferenceData", body)            # we attach our own room instead of letting Calendar make one
+        self.assertIn(link, body["description"])
+        self.assertIn("conferenceData", m.build_event_body("T", b, e, "virtual", [], "d"))   # fallback unchanged
+
+    def test_creating_an_open_room_fails_softly_without_the_permission(self):
+        def http(method, url, headers=None, data=None, params=None, json=None):
+            if url == g.TOKEN_URL:
+                return {"access_token": "at"}
+            raise RuntimeError("403 insufficient scope")
+
+        self.assertIsNone(g.GoogleCalendar("c", "s", "https://x/cb", "k", http=http).create_open_meet(g.encrypt_token("r", "k")))
+
+    def test_meet_links_in_the_location_are_shown_as_google_meet(self):
+        e = ev()
+        e["location"] = "https://meet.google.com/abc-defg-hij"
+        self.assertIn("(Google Meet)", m.describe_event(e, False))
+
     def test_studio_connection_asks_for_the_meet_settings_scope(self):
-        self.assertIn("meetings.space.settings", g.connect_url("c", "https://x/cb", "k", "U1", "s", studio=True))
+        url = g.connect_url("c", "https://x/cb", "k", "U1", "s", studio=True)
+        self.assertIn("meetings.space.settings", url)
+        self.assertIn("meetings.space.created", url)
         self.assertNotIn("meetings.space.settings", g.connect_url("c", "https://x/cb", "k", "f", "s"))
 
     def test_update_and_delete_notify_attendees(self):

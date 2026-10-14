@@ -19,5 +19,20 @@ class ChannelChatterTests(unittest.TestCase):
             self.assertFalse(b.GREETING_RE.match(no), no)
 
 
+    def test_channel_messages_never_reach_the_assistant_but_dms_do(self):
+        calls, said = [], []
+        old = (b.process_inbound_message, b.channels.ingest)
+        b.process_inbound_message = lambda *a, **k: calls.append(a)
+        b.channels.ingest = lambda msg: None
+        try:
+            for text in ("hello team", "/checkin I finished the deck", "can someone check the pricing page?"):
+                b.handle_direct_or_channel_message({"channel_type": "channel", "text": text, "user": "U1"}, said.append)
+            self.assertEqual((calls, said), ([], []))          # silent in channels, even for /checkin
+            b.handle_direct_or_channel_message({"channel_type": "im", "text": "finished the deck", "user": "U1"}, said.append)
+            self.assertEqual(len(calls), 1)                    # a DM is still answered
+        finally:
+            b.process_inbound_message, b.channels.ingest = old
+
+
 if __name__ == "__main__":
     unittest.main()
