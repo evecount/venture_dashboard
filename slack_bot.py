@@ -2144,6 +2144,7 @@ def handle_dev_channel_toggle(ack, body, client):
         return
     act = body["actions"][0]
     cid, turn_on = act["value"], act["text"]["text"] == "Turn on"
+    print(f"[Dev] channel {cid} {'on' if turn_on else 'off'} by {uid}")
 
     def run():
         now = datetime.now(timezone.utc).isoformat()
@@ -2181,7 +2182,8 @@ def handle_dev_setting_toggle(ack, body, client):
     uid = _developer(body)
     key = body["actions"][0]["value"]
     if uid and key in ("paused", "daily_checkin", "channel_context"):
-        settings.set(key, not settings.get(key))
+        value = not settings.get(key)
+        print(f"[Dev] setting {key}={value} by {uid}: {'saved' if settings.set(key, value) else 'NOT saved'}")
         publish_dev_home(uid, client)
 
 
@@ -2267,6 +2269,18 @@ def handle_dev_cmd(ack, body, client):
     _in_background(run)
 
 
+def resume_channel_syncs():
+    """At startup: finish channel syncs a restart interrupted (switched on but still 'Syncing…')."""
+    if not supabase:
+        return
+    try:
+        stuck = supabase.table("bot_channels").select("id,name").eq("enabled", True).eq("status", "Syncing…").execute().data or []
+    except Exception:
+        return
+    for c in stuck:
+        print(f"[Channels] resuming sync of #{c['name']}: {channels.activate(c['id'])}")
+
+
 @app.event("message")
 def handle_other_message_events(event):
     """Registered last: catches channel messages no listener above took (e.g. a file shared with no text)."""
@@ -2343,6 +2357,7 @@ if __name__ == "__main__":
 
     print("Venture Studio Slack Bot starting in Socket Mode...")
     if SLACK_BOT_TOKEN and SLACK_APP_TOKEN:
+        threading.Thread(target=resume_channel_syncs, daemon=True).start()
         _socket_handler = SocketModeHandler(app, SLACK_APP_TOKEN)
         _socket_handler.start()
     else:
