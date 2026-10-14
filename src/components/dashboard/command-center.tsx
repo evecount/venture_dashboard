@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { DashDataProvider, useDashData, type SignalRow } from "@/hooks/use-dash-data";
+import {
+  DashDataProvider,
+  useDashData,
+  type DashSnapshot,
+  type SignalRow,
+} from "@/hooks/use-dash-data";
 import { useAuth } from "@/components/auth/sign-in-gate";
 import type { Identity } from "@/lib/dash-auth";
 import {
   Activity,
-  CalendarDays,
   Check,
   ChevronDown,
-  ChevronRight,
   CircleAlert,
   Flag,
   GitPullRequest,
@@ -22,117 +25,34 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-} from "@/components/ui/sheet";
 import { type Founder, type DemoPerspective, isStudioRole } from "./data";
 import { attentionReason, isHandled, relativeTime } from "./roster";
 import { formatDay, programState, sgtDate, type ProgramState, type SyllabusEvent } from "./program";
+import { gateStatus, isUnassigned, leadMentor, weeklyProgress, type MentorLike } from "./insights";
+import { GateBoard, GateMatrix } from "./gates";
+import { StartupPage } from "./startup-page";
+import {
+  GatePill,
+  HealthPill,
+  Kpi,
+  PageHead,
+  Progress,
+  WeekBars,
+  gateLabel,
+  greeting,
+  initials,
+  startupName,
+} from "./parts";
 import { TeamPopover, ViewAs } from "./studio-perspectives";
-import { Timeline } from "./timeline";
-import { Milestones } from "./milestones";
 
 type Tab = "today" | "cohort" | "activity" | "program";
-type SheetTab = "Overview" | "Milestones" | "Timeline";
-
-function initials(name: string): string {
-  const parts = name.split(/[\s,]+/).filter(Boolean);
-  if (parts.length === 1) return (parts[0] ?? "?").slice(0, 2).toUpperCase();
-  return ((parts[0]?.[0] ?? "?") + (parts[1]?.[0] ?? "")).toUpperCase();
-}
-
-/** "Cybrdeck · tagline" -> "Cybrdeck" */
-const startupName = (f: Founder) => f.startup.split(" · ")[0] ?? f.startup;
-
-function HealthPill({ founder }: { founder: Founder }) {
-  if (founder.health === "blocked") {
-    return (
-      <span className="pill pill-danger">
-        <CircleAlert size={11} /> Blocked
-      </span>
-    );
-  }
-  if (founder.health === "quiet")
-    return (
-      <span className="pill pill-warning" title={founder.healthDetail}>
-        Quiet
-      </span>
-    );
-  return <span className="pill pill-success">On track</span>;
-}
-
-function StreamTag({ founder }: { founder: Founder }) {
-  const unassigned = !founder.stream || founder.stream === "Unassigned";
-  return (
-    <span
-      className="pill pill-neutral"
-      title={unassigned ? "No stream lead yet" : `Lead: ${founder.lead}`}
-    >
-      {unassigned ? "No stream lead" : founder.stream}
-    </span>
-  );
-}
-
-function Progress({ value }: { value: number }) {
-  return (
-    <div
-      className="progress"
-      role="progressbar"
-      aria-valuenow={value}
-      aria-valuemin={0}
-      aria-valuemax={100}
-    >
-      <div style={{ width: `${Math.max(2, Math.min(100, value))}%` }} />
-    </div>
-  );
-}
-
-function Kpi({
-  label,
-  value,
-  sub,
-  tone,
-}: {
-  label: string;
-  value: ReactNode;
-  sub: ReactNode;
-  tone?: "warning" | "danger" | "success";
-}) {
-  return (
-    <div className="kpi">
-      <p className="kpi-label">{label}</p>
-      <p className="kpi-value">{value}</p>
-      <p className={`kpi-sub ${tone ? `text-${tone === "danger" ? "danger" : tone}` : ""}`}>
-        {sub}
-      </p>
-    </div>
-  );
-}
-
-function greeting(now: Date): string {
-  const hour = Number(
-    new Intl.DateTimeFormat("en-SG", {
-      hour: "numeric",
-      hourCycle: "h23",
-      timeZone: "Asia/Singapore",
-    }).format(now),
-  );
-  return hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
-}
-
-function gateLabel(p: ProgramState): string {
-  if (p.daysToGate === null) return "—";
-  if (p.daysToGate <= 0) return "Today";
-  return `${p.daysToGate} day${p.daysToGate === 1 ? "" : "s"}`;
-}
 
 type Props = {
   initialPerspective?: DemoPerspective;
   onPerspectiveChange?: (value: DemoPerspective) => void;
+  /** Startup page open from the URL (?s=), so it can be linked and the browser's back button works. */
+  openStartupId?: string | undefined;
+  onOpenStartup?: (id: string | undefined) => void;
 };
 
 export function CommandCenter(props: Props = {}) {
@@ -176,7 +96,20 @@ function AccountMenu({ identity, onSignOut }: { identity: Identity; onSignOut: (
   );
 }
 
-function Dashboard({ initialPerspective = "coordinator", onPerspectiveChange }: Props) {
+/** Startups whose lead is the signed-in mentor (the bot stores a lead as a name or a role title). */
+function ledBy(founders: Founder[], mentors: MentorLike[], identity: Identity): Set<string> {
+  if (identity.role !== "mentor") return new Set();
+  return new Set(
+    founders.filter((f) => leadMentor(f.lead, mentors)?.id === identity.mentorId).map((f) => f.id),
+  );
+}
+
+function Dashboard({
+  initialPerspective = "coordinator",
+  onPerspectiveChange,
+  openStartupId,
+  onOpenStartup,
+}: Props) {
   const { identity, signOut } = useAuth();
   const { roster, snapshot, handled, setHandled, handledError, lastSync, error } = useDashData();
   const isMentor = identity.role === "mentor";
@@ -184,10 +117,7 @@ function Dashboard({ initialPerspective = "coordinator", onPerspectiveChange }: 
   const [preview, setPreview] = useState<DemoPerspective>(initialPerspective);
   const perspective: DemoPerspective = isMentor ? preview : identity.startupId;
   const [founderList, setFounderList] = useState<Founder[]>([]);
-  const signals: SignalRow[] = snapshot?.signals ?? [];
   const [tab, setTab] = useState<Tab>("today");
-  const [selected, setSelected] = useState<Founder | null>(null);
-  const [sheetTab, setSheetTab] = useState<SheetTab>("Overview");
   const [now, setNow] = useState(() => new Date());
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -196,13 +126,20 @@ function Dashboard({ initialPerspective = "coordinator", onPerspectiveChange }: 
     : founderList.find((f) => f.id === perspective || f.founderIds?.includes(perspective));
   const isMember = !isMentor || memberRow !== undefined;
   const program = useMemo(() => programState(now), [now]);
+  const mentors = useMemo(() => snapshot?.mentors ?? [], [snapshot]);
+  const mine = useMemo(
+    () => ledBy(founderList, mentors, identity),
+    [founderList, mentors, identity],
+  );
+  const opened =
+    isMentor && !isMember ? founderList.find((f) => f.id === openStartupId) : undefined;
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(t);
   }, []);
 
-  // Live ledger: load the real roster and pulse cards that just changed.
+  // Pulse cards whose latest check-in just changed.
   useEffect(() => {
     if (!roster) return;
     setFounderList((prev) =>
@@ -226,28 +163,35 @@ function Dashboard({ initialPerspective = "coordinator", onPerspectiveChange }: 
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k" && !isMember) {
         e.preventDefault();
+        onOpenStartup?.(undefined);
         setTab("cohort");
         setTimeout(() => searchRef.current?.focus(), 0);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [isMember]);
+  }, [isMember, onOpenStartup]);
+
+  useEffect(() => {
+    if (opened) window.scrollTo({ top: 0 });
+  }, [opened]);
 
   function setPerspective(value: DemoPerspective) {
     setPreview(value);
     onPerspectiveChange?.(value);
-    setSelected(null);
+    onOpenStartup?.(undefined);
     setTab("today");
   }
 
-  function openFounder(f: Founder, t: SheetTab = "Overview") {
-    setSelected(f);
-    setSheetTab(t);
-  }
+  const openStartup = (id: string) => onOpenStartup?.(id);
+  const goTab = (t: Tab) => {
+    onOpenStartup?.(undefined);
+    setTab(t);
+  };
 
-  const attention = founderList.filter((f) => attentionReason(f) !== null);
-  const openItems = attention.filter((f) => !isHandled(f, handled[f.id]));
+  const openItems = founderList.filter(
+    (f) => attentionReason(f) !== null && !isHandled(f, handled[f.id]),
+  );
 
   const tabs: Array<{ id: Tab; label: string; icon: ReactNode; badge?: number }> = isMember
     ? [
@@ -267,6 +211,81 @@ function Dashboard({ initialPerspective = "coordinator", onPerspectiveChange }: 
     : lastSync
       ? `Updated ${relativeTime(lastSync.toISOString(), now)}`
       : "Loading…";
+
+  let body: ReactNode;
+  if (!snapshot || !roster) {
+    body = <p className="empty">Loading the cohort…</p>;
+  } else if (isMember && !memberRow) {
+    body = <p className="empty">Your startup isn&apos;t set up yet. Ask the studio team.</p>;
+  } else if (isMember && memberRow) {
+    body =
+      tab === "program" ? (
+        <ProgramView
+          program={program}
+          now={now}
+          founders={[memberRow]}
+          snapshot={snapshot}
+          openStartup={() => setTab("today")}
+        />
+      ) : (
+        <StartupPage
+          founder={memberRow}
+          program={program}
+          now={now}
+          snapshot={snapshot}
+          isMentor={false}
+        />
+      );
+  } else if (opened) {
+    body = (
+      <StartupPage
+        founder={opened}
+        program={program}
+        now={now}
+        snapshot={snapshot}
+        isMentor
+        onBack={() => window.history.back()}
+      />
+    );
+  } else if (tab === "today") {
+    body = (
+      <TodayView
+        founders={founderList}
+        program={program}
+        now={now}
+        snapshot={snapshot}
+        mine={mine}
+        handled={handled}
+        handledError={handledError}
+        onHandle={setHandled}
+        openStartup={openStartup}
+      />
+    );
+  } else if (tab === "cohort") {
+    body = (
+      <CohortView
+        founders={founderList}
+        program={program}
+        now={now}
+        snapshot={snapshot}
+        mine={mine}
+        openStartup={openStartup}
+        searchRef={searchRef}
+      />
+    );
+  } else if (tab === "activity") {
+    body = <ActivityView signals={snapshot.signals} founders={founderList} now={now} />;
+  } else {
+    body = (
+      <ProgramView
+        program={program}
+        now={now}
+        founders={founderList}
+        snapshot={snapshot}
+        openStartup={openStartup}
+      />
+    );
+  }
 
   return (
     <div className="dash">
@@ -291,9 +310,9 @@ function Dashboard({ initialPerspective = "coordinator", onPerspectiveChange }: 
               <button
                 key={t.id}
                 type="button"
-                className={`tab-btn ${tab === t.id ? "active" : ""}`}
-                aria-current={tab === t.id ? "page" : undefined}
-                onClick={() => setTab(t.id)}
+                className={`tab-btn ${tab === t.id && !opened ? "active" : ""}`}
+                aria-current={tab === t.id && !opened ? "page" : undefined}
+                onClick={() => goTab(t.id)}
               >
                 {t.icon}
                 <span>{t.label}</span>
@@ -309,7 +328,7 @@ function Dashboard({ initialPerspective = "coordinator", onPerspectiveChange }: 
               <span className={`live-dot ${liveConnected ? "" : "off"}`} />
               <span className="hide-sm">{syncText}</span>
             </span>
-            <TeamPopover perspective={perspective} />
+            <TeamPopover perspective={perspective} mentors={mentors} founders={founderList} />
             {isMentor && (
               <ViewAs perspective={perspective} members={founderList} onChange={setPerspective} />
             )}
@@ -319,66 +338,12 @@ function Dashboard({ initialPerspective = "coordinator", onPerspectiveChange }: 
       </header>
 
       <main className="dash-main">
-        {isMember && !memberRow ? (
-          <p className="empty">
-            {roster
-              ? "Your startup isn't set up yet. Ask the studio team."
-              : "Loading your venture…"}
-          </p>
-        ) : isMember && memberRow ? (
-          tab === "program" ? (
-            <ProgramView program={program} now={now} />
-          ) : (
-            <MemberView founder={memberRow} program={program} now={now} openFounder={openFounder} />
-          )
-        ) : (
-          <>
-            {tab === "today" && (
-              <TodayView
-                founders={founderList}
-                program={program}
-                now={now}
-                handled={handled}
-                handledError={handledError}
-                onHandle={setHandled}
-                openFounder={openFounder}
-                loaded={roster !== null}
-              />
-            )}
-            {tab === "cohort" && (
-              <CohortView founders={founderList} openFounder={openFounder} searchRef={searchRef} />
-            )}
-            {tab === "activity" && (
-              <ActivityView signals={signals} founders={founderList} now={now} />
-            )}
-            {tab === "program" && <ProgramView program={program} now={now} />}
-          </>
-        )}
+        {body}
         <footer className="page-footer">
           <span>Adventure Studio · Cohort SG#01</span>
           <span>From founders&apos; Slack check-ins and connected tools · All times SGT</span>
         </footer>
       </main>
-
-      <FounderSheet
-        founder={selected ? (founderList.find((f) => f.id === selected.id) ?? selected) : null}
-        tab={sheetTab}
-        onTab={setSheetTab}
-        program={program}
-        onClose={() => setSelected(null)}
-      />
-    </div>
-  );
-}
-
-function PageHead({ title, sub, right }: { title: ReactNode; sub: ReactNode; right?: ReactNode }) {
-  return (
-    <div className="page-head">
-      <div className="min-w-0">
-        <h1>{title}</h1>
-        <p>{sub}</p>
-      </div>
-      {right}
     </div>
   );
 }
@@ -387,30 +352,41 @@ function TodayView({
   founders,
   program,
   now,
+  snapshot,
+  mine,
   handled,
   handledError,
   onHandle,
-  openFounder,
-  loaded,
+  openStartup,
 }: {
   founders: Founder[];
   program: ProgramState;
   now: Date;
+  snapshot: DashSnapshot;
+  mine: Set<string>;
   handled: Record<string, string>;
   handledError: boolean;
   onHandle: (startupId: string, value: boolean) => void;
-  openFounder: (f: Founder, t?: SheetTab) => void;
-  loaded: boolean;
+  openStartup: (id: string) => void;
 }) {
+  const [onlyMine, setOnlyMine] = useState(false);
   const n = founders.length;
   const quiet = founders.filter((f) => f.health === "quiet").length;
   const blocked = founders.filter(
     (f) => f.health === "blocked" && !isHandled(f, handled[f.id]),
   ).length;
-  const avg = n ? Math.round(founders.reduce((a, f) => a + f.progress, 0) / n) : 0;
-  const attention = founders.filter((f) => attentionReason(f) !== null);
+  const w = program.weeks.find((x) => x.week === program.week);
+  const atRisk = w
+    ? founders.filter((f) => {
+        const s = gateStatus(f.id, w, snapshot.submissions, snapshot.signals, now).state;
+        return s === "behind" || s === "blocked" || s === "no_update";
+      }).length
+    : 0;
+  const scope = onlyMine ? founders.filter((f) => mine.has(f.id)) : founders;
+  const attention = scope.filter((f) => attentionReason(f) !== null);
   const open = attention.filter((f) => !isHandled(f, handled[f.id]));
   const done = attention.filter((f) => isHandled(f, handled[f.id]));
+  const unassigned = founders.filter((f) => isUnassigned(f.lead));
 
   return (
     <>
@@ -435,110 +411,141 @@ function TodayView({
           label="Next gate"
           value={gateLabel(program)}
           sub={program.gateDate ? formatDay(program.gateDate) : "No gate scheduled"}
-          {...(program.daysToGate !== null && program.daysToGate <= 2
-            ? { tone: "warning" as const }
-            : {})}
+          tone={program.daysToGate !== null && program.daysToGate <= 2 ? "warning" : undefined}
+        />
+        <Kpi
+          label="At risk for this gate"
+          value={`${atRisk} / ${n}`}
+          sub={atRisk ? "Behind, blocked or no update" : "Everyone on track"}
+          tone={atRisk ? "warning" : n ? "success" : undefined}
         />
         <Kpi
           label="Checked in, last 7 days"
-          value={loaded ? `${n - quiet} / ${n}` : "—"}
-          sub={
-            !loaded
-              ? "Loading"
-              : !n
-                ? "No startups yet"
-                : quiet
-                  ? `${quiet} quiet`
-                  : "Everyone checked in"
-          }
-          {...(loaded && n ? { tone: quiet ? ("warning" as const) : ("success" as const) } : {})}
+          value={`${n - quiet} / ${n}`}
+          sub={!n ? "No startups yet" : quiet ? `${quiet} quiet` : "Everyone checked in"}
+          tone={n ? (quiet ? "warning" : "success") : undefined}
         />
         <Kpi
           label="Open blockers"
-          value={loaded ? blocked : "—"}
-          sub={!loaded ? "Loading" : blocked ? "Waiting on the studio" : "None reported"}
-          {...(blocked ? { tone: "danger" as const } : {})}
-        />
-        <Kpi
-          label="Average progress"
-          value={loaded ? `${avg}%` : "—"}
-          sub="From latest check-ins"
+          value={blocked}
+          sub={blocked ? "Waiting on the studio" : "None reported"}
+          tone={blocked ? "danger" : undefined}
         />
       </div>
 
+      <GateBoard
+        founders={founders}
+        program={program}
+        subs={snapshot.submissions}
+        signals={snapshot.signals}
+        now={now}
+        openStartup={openStartup}
+      />
+
       <div className="today-grid">
-        <section className="panel" aria-labelledby="needs-you">
-          <div className="panel-head">
-            <h2 id="needs-you">Needs you</h2>
-            {open.length > 0 && <span className="pill pill-warning">{open.length}</span>}
-          </div>
-          {handledError && (
-            <p className="mb-2 text-xs text-danger">
-              Couldn&apos;t save that. Check your connection and try again.
-            </p>
-          )}
-          {!loaded ? (
-            <p className="empty">Loading the cohort…</p>
-          ) : open.length === 0 ? (
-            <div className="empty">
-              <Check size={18} className="text-success" />
-              <p className="font-medium text-foreground">All clear</p>
-              <p>No startup is blocked or quiet right now.</p>
-            </div>
-          ) : (
-            <ul className="rows">
-              {open.map((f) => (
-                <li key={f.id} className={`row ${f.isPulsing ? "pulsing" : ""}`}>
-                  <button
-                    type="button"
-                    className="row-main"
-                    onClick={() => openFounder(f, "Timeline")}
-                  >
-                    <span className="avatar">{initials(startupName(f))}</span>
-                    <span className="min-w-0 flex-1">
-                      <span className="row-title">
-                        {startupName(f)} <span className="row-meta">· {f.name}</span>
-                      </span>
-                      <span className="row-reason">{attentionReason(f)}</span>
-                    </span>
-                    <HealthPill founder={f} />
+        <div className="stack">
+          <section className="panel" aria-labelledby="needs-you">
+            <div className="panel-head">
+              <h2 id="needs-you">Needs you</h2>
+              {open.length > 0 && <span className="pill pill-warning">{open.length}</span>}
+              {mine.size > 0 && (
+                <div className="seg ml-auto" role="group" aria-label="Whose startups">
+                  <button type="button" aria-pressed={!onlyMine} onClick={() => setOnlyMine(false)}>
+                    All
                   </button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="row-action"
-                    aria-label={`Mark ${startupName(f)} handled`}
-                    onClick={() => onHandle(f.id, true)}
-                  >
-                    <Check size={14} /> <span className="hide-sm">Mark handled</span>
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {done.length > 0 && (
-            <details className="handled">
-              <summary>Handled · {done.length}</summary>
+                  <button type="button" aria-pressed={onlyMine} onClick={() => setOnlyMine(true)}>
+                    Mine · {mine.size}
+                  </button>
+                </div>
+              )}
+            </div>
+            {handledError && (
+              <p className="mb-2 text-xs text-danger">
+                Couldn&apos;t save that. Check your connection and try again.
+              </p>
+            )}
+            {open.length === 0 ? (
+              <div className="empty">
+                <Check size={18} className="text-success" />
+                <p className="font-medium text-foreground">All clear</p>
+                <p>No startup{onlyMine ? " you lead" : ""} is blocked or quiet right now.</p>
+              </div>
+            ) : (
               <ul className="rows">
-                {done.map((f) => (
-                  <li key={f.id} className="row muted">
-                    <span className="avatar">{initials(startupName(f))}</span>
-                    <span className="min-w-0 flex-1">
-                      <span className="row-title">{startupName(f)}</span>
-                      <span className="row-reason">
-                        Handled {relativeTime(handled[f.id] ?? "", now)} · reopens on the next
-                        check-in
+                {open.map((f) => (
+                  <li key={f.id} className={`row ${f.isPulsing ? "pulsing" : ""}`}>
+                    <button type="button" className="row-main" onClick={() => openStartup(f.id)}>
+                      <span className="avatar">{initials(startupName(f))}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="row-title">
+                          {startupName(f)} <span className="row-meta">· {f.name}</span>
+                        </span>
+                        <span className="row-reason">{attentionReason(f)}</span>
                       </span>
-                    </span>
-                    <Button variant="quiet" size="sm" onClick={() => onHandle(f.id, false)}>
-                      <Undo2 size={14} /> Undo
+                      <HealthPill founder={f} />
+                    </button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="row-action"
+                      aria-label={`Mark ${startupName(f)} handled`}
+                      onClick={() => onHandle(f.id, true)}
+                    >
+                      <Check size={14} /> <span className="hide-sm">Mark handled</span>
                     </Button>
                   </li>
                 ))}
               </ul>
-            </details>
+            )}
+            {done.length > 0 && (
+              <details className="handled">
+                <summary>Handled · {done.length}</summary>
+                <ul className="rows">
+                  {done.map((f) => (
+                    <li key={f.id} className="row muted">
+                      <span className="avatar">{initials(startupName(f))}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="row-title">{startupName(f)}</span>
+                        <span className="row-reason">
+                          Handled {relativeTime(handled[f.id] ?? "", now)} · reopens on the next
+                          check-in
+                        </span>
+                      </span>
+                      <Button variant="quiet" size="sm" onClick={() => onHandle(f.id, false)}>
+                        <Undo2 size={14} /> Undo
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </section>
+
+          {unassigned.length > 0 && (
+            <section className="panel" aria-labelledby="no-lead">
+              <div className="panel-head">
+                <h2 id="no-lead">No lead advisor yet</h2>
+                <span className="pill pill-neutral">{unassigned.length}</span>
+              </div>
+              <div className="chips">
+                {unassigned.map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    className="chip"
+                    onClick={() => openStartup(f.id)}
+                  >
+                    <Users size={13} /> {startupName(f)}
+                  </button>
+                ))}
+              </div>
+              <p className="muted-note mt-3">
+                To assign one, tell the bot in Slack, e.g. &ldquo;make me lead of{" "}
+                {startupName(unassigned[0]!)}&rdquo;.
+              </p>
+            </section>
           )}
-        </section>
+        </div>
         <ThisWeek program={program} now={now} />
       </div>
     </>
@@ -569,98 +576,21 @@ function ThisWeek({ program, now }: { program: ProgramState; now: Date }) {
   );
 }
 
-function MemberView({
-  founder,
-  program,
-  now,
-  openFounder,
-}: {
-  founder: Founder;
-  program: ProgramState;
-  now: Date;
-  openFounder: (f: Founder, t?: SheetTab) => void;
-}) {
-  const blocker = founder.blocker && founder.blocker !== "None" ? founder.blocker : null;
-  return (
-    <>
-      <PageHead
-        title={startupName(founder)}
-        sub={
-          <>
-            {founder.name}
-            <span className="dot-sep">·</span>Week {program.week} of {program.totalWeeks}
-          </>
-        }
-        right={<HealthPill founder={founder} />}
-      />
-      <div className="kpi-strip">
-        <Kpi
-          label="Next gate"
-          value={gateLabel(program)}
-          sub={program.gateDate ? formatDay(program.gateDate) : "—"}
-        />
-        <Kpi label="Your progress" value={`${founder.progress}%`} sub="From your latest check-in" />
-        <Kpi
-          label="Last check-in"
-          value={founder.time === "—" ? "None yet" : founder.time}
-          sub="Message the bot in Slack to add one"
-        />
-        <Kpi
-          label="Stream lead"
-          value={
-            <span className="text-lg">
-              {founder.lead && founder.lead !== "Unassigned" ? founder.lead : "Not assigned yet"}
-            </span>
-          }
-          sub={
-            founder.stream && founder.stream !== "Unassigned"
-              ? `${founder.stream} stream`
-              : "The studio will assign one"
-          }
-        />
-      </div>
-      <div className="today-grid">
-        <section className="panel" aria-labelledby="my-latest">
-          <div className="panel-head">
-            <h2 id="my-latest">Your latest check-in</h2>
-          </div>
-          <p className="text-sm leading-relaxed">{founder.digest}</p>
-          {blocker && (
-            <div className="callout danger mt-4">
-              <p className="font-medium">Waiting on the studio</p>
-              <p>{blocker}</p>
-            </div>
-          )}
-          <div className="mt-5 rounded-lg bg-secondary p-4">
-            <p className="text-xs text-muted-foreground">
-              Due {program.gateDate ? formatDay(program.gateDate) : "this week"}
-            </p>
-            <p className="mt-1 text-sm font-medium">
-              {program.deliverable || "No deliverable this week"}
-            </p>
-          </div>
-          <div className="mt-5 flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={() => openFounder(founder, "Timeline")}>
-              <MessageSquare size={14} /> Check-in history
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => openFounder(founder, "Milestones")}>
-              <Flag size={14} /> Milestones
-            </Button>
-          </div>
-        </section>
-        <ThisWeek program={program} now={now} />
-      </div>
-    </>
-  );
-}
-
 function CohortView({
   founders,
-  openFounder,
+  program,
+  now,
+  snapshot,
+  mine,
+  openStartup,
   searchRef,
 }: {
   founders: Founder[];
-  openFounder: (f: Founder, t?: SheetTab) => void;
+  program: ProgramState;
+  now: Date;
+  snapshot: DashSnapshot;
+  mine: Set<string>;
+  openStartup: (id: string) => void;
   searchRef: React.RefObject<HTMLInputElement | null>;
 }) {
   const [filter, setFilter] = useState("All");
@@ -668,12 +598,17 @@ function CohortView({
   const streams = Array.from(
     new Set(founders.map((f) => f.stream).filter((s) => s && s !== "Unassigned")),
   ).sort();
-  const chips = ["All", "Needs attention", ...streams];
+  const matches: Record<string, (f: Founder) => boolean> = {
+    All: () => true,
+    ...(mine.size ? { "My startups": (f: Founder) => mine.has(f.id) } : {}),
+    "Needs attention": (f) => attentionReason(f) !== null,
+    "No lead": (f) => isUnassigned(f.lead),
+    ...Object.fromEntries(streams.map((s) => [s, (f: Founder) => f.stream === s])),
+  };
+  const w = program.weeks.find((x) => x.week === program.week);
   const visible = founders.filter(
     (f) =>
-      (filter === "All" ||
-        (filter === "Needs attention" && attentionReason(f) !== null) ||
-        f.stream === filter) &&
+      (matches[filter] ?? matches["All"]!)(f) &&
       `${f.name} ${f.startup} ${f.lead}`.toLowerCase().includes(search.toLowerCase()),
   );
 
@@ -681,11 +616,11 @@ function CohortView({
     <>
       <PageHead
         title="Cohort"
-        sub={`${founders.length} startup${founders.length === 1 ? "" : "s"} · click one for check-ins, milestones and history`}
+        sub={`${founders.length} startup${founders.length === 1 ? "" : "s"} · open one for its full page`}
       />
       <div className="toolbar">
         <div className="chips" role="group" aria-label="Filter startups">
-          {chips.map((c) => (
+          {Object.entries(matches).map(([c, fn]) => (
             <button
               key={c}
               type="button"
@@ -694,13 +629,7 @@ function CohortView({
               onClick={() => setFilter(c)}
             >
               {c}
-              <span className="chip-count">
-                {c === "All"
-                  ? founders.length
-                  : c === "Needs attention"
-                    ? founders.filter((f) => attentionReason(f) !== null).length
-                    : founders.filter((f) => f.stream === c).length}
-              </span>
+              <span className="chip-count">{founders.filter(fn).length}</span>
             </button>
           ))}
         </div>
@@ -732,32 +661,42 @@ function CohortView({
         </div>
       ) : (
         <div className="card-grid">
-          {visible.map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              className={`startup-card ${f.isPulsing ? "pulsing" : ""}`}
-              onClick={() => openFounder(f)}
-            >
-              <span className="flex items-start justify-between gap-2">
-                <span className="min-w-0">
-                  <span className="card-title">{startupName(f)}</span>
-                  <span className="card-sub">{f.name}</span>
-                </span>
-                <HealthPill founder={f} />
-              </span>
-              <span className="card-digest">{f.digest}</span>
-              <span className="mt-auto block">
-                <Progress value={f.progress} />
-                <span className="card-foot">
-                  <span>
-                    {f.progress}% · {f.time === "—" ? "no check-in yet" : f.time}
+          {visible.map((f) => {
+            const g = w ? gateStatus(f.id, w, snapshot.submissions, snapshot.signals, now) : null;
+            const lead = leadMentor(f.lead, snapshot.mentors);
+            return (
+              <button
+                key={f.id}
+                type="button"
+                className={`startup-card ${f.isPulsing ? "pulsing" : ""}`}
+                onClick={() => openStartup(f.id)}
+              >
+                <span className="flex items-start justify-between gap-2">
+                  <span className="min-w-0">
+                    <span className="card-title">{startupName(f)}</span>
+                    <span className="card-sub">{f.name}</span>
                   </span>
-                  <StreamTag founder={f} />
+                  <HealthPill founder={f} />
                 </span>
-              </span>
-            </button>
-          ))}
+                <span className="card-digest">{f.digest}</span>
+                <span className="card-trend">
+                  <WeekBars
+                    series={weeklyProgress(f.id, snapshot.submissions, program.weeks)}
+                    current={program.week}
+                  />
+                </span>
+                <span className="card-foot">
+                  <span className="flex min-w-0 items-center gap-2">
+                    {g && <GatePill state={g.state} title={g.reason} />}
+                    <span className="truncate">{f.time === "—" ? "No check-in yet" : f.time}</span>
+                  </span>
+                  <span className="truncate" title="Lead advisor">
+                    {isUnassigned(f.lead) ? "No lead" : (lead?.name ?? f.lead)}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
     </>
@@ -970,188 +909,87 @@ function ActivityGroup({ startup, items }: { startup: string; items: SignalRow[]
   );
 }
 
-function ProgramView({ program, now }: { program: ProgramState; now: Date }) {
+function ProgramView({
+  program,
+  now,
+  founders,
+  snapshot,
+  openStartup,
+}: {
+  program: ProgramState;
+  now: Date;
+  founders: Founder[];
+  snapshot: DashSnapshot;
+  openStartup: (id: string) => void;
+}) {
   const [week, setWeek] = useState(program.week);
   const today = sgtDate(now);
   const w = program.weeks.find((x) => x.week === week);
   return (
     <>
       <PageHead title="Program" sub={`12-week MVP program · currently week ${program.week}`} />
-      <div className="week-band" role="tablist" aria-label="Program weeks">
-        {program.weeks.map((x) => (
-          <button
-            key={x.week}
-            type="button"
-            role="tab"
-            aria-selected={x.week === week}
-            title={x.phase}
-            className={`week ${x.week < program.week ? "past" : ""} ${x.week === program.week ? "current" : ""} ${x.week === week ? "selected" : ""}`}
-            onClick={() => setWeek(x.week)}
-          >
-            <span className="week-bar" />
-            <span className="week-num">{x.week}</span>
-          </button>
-        ))}
-      </div>
-      {w && (
-        <section className="panel mt-6">
-          <p className="text-xs text-muted-foreground">
-            Week {w.week}
-            {w.week === program.week ? " · this week" : ""}
-          </p>
-          <h2 className="mt-1 text-lg font-semibold">{w.phase}</h2>
-          {w.deliverable && (
-            <div className="mt-4 rounded-lg bg-secondary p-4">
-              <p className="text-xs text-muted-foreground">
-                Gate · {w.gateDate ? formatDay(w.gateDate) : "—"}
-              </p>
-              <p className="mt-1 text-sm font-medium">{w.deliverable}</p>
-            </div>
-          )}
-          <ol className="agenda mt-5">
-            {w.events.map((e: SyllabusEvent) => (
-              <li key={e.date} className={e.date === today ? "now" : e.date < today ? "past" : ""}>
-                <p className="agenda-when">{e.date === today ? "Today" : formatDay(e.date)}</p>
-                <p className="agenda-what">{e.focus}</p>
-                <p className="agenda-who">
-                  {e.activity}
-                  <span className="dot-sep">·</span>
-                  {e.owner}
-                </p>
-              </li>
-            ))}
-          </ol>
-        </section>
+      {founders.length > 0 && (
+        <GateMatrix
+          founders={founders}
+          program={program}
+          subs={snapshot.submissions}
+          signals={snapshot.signals}
+          now={now}
+          openStartup={openStartup}
+        />
       )}
-    </>
-  );
-}
-
-function FounderSheet({
-  founder,
-  tab,
-  onTab,
-  program,
-  onClose,
-}: {
-  founder: Founder | null;
-  tab: SheetTab;
-  onTab: (t: SheetTab) => void;
-  program: ProgramState;
-  onClose: () => void;
-}) {
-  return (
-    <Sheet
-      open={founder !== null}
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-    >
-      <SheetContent className="detail-sheet sm:max-w-[560px]">
-        {founder && (
-          <>
-            <SheetHeader className="p-0">
-              <div className="flex items-center gap-3">
-                <span className="avatar lg">{initials(startupName(founder))}</span>
-                <div className="min-w-0">
-                  <SheetTitle className="text-lg">{startupName(founder)}</SheetTitle>
-                  <SheetDescription className="text-sm">{founder.name}</SheetDescription>
-                </div>
+      <section className="panel mt-6" aria-labelledby="schedule-title">
+        <div className="panel-head">
+          <h2 id="schedule-title">Schedule</h2>
+        </div>
+        <div className="week-band" role="tablist" aria-label="Program weeks">
+          {program.weeks.map((x) => (
+            <button
+              key={x.week}
+              type="button"
+              role="tab"
+              aria-selected={x.week === week}
+              title={x.phase}
+              className={`week ${x.week < program.week ? "past" : ""} ${x.week === program.week ? "current" : ""} ${x.week === week ? "selected" : ""}`}
+              onClick={() => setWeek(x.week)}
+            >
+              <span className="week-bar" />
+              <span className="week-num">{x.week}</span>
+            </button>
+          ))}
+        </div>
+        {w && (
+          <div className="mt-6">
+            <p className="eyebrow">
+              Week {w.week}
+              {w.week === program.week ? " · this week" : ""}
+            </p>
+            <h3 className="mt-1 text-lg font-semibold">{w.phase}</h3>
+            {w.deliverable && (
+              <div className="deliverable-box">
+                <p className="eyebrow">Gate · {w.gateDate ? formatDay(w.gateDate) : "—"}</p>
+                <p className="mt-1 font-medium">{w.deliverable}</p>
               </div>
-            </SheetHeader>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <HealthPill founder={founder} />
-              <StreamTag founder={founder} />
-            </div>
-            <div className="sheet-tabs" role="tablist">
-              {(["Overview", "Milestones", "Timeline"] as const).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === t}
-                  className={`chip ${tab === t ? "active" : ""}`}
-                  onClick={() => onTab(t)}
+            )}
+            <ol className="agenda mt-5">
+              {w.events.map((e: SyllabusEvent) => (
+                <li
+                  key={e.date}
+                  className={e.date === today ? "now" : e.date < today ? "past" : ""}
                 >
-                  {t === "Timeline" ? "Check-in history" : t}
-                </button>
+                  <p className="agenda-when">{e.date === today ? "Today" : formatDay(e.date)}</p>
+                  <p className="agenda-what">{e.focus}</p>
+                  <p className="agenda-who">
+                    {e.activity}
+                    <span className="dot-sep">·</span>
+                    {e.owner}
+                  </p>
+                </li>
               ))}
-            </div>
-            {tab === "Overview" && (
-              <div className="space-y-6">
-                <section>
-                  <h3 className="detail-heading pt-0!">Latest check-in</h3>
-                  <p className="text-sm leading-relaxed">{founder.digest}</p>
-                  {founder.time !== "—" && (
-                    <p className="mt-1 text-xs text-muted-foreground">{founder.time}</p>
-                  )}
-                  {founder.blocker && founder.blocker !== "None" && (
-                    <div className="callout danger mt-3">
-                      <p className="font-medium">Blocker</p>
-                      <p>{founder.blocker}</p>
-                    </div>
-                  )}
-                </section>
-                <section>
-                  <h3 className="detail-heading pt-0!">This week&apos;s deliverable</h3>
-                  <p className="text-sm">{program.deliverable || "None this week"}</p>
-                  <div className="mt-3 flex items-center gap-3">
-                    <Progress value={founder.progress} />
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {founder.progress}%
-                    </span>
-                  </div>
-                  {program.gateDate && (
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Gate {formatDay(program.gateDate)}
-                    </p>
-                  )}
-                </section>
-                {(founder.profile || founder.audience || founder.stack.length > 0) && (
-                  <section>
-                    <h3 className="detail-heading pt-0!">Profile</h3>
-                    {founder.profile && (
-                      <p className="text-sm leading-relaxed text-muted-foreground">
-                        {founder.profile}
-                      </p>
-                    )}
-                    {founder.audience && (
-                      <p className="mt-3 text-sm">
-                        <span className="text-muted-foreground">Target audience · </span>
-                        {founder.audience}
-                      </p>
-                    )}
-                    {founder.stack.length > 0 && (
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {founder.stack.map((s) => (
-                          <span key={s} className="pill pill-neutral">
-                            {s}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </section>
-                )}
-                <section className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Users size={14} /> Stream lead: {founder.lead || "Unassigned"}
-                  <span className="dot-sep">·</span>
-                  <CalendarDays size={14} /> Week {program.week}
-                </section>
-              </div>
-            )}
-            {tab === "Milestones" && <Milestones founder={founder} />}
-            {tab === "Timeline" && (
-              <Timeline
-                founder={founder}
-                refreshKey={`${founder.digest}|${founder.progress}|${founder.status}`}
-              />
-            )}
-            <Button variant="quiet" size="sm" className="mt-8" onClick={onClose}>
-              <ChevronRight size={14} className="rotate-180" /> Back to dashboard
-            </Button>
-          </>
+            </ol>
+          </div>
         )}
-      </SheetContent>
-    </Sheet>
+      </section>
+    </>
   );
 }

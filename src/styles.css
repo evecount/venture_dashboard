@@ -281,6 +281,7 @@ html {
 }
 .panel-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   margin-bottom: 12px;
@@ -732,6 +733,446 @@ button.feed-row:hover {
   top: 4px;
 }
 
+/* ---------- Gate readiness, startup page, trends ---------- */
+.eyebrow {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+.panel-meta {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.muted-note {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+}
+.stack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  min-width: 0;
+}
+.gate-board {
+  margin-bottom: 16px;
+  padding: 0;
+  overflow: hidden;
+}
+.gate-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 20px 16px;
+}
+.gate-title {
+  margin-top: 4px;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.gate-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.gate-summary strong {
+  color: var(--foreground);
+  font-weight: 600;
+}
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.stepper span {
+  padding: 0 8px;
+  white-space: nowrap;
+}
+.stepper button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  color: var(--muted-foreground);
+}
+.stepper button:hover:not(:disabled) {
+  color: var(--foreground);
+}
+.stepper button:disabled {
+  opacity: 0.35;
+}
+.gate-row {
+  display: grid;
+  grid-template-columns: minmax(200px, 2fr) 110px minmax(160px, 1.6fr) minmax(150px, 1fr) minmax(90px, 0.7fr);
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  text-align: left;
+  font-size: 14px;
+}
+button.gate-row:hover {
+  background: var(--background);
+}
+button.gate-row:hover .row-title {
+  color: var(--primary);
+}
+.gate-row:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+.gate-row-head {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  background: var(--background);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+.gate-startup {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.gate-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+}
+.gate-progress > span {
+  width: 36px;
+  flex-shrink: 0;
+  text-align: right;
+}
+.gate-evidence {
+  display: flex;
+  gap: 14px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+}
+.gate-evidence > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.gate-when {
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.progress {
+  position: relative;
+}
+.progress-expected {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--foreground);
+  opacity: 0.45;
+}
+
+/* Gate matrix: startups x 12 weeks */
+.matrix-scroll {
+  overflow-x: auto;
+}
+.gate-matrix {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: separate;
+  border-spacing: 4px;
+  font-size: 13px;
+}
+.gate-matrix th {
+  font-weight: 500;
+  color: var(--muted-foreground);
+  text-align: center;
+  font-size: 12px;
+}
+.gate-matrix th.now {
+  color: var(--primary);
+}
+.gate-matrix tbody th {
+  width: 22%;
+  min-width: 120px;
+  padding-right: 8px;
+  text-align: left;
+  font-size: 14px;
+  color: var(--foreground);
+}
+.gate-matrix td {
+  padding: 0;
+}
+.gate-matrix td.now .cell {
+  box-shadow: 0 0 0 2px var(--card), 0 0 0 3px var(--primary);
+}
+.link-btn {
+  font-weight: 500;
+  text-align: left;
+}
+.link-btn:hover {
+  color: var(--primary);
+}
+.cell {
+  display: block;
+  height: 26px;
+  min-width: 18px;
+  border-radius: 5px;
+  background: var(--secondary);
+}
+.matrix-legend .cell {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  min-width: 0;
+  vertical-align: -2px;
+}
+.cell-submitted { background: var(--success); }
+.cell-on_track { background: var(--info); opacity: 0.75; }
+.cell-behind { background: var(--warning); opacity: 0.8; }
+.cell-blocked { background: var(--destructive); }
+.cell-no_update { background: var(--border); }
+.cell-upcoming { background: var(--secondary); }
+.matrix-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.matrix-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Weekly progress bars (cards and startup page) */
+.week-bars {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 3px;
+  align-items: end;
+}
+.week-bars.lg {
+  gap: 8px;
+}
+.wb {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+}
+.wb-track {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  border-radius: 3px;
+  background: var(--secondary);
+  overflow: hidden;
+}
+.wb.future .wb-track {
+  background: transparent;
+  border: 1px dashed var(--border);
+}
+.wb.now .wb-track {
+  box-shadow: inset 0 0 0 1.5px var(--primary);
+}
+.wb-fill {
+  width: 100%;
+  background: var(--primary);
+  opacity: 0.85;
+}
+.wb.past .wb-fill {
+  opacity: 0.5;
+}
+.wb-val,
+.wb-week {
+  font-size: 11px;
+  text-align: center;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.wb-val {
+  min-height: 14px;
+}
+.wb.now .wb-week {
+  color: var(--primary);
+  font-weight: 600;
+}
+.card-trend {
+  display: block;
+  margin-top: auto;
+}
+
+/* Startup page */
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  color: var(--muted-foreground);
+}
+.back-link:hover {
+  color: var(--foreground);
+}
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.split-main,
+.split-side {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  min-width: 0;
+}
+.deliverable-box {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--secondary);
+  font-size: 14px;
+}
+.list {
+  display: grid;
+  gap: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.list > li {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+.list-meta {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.seg {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--secondary);
+  font-size: 12px;
+}
+.seg button {
+  padding: 3px 10px;
+  border-radius: 6px;
+  color: var(--muted-foreground);
+}
+.seg button[aria-pressed="true"] {
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: 0 1px 2px oklch(0.2 0 0 / 8%);
+}
+.startup-page .panel .detail-heading:first-child {
+  padding-top: 0;
+}
+
+@media (max-width: 1280px) {
+  .gate-row {
+    grid-template-columns: minmax(180px, 2fr) 100px minmax(140px, 1.5fr) minmax(130px, 1fr);
+  }
+  .gate-when {
+    display: none;
+  }
+  .gate-row-head > span:last-child {
+    display: none;
+  }
+}
+@media (max-width: 1100px) {
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 900px) {
+  .gate-row-head {
+    display: none;
+  }
+  .gate-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px 12px;
+  }
+  .gate-progress,
+  .gate-evidence {
+    grid-column: 1 / -1;
+  }
+  .gate-progress {
+    padding-left: 48px;
+  }
+  .gate-evidence {
+    padding-left: 48px;
+  }
+}
+@media (max-width: 760px) {
+  .gate-head {
+    flex-direction: column;
+    padding: 16px;
+  }
+  .gate-row {
+    padding: 12px 16px;
+  }
+  .gate-progress,
+  .gate-evidence {
+    padding-left: 0;
+  }
+  .week-bars.lg {
+    gap: 4px;
+  }
+  /* Twelve narrow week columns fit a phone screen, so the grid never scrolls sideways. */
+  .gate-matrix {
+    min-width: 0;
+    border-spacing: 2px;
+    table-layout: fixed;
+  }
+  .gate-matrix tbody th,
+  .gate-matrix thead th:first-child {
+    width: 84px;
+    min-width: 0;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .gate-matrix th {
+    font-size: 11px;
+  }
+  .gate-matrix .cell {
+    min-width: 0;
+    height: 22px;
+    border-radius: 3px;
+  }
+  .wb-val {
+    display: none;
+  }
+}
+
 @media (max-width: 1360px) {
   .sync-status .hide-sm {
     display: none;
@@ -766,7 +1207,9 @@ button.feed-row:hover {
     max-width: 120px;
   }
   /* Tabs become a bottom bar on phones. */
+  .dash-header-inner > .tab-nav,
   .tab-nav {
+    justify-self: stretch;
     position: fixed;
     left: 0;
     right: 0;

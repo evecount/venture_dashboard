@@ -12,7 +12,7 @@ type SignalRow = {
   headline: string;
   detail: string | null;
   stream: string | null;
-  meta: { repo?: string } | null;
+  meta: { repo?: string; commits?: number; merged?: boolean; meetings?: number } | null;
   created_at: string;
 };
 type Repos = { startup_id: string; repos: string[] | null; selected_repos: string[] | null };
@@ -28,28 +28,49 @@ export const Route = createFileRoute("/api/dash/snapshot")({
 
         const only = identity.role === "founder" ? encodeURIComponent(identity.startupId) : null;
         const by = (col: string) => (only ? `&${col}=eq.${only}` : "");
-        const [startups, founders, submissions, signals, repos, handled, milestones] =
-          await Promise.all([
-            admin(`startups?select=id,name,tagline,stream,lead${by("id")}`),
-            admin(`founders?select=id,name,startup_id,profile,target_audience${by("startup_id")}`),
-            admin(
-              `submissions?select=id,startup_id,founder_id,status,progress,blocker,digest,raw_transcript,created_at` +
-                `&confirmed=eq.true&order=created_at.desc&limit=300${by("startup_id")}`,
-            ),
-            admin<SignalRow[]>(
-              `signals?select=id,startup_id,type,headline,detail,stream,meta,created_at&order=created_at.desc&limit=200${by("startup_id")}`,
-            ),
-            admin<Repos[]>(
-              `integrations?select=startup_id,repos,selected_repos&provider=eq.github${by("startup_id")}`,
-            ),
-            identity.role === "mentor"
-              ? admin("blocker_reviews?select=startup_id,handled_at")
-              : Promise.resolve({ data: [] }),
-            admin(
-              `milestones?select=id,startup_id,title,due_date,status,goals(id,title,done)&status=neq.dropped` +
-                `&order=due_date.asc.nullslast${by("startup_id")}`,
-            ),
-          ]);
+        const mentorOnly = <T>(path: string) =>
+          identity.role === "mentor"
+            ? admin<T>(path)
+            : Promise.resolve({ ok: true, data: [] as T });
+        const [
+          startups,
+          founders,
+          submissions,
+          signals,
+          repos,
+          handled,
+          milestones,
+          mentors,
+          notes,
+          tasks,
+        ] = await Promise.all([
+          admin(`startups?select=id,name,tagline,stream,lead${by("id")}`),
+          admin(`founders?select=id,name,startup_id,profile,target_audience${by("startup_id")}`),
+          admin(
+            `submissions?select=id,startup_id,founder_id,deliverable_id,status,progress,blocker,digest,raw_transcript,artifact_url,created_at` +
+              `&confirmed=eq.true&order=created_at.desc&limit=300${by("startup_id")}`,
+          ),
+          admin<SignalRow[]>(
+            `signals?select=id,startup_id,type,headline,detail,stream,meta,created_at&order=created_at.desc&limit=200${by("startup_id")}`,
+          ),
+          admin<Repos[]>(
+            `integrations?select=startup_id,repos,selected_repos&provider=eq.github${by("startup_id")}`,
+          ),
+          mentorOnly("blocker_reviews?select=startup_id,handled_at"),
+          admin(
+            `milestones?select=id,startup_id,title,due_date,status,goals(id,title,done)&status=neq.dropped` +
+              `&order=due_date.asc.nullslast${by("startup_id")}`,
+          ),
+          mentorOnly("mentors?select=id,name,title&order=name"),
+          // Mentor notes about a startup are for the studio team, not the founders.
+          mentorOnly(
+            "notes?select=id,startup_id,author_name,body,created_at&order=created_at.desc&limit=200",
+          ),
+          admin(
+            `tasks?select=id,startup_id,owner_slack_id,title,due_date,status,created_at&status=eq.open` +
+              `&order=due_date.asc.nullslast&limit=200${by("startup_id")}`,
+          ),
+        ]);
         if (!startups.ok) return json({ error: "unavailable" }, 502);
 
         // GitHub work counts only for the repos the founder currently monitors; changing the choice in Slack
@@ -70,9 +91,17 @@ export const Route = createFileRoute("/api/dash/snapshot")({
           startups: startups.data ?? [],
           founders: founders.data ?? [],
           submissions: submissions.data ?? [],
-          signals: visible.map(({ meta: _meta, ...s }) => s),
+          // Only the counts the trends need leave the server, not repo names or other metadata.
+          signals: visible.map(({ meta, ...s }) => ({
+            ...s,
+            weight: Number(meta?.commits ?? meta?.meetings ?? 1) || 1,
+            merged: !!meta?.merged,
+          })),
           handled: handled.data ?? [],
           milestones: milestones.data ?? [],
+          mentors: mentors.data ?? [],
+          notes: notes.data ?? [],
+          tasks: tasks.data ?? [],
         });
       },
     },

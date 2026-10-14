@@ -14,6 +14,8 @@ export type SubmissionRow = {
   id: string;
   startup_id: string;
   founder_id: string | null;
+  deliverable_id?: string | null;
+  artifact_url?: string | null;
   status: string;
   progress: number | null;
   blocker: string | null;
@@ -28,6 +30,25 @@ export type SignalRow = {
   headline: string;
   detail: string | null;
   stream: string | null;
+  weight?: number;
+  merged?: boolean;
+  created_at: string;
+};
+export type MentorRow = { id: string; name: string; title: string | null };
+export type NoteRow = {
+  id: string;
+  startup_id: string | null;
+  author_name: string | null;
+  body: string;
+  created_at: string;
+};
+export type TaskRow = {
+  id: string;
+  startup_id: string | null;
+  owner_slack_id: string | null;
+  title: string;
+  due_date: string | null;
+  status: string;
   created_at: string;
 };
 export type Goal = { id: string; title: string; done: boolean };
@@ -40,17 +61,20 @@ export type Milestone = {
   goals: Goal[];
 };
 
-type Snapshot = {
+export type DashSnapshot = {
   startups: StartupRow[];
   founders: FounderRow[];
   submissions: SubmissionRow[];
   signals: SignalRow[];
   handled: Array<{ startup_id: string; handled_at: string }>;
   milestones: Milestone[];
+  mentors: MentorRow[];
+  notes: NoteRow[];
+  tasks: TaskRow[];
 };
 
 type DashData = {
-  snapshot: Snapshot | null;
+  snapshot: DashSnapshot | null;
   roster: Founder[] | null;
   handled: Record<string, string>;
   lastSync: Date | null;
@@ -73,7 +97,7 @@ export function useDashData(): DashData {
  * Refreshes every 20s and whenever the tab comes back into view.
  */
 export function DashDataProvider({ children }: { children: ReactNode }) {
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<DashSnapshot | null>(null);
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [error, setError] = useState(false);
   const [overrides, setOverrides] = useState<Record<string, string | null>>({});
@@ -87,7 +111,7 @@ export function DashDataProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (!res.ok) throw new Error(String(res.status));
-      setSnapshot((await res.json()) as Snapshot);
+      setSnapshot((await res.json()) as DashSnapshot);
       setOverrides({});
       setLastSync(new Date());
       setError(false);
