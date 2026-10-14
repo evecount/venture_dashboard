@@ -9,18 +9,25 @@
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
 
-## 🤖 AI Agent Orientation & Architecture Guidelines
+## AI Agent Orientation
 
-> **CRITICAL:** Before making structural changes, read [AGENT_CONTEXT.md](./AGENT_CONTEXT.md) for the complete 4-stage pipeline, file index, and development invariants.
+> **CRITICAL:** Read [AGENT_CONTEXT.md](./AGENT_CONTEXT.md) before making structural changes. It has the architecture, file map, data model, hard rules and deploy steps.
 
-### Core Principles
-- **Zero-Click Operations**: Founders do NOT fill out forms or click around Jira/Notion. They talk to the Slack bot (`@MVP_buddy` in `slack_bot.py`). The React dashboard is a read-only live control ledger.
-- **The 4-Stage Loop**: Slack Inbound ➔ Identity & Milestone Resolution ➔ Structured LLM Extraction ➔ Slack Block Kit Interactive Confirmation Card (`[Confirm]` button) ➔ Supabase Realtime DB ➔ Zero-Click Dashboard & 48h Blocker Cron Scheduler.
-- **Privacy & Fixture Invariants**: Keep dashboard demo records in a browser-safe data module (`src/components/dashboard/data.ts`) with IDs matching `demo-founder-` and names matching `Demo Founder A/B`. Never leak real personal names into demo fixtures (verified by `npm test`).
-- **Clear Simulation Labeling**: Keep this command center frontend-only and browser-runnable by default; label simulated connection and data clearly with the `"Slack simulation · Not connected"` badge.
-- **Presentation-Only Perspectives**: Model studio responsibilities (`coordinator`, `gtm`, `marketing`, `technical`) and demo perspectives (`demo-founder-01`, `demo-founder-02`) in browser-safe fixtures; perspective switching is presentation only, never an authorization mechanism.
+### Core principles
+- **Slack first, zero forms.** Founders talk to Venture Buddy (`slack_bot.py`, `bot_agent.py`). The dashboard is a read-only live view of the same data.
+- **Live data only.** No simulation, demo fixtures or fictional placeholders in the dashboard or the database (`npm test` checks the UI source).
+- **Roles come from the database,** never the LLM; tools are role-gated and arguments are re-validated in code.
+- **Proposals before outward actions** (check-ins, renames, meeting invitations): show a card, act only on the requester's confirm.
+- **Secrets never in git.** `.env`, `*.pem`, tokens and the service-role key stay local or on the VM. Sensitive tables use RLS with no public policies.
+- **Presentation-only perspectives.** Dashboard "view as" switching is not authorization.
 
-### Quick Commands for Agents
-- `npm test` : Runs Vitest unit and privacy tests. (Must pass before committing).
-- `npm run build` : Builds client and SSR Nitro bundle.
-- `python slack_bot.py --simulate` : Tests the Slack bot parsing and Block Kit card generation in offline dry-run mode.
+### Working in this repo with other agents
+- Another agent edits the dashboard in this same folder. Commit only your own files (no `git add -A`), `git pull` before pushing, re-read a file before editing it, and tell the user before deploying (a deploy builds the whole working tree).
+- Schema changes are SQL files in `supabase/migrations/`; the user runs them. Code must degrade gracefully if a table is missing.
+- Run only one copy of the bot (the VM). Do not start it locally while the VM is running.
+
+### Quick commands
+- `npm test` : Vitest (site, dashboard logic, webhook signing). Must pass before committing.
+- `python -m unittest discover tests` : bot tests (agent rules, profiles, integrations, meetings, daily prompts).
+- `npm run build` : client + SSR bundle.
+- `python slack_bot.py --simulate` : offline dry run of extraction and cards.

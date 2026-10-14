@@ -135,3 +135,19 @@ class Memory:
     def remove_goal(self, goal_id: str) -> bool:
         return self._guard("remove_goal", lambda: bool(
             self.sb.table("goals").delete().eq("id", goal_id).execute()), False)
+
+    # --- meeting proposals awaiting confirmation ---
+    def save_meeting(self, requested_by: str, payload: dict) -> str | None:
+        def run():
+            res = self.sb.table("pending_meetings").insert({"requested_by": requested_by, "payload": payload}).execute()
+            return res.data[0]["id"] if res.data else None
+        return self._guard("save_meeting", run, None)
+
+    def get_meeting(self, meeting_id: str) -> dict | None:
+        def run():
+            rows = self.sb.table("pending_meetings").select("*").eq("id", meeting_id).execute().data
+            return rows[0] if rows else None
+        return self._guard("get_meeting", run, None)
+
+    def delete_meeting(self, meeting_id: str):
+        self._guard("delete_meeting", lambda: self.sb.table("pending_meetings").delete().eq("id", meeting_id).execute(), None)

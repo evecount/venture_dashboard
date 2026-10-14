@@ -1,169 +1,128 @@
 # AGENT CONTEXT & DEVELOPER HANDOVER MANUAL
-**Venture Studio OS (VentureDash) · Zero-Click Operations Command Center**
+**VentureOS (repo: `venture_dashboard`) · Slack-first progress tracking for a venture studio program**
 
-> **Target Audience:** Any AI agent (Claude, Gemini, GPT, Cursor, Lovable) or human engineer picking up this codebase. Read this document before making architectural changes or refactoring existing code.
+> **Audience:** any AI agent or engineer picking up this codebase. Read this before changing architecture. Last revised 2026-10-14.
 
 ---
 
-## 1. Executive Summary & North Star
+## 1. What this is
 
-### The Problem
-Traditional venture accelerators, studios, and incubation programs force busy founders to fill out weekly status reports in Jira, Asana, Airtable, or rigid Notion templates. This creates massive administrative friction. Founders either submit half-baked reports late or drop off entirely, forcing venture leads to waste hours chasing status updates.
+A progress tracker for a venture studio cohort. **Founders never fill in forms.** They talk to the Slack assistant (**Venture Buddy**), connect GitHub and Google Calendar once, and the system builds a live picture of each startup. **Mentors** see that picture in Slack (Home tab, cohort pulse) and on a read-only dashboard, and can ask the bot questions, leave notes, assign follow-ups, issue milestones and schedule meetings.
 
-### The Solution: Zero-Click Ambient Operations
-**Venture Studio OS** eliminates founder-side forms and clicking.
-Founders work where they already communicate: **Slack (text, DMs, threads, and voice note transcripts)**.
-The dashboard is a **Read-Only Live Control Ledger** for Studio Leads (Program Coordinators, GTM Advisors, Technical Leads) and Founders.
+It is a lightweight CRM + product-management tool for a program: contact records (startups and people), an activity timeline, health status, tasks, notes and milestones.
 
 ```
-Founder speaks in Slack ──► Autonomous AI Bot ──► Interactive Card Confirmation
-                                                              │
-                                                              ▼
-Living Dashboard ◄── WebSockets / PubSub ◄── Supabase Realtime Ledger
-        │
-        └──► Background Cron Worker ──► Proactive Slack Nudges (T-48h, Blocked >48h)
+Founder/Mentor in Slack ──► Venture Buddy (Python, Socket Mode, always on)
+                              │  role comes from the DB, never from the LLM
+                              │  tool-calling agent + persistent memory
+                              ▼
+                         Supabase (Postgres + Realtime)  ◄── Cloudflare Worker (site + webhooks)
+                              ▲                                   ▲
+   GitHub App webhooks ───────┘            Google Calendar / GitHub OAuth callbacks
+   Google Calendar sync (hourly)
+                              ▼
+        Read-only dashboard (live data only) · Slack Home tabs (refresh every ~15s on change)
 ```
 
 ---
 
-## 2. The 4-Stage Operating Pipeline
+## 2. Hard rules (do not violate)
 
-Every feature in this repository belongs to one of four pipeline layers. Do not break the boundaries between these layers:
-
-### Layer 1: Ingestion & Identity Resolution ([slack_bot.py](file:///c:/Users/SIT%20EUC/Documents/Builds/VentureDash/slack_bot.py))
-- Ingests text, file attachments, and voice note transcripts via Slack Socket Mode (`@slack/bolt`).
-- **Identity Resolution**: Maps the raw `slack_user_id` (e.g. `U05ABCD`) to their startup record in `founders` ➔ `startups`.
-- **Milestone Grounding**: Looks up the current sprint week and target deliverable from the 12-week syllabus (`src/data/syllabus.json` or Supabase `deliverables`).
-
-### Layer 2: Syllabus-Grounded AI Extraction
-- Passes the unstructured text and active milestone to an LLM (Qwen / OpenAI-compatible endpoint).
-- Strict JSON Schema output:
-  ```json
-  {
-    "status": "In progress" | "Blocked" | "On Track" | "Completed",
-    "progress": 0 to 100,
-    "stream": "Tech" | "GTM",
-    "blocker": "1-sentence blocker description or 'None'",
-    "digest": "1-2 sentence executive summary for mentors"
-  }
-  ```
-
-### Layer 3: The Interactive Feedback Loop (Block Kit Confirmation)
-- **Zero Silent Writes**: The bot **never** writes unverified AI extractions directly to the database.
-- It responds in Slack with an interactive **Block Kit card**:
-  - Displays: Target deliverable, extracted status, workstream, blocker flag, and summary.
-  - Interactive Buttons: `[ ✅ Confirm & Sync Dashboard ]` (`action_id: confirm_checkin`) and `[ ✏️ Adjust Details ]` (`action_id: edit_checkin`).
-- Only when the founder clicks **Confirm** is the mutation committed to the database. This guarantees founder ownership and eliminates AI hallucinations.
-
-### Layer 4: Real-Time Replication & Proactive Chasing
-- **Living Dashboard**: Supabase Realtime broadcast (`postgres_changes`) pushes mutations to the frontend via WebSockets. The dashboard updates instantaneously with a pulsing glow—**requiring zero page reloads or clicks**.
-- **Proactive Nudge Engine**: A background cron worker (`APScheduler`) audits deadlines every morning at 09:00 SGT:
-  - If a deliverable is due in <48 hours without a submission ➔ alerts the team channel.
-  - If a status remains "Blocked" for >48 hours ➔ sends a proactive DM to the founder offering an unblocking sync with their stream lead.
+1. **Lovable sync.** The repo syncs with Lovable. Never force-push, rebase, amend or squash pushed commits. Keep `main` buildable.
+2. **Live data only.** There is no simulation or demo data in the dashboard or the database. Do not reintroduce fixtures, "Simulate" buttons or fictional placeholders. `src/test/demo-privacy.test.ts` enforces this.
+3. **Roles come from the database.** `get_role()` reads `mentors`/`founders`. The LLM never decides who someone is. Tool availability is gated by role in code, and tool arguments are re-validated server-side (a founder is pinned to their own startup).
+4. **Proposals before outward actions.** Anything that changes shared state or contacts people is shown as a card the requester confirms: check-ins, startup renames, meetings (Google invitations). No silent writes.
+5. **Secrets.** `.env`, `*.pem`, tokens and the service-role key never go in git. The browser only ever gets the Supabase *publishable* key. Sensitive tables have RLS enabled with **no** policies (service role only).
+6. **Privacy by design.** Calendar data is stored as per-day counts only (never titles/invitees). Mentor notes and `audience='mentors'` memories are never shown to founders. Refresh tokens are Fernet-encrypted.
+7. **Migrations are run by the user** in the Supabase SQL editor (`supabase/migrations/*.sql`). Agents write them, tell the user, and never assume they were run (code degrades gracefully when a table is missing).
+8. **Working alongside other agents.** Another agent edits the dashboard (`src/components/dashboard/*`, `src/hooks/use-dash-data.ts`, etc.) in the same folder. Commit only the files you changed, never `git add -A`, `git pull` before pushing, re-read a file before editing it, and say so before deploying (a deploy builds the whole working tree).
+9. **One bot instance.** Slack Socket Mode splits events across connections. Never run the bot locally while the VM runs it.
 
 ---
 
-## 3. Repository Architecture & File Index
+## 3. Repository map
 
-| Path | Purpose & Responsibilities |
+| Path | Purpose |
 |---|---|
-| [`slack_bot.py`](file:///c:/Users/SIT%20EUC/Documents/Builds/VentureDash/slack_bot.py) | Python Slack Bolt app (Socket Mode). Handles message ingestion, entity lookup, Qwen LLM parsing, Block Kit confirmation cards, and the background 48h blocker scheduler. Supports offline dry-run testing via `--simulate`. |
-| [`supabase/schema.sql`](file:///c:/Users/SIT%20EUC/Documents/Builds/VentureDash/supabase/schema.sql) | Production PostgreSQL schema. Tables: `cohorts`, `startups`, `founders`, `deliverables`, `submissions`, `signals`. Configures Row-Level Security (RLS) and `supabase_realtime` publication. |
-| [`supabase/README.md`](file:///c:/Users/SIT%20EUC/Documents/Builds/VentureDash/supabase/README.md) | Step-by-step setup guide for creating the Slack App manifest, granting bot scopes, and deploying the Supabase schema. |
-| [`src/components/dashboard/command-center.tsx`](file:///c:/Users/SIT%20EUC/Documents/Builds/VentureDash/src/components/dashboard/command-center.tsx) | The primary command center UI. Contains dynamic KPIs (velocity, active blockers, response rates), Blocker Triage Strip, Cohort Matrix Table, Live Signal Ticker, and the `[⚡ Simulate Slack Inbound]` ambient test trigger. |
-| [`src/components/dashboard/data.ts`](file:///c:/Users/SIT%20EUC/Documents/Builds/VentureDash/src/components/dashboard/data.ts) | Privacy-compliant synthetic fixtures (`demo-founder-01`, `demo-founder-02`) and studio role models (`coordinator`, `gtm`, `marketing`, `technical`). |
-| [`src/components/dashboard/studio-perspectives.tsx`](file:///c:/Users/SIT%20EUC/Documents/Builds/VentureDash/src/components/dashboard/studio-perspectives.tsx) | Dropdown switcher allowing operators to toggle between Studio Mentor views and personalized Founder Views. |
-| [`src/components/dashboard/ai-chat-overlay.tsx`](file:///c:/Users/SIT%20EUC/Documents/Builds/VentureDash/src/components/dashboard/ai-chat-overlay.tsx) | Modal AI Assistant providing in-browser simulation of the Slack conversational check-in and Block Kit confirmation loop. |
-| [`src/data/syllabus.json`](file:///c:/Users/SIT%20EUC/Documents/Builds/VentureDash/src/data/syllabus.json) | Structured 12-week Mamba MVP schedule extracted from the official syllabus spreadsheet. Contains dates, modules, daily exercises, leads, and Friday deliverables. |
-| [`src/routes/__root.tsx`](file:///c:/Users/SIT%20EUC/Documents/Builds/VentureDash/src/routes/__root.tsx) | TanStack Start root shell. Contains the prototype access gate (`passcode: mamba2026`). |
-| [`src/test/demo-privacy.test.ts`](file:///c:/Users/SIT%20EUC/Documents/Builds/VentureDash/src/test/demo-privacy.test.ts) | Privacy compliance test verifying that no real identities or sensitive names are exposed by default fixtures. |
+| `slack_bot.py` | Slack Bolt app: message routing, profile setup modals, Home tab, confirmation cards, schedulers (daily prompts, Home refresh, heartbeat, GitHub/Google pollers), CLI (`--simulate`, `--daily-dry-run`). |
+| `bot_agent.py` | The brain: one tool-calling LLM turn per message, role-gated tools, context building, server-side validation. |
+| `bot_memory.py` | Persistent memory and CRM data access (history, facts, notes, tasks, milestones, goals, pending meetings). Never raises. |
+| `mentor_home.py` | Per-startup health rules and the mentor Slack view (pure functions). |
+| `profile_rules.py` | Double-entry rules for profile setup (name+email matching, claiming invited records). |
+| `daily_checkin.py` | 17:00 SGT prompts and the next-morning nudge. |
+| `syllabus.py` | The 12-week schedule (`src/data/syllabus.json`): current week, deliverables, `has_session`. |
+| `integrations.py` | Signed state/links, activity summaries, GitHub repo picker blocks, dashboard "Slack pass" links. |
+| `github_app.py` | GitHub App API (installation tokens from the private key): repo listing, 14-day backfill, org lookups. |
+| `google_calendar.py` | Google OAuth, encrypted tokens, read-only event sync into counts, live "my calendar", studio-calendar event creation. |
+| `meetings.py` | Meeting requests: time parsing, 12-hour formatting, attendee resolution, event bodies. |
+| `src/routes/` | TanStack Start site: `index.tsx` (dashboard), `about.tsx`/`privacy.tsx` (public, needed for Google OAuth), `api/github/{callback,webhook}.ts`, `api/google/callback.ts`, `api/dash/*`, `api/health.ts`. |
+| `src/components/dashboard/`, `src/hooks/` | Dashboard UI and data hooks (live Supabase data; owned partly by another agent). |
+| `src/lib/integrations.ts`, `supabase-admin.ts` | Webhook signature checks, signed state, GitHub event mapping, server-side Supabase REST. |
+| `supabase/schema.sql`, `supabase/migrations/` | Base schema and incremental migrations (apply in filename order). |
+| `deploy/` | VM setup (`setup.sh`, systemd unit) for the always-on bot. |
+| `tests/` | Python `unittest` suites for the bot. `src/test/` holds Vitest suites for the site. |
 
 ---
 
-## 4. Hard Constraints & Invariants (DO NOT VIOLATE)
+## 4. Data model (Supabase)
 
-### Rule 1: Lovable Synchronization
-This repository syncs with [Lovable](https://lovable.dev). 
-- **NEVER** force-push, rebase, or squash published commits on the connected branch. Doing so destroys commit history on Lovable's side.
-- Keep the connected branch in a clean, buildable state at all times.
+Public-read (dashboard): `cohorts`, `startups`, `founders`, `deliverables`, `submissions` (confirmed check-ins), `signals` (activity feed: check-ins, commits, PRs, issues, meetings), `milestones`, `goals`.
+Service-role only: `mentors`, `notes`, `tasks`, `bot_messages`, `memories`, `integrations` (GitHub/Google, encrypted tokens), `github_installations`, `github_claims`, `google_pending`, `studio_calendar`, `pending_meetings`, `bot_heartbeat`, and any tables added by other agents' migrations.
 
-### Rule 2: Prototype Privacy & Fixture Conventions
-`src/test/demo-privacy.test.ts` runs on CI and enforces strict sanitization rules:
-- Founder IDs must match `^demo-founder-` (e.g. `demo-founder-01`).
-- Founder names must match `^Demo Founder ` (e.g. `Demo Founder A`).
-- Founder profiles must contain the word `fictional`.
-- Notes must start with `Demo `.
-- Studio roles must strictly match: `Program Coordinator`, `GTM Venture Advisor`, `Marketing / Rollout / User Validation`, and `Technical Advisor`.
-- **FORBIDDEN STRINGS**: Do not hardcode real partner or founder names in `data.ts` or UI templates. The regex `/benjamin|\bben\b|arthur|james|gwen|logistics|enterprise studio|supabase auth|auth loop/i` will fail tests if present in the data modules.
-
-### Rule 3: Browser-Safe Simulation with Clear Labels
-Per [AGENTS.md](file:///c:/Users/SIT%20EUC/Documents/Builds/VentureDash/AGENTS.md):
-- Keep the dashboard runnable in a browser-safe mode without requiring active Supabase credentials to view.
-- When displaying simulated data, ensure the UI clearly carries the `"Slack simulation · Not connected"` indicator.
-- Do not remove the `[⚡ Simulate Slack Inbound (Zero-Click)]` trigger—it is essential for prospective partners and studio leads to see how live updates work without setting up Slack tokens.
-
-### Rule 4: Presentation-Only Perspectives
-Perspective switching (e.g. switching between Program Coordinator and Demo Founder A) is a **presentation modeling tool**, not an authentication or authorization barrier. Do not introduce rigid auth guards that break the perspective preview dropdown.
+Health rules (Slack and dashboard must stay in sync): **blocked** = latest check-in is Blocked; **quiet** = no check-in for 7+ days; otherwise **on track**.
 
 ---
 
-## 5. Development & Testing Commands
+## 5. How the bot behaves
+
+- **Roles.** Mentors are verified with a mentor code (or pre-registered by email); founders are matched by Slack email or set up via the founder profile form. Duplicate/double entry is blocked by `profile_rules.py`.
+- **Founder messages** become answers, tasks, milestones/goals or a **check-in proposal** (confirm card). Founders cannot edit mentor-issued milestones (they can tick goals).
+- **Mentor messages** get cohort answers, notes, tasks, milestone issuing, stream/lead assignment, renames, meeting scheduling. `pulse` shows the cohort card.
+- **Memory.** Short-term: last 12 messages per user (`bot_messages`). Long-term: `memories` facts (`audience` all/mentors).
+- **Daily rhythm.** 17:00 SGT on program days it asks each linked founder what they did (mentioning open goals); 09:30 next day one nudge if no reply; 09:00 blocker audit.
+- **Home tab.** Founder: "Your sprint radar – <startup>", due this week, last check-in, two milestone groups (mentor-issued vs own), connections (GitHub repo picker inline, calendar). Mentor: cohort view with attention items. Republished within ~15 s of relevant changes.
+- **Meetings.** "Set up a meet with everyone at 3 PM on Thursday at 111 Somerset" -> a proposal card -> on confirm, an event is created on the shared **studio Google Calendar** (connected once by a mentor) with a Meet link for virtual meetings and invitations emailed. Times are SGT, shown in 12-hour format. Founders cannot invite "everyone".
+
+---
+
+## 6. Integrations
+
+- **GitHub (GitHub App).** Founder presses Connect GitHub -> GitHub installs the app (they choose repos) -> redirect to `/api/github/callback` (signed `state`) -> webhook events at `/api/github/webhook` (HMAC verified) become `signals`. Repos are chosen on the Home tab; only chosen repos count. The bot uses the app's private key to list repos and backfill 14 days. Organisation installs that need an owner's approval are linked via a "claim" (founder names the org; the bot links it once installed).
+- **Google Calendar (read-only, per founder).** OAuth via `/api/google/callback` parks the one-time code in `google_pending`; the bot exchanges it, stores an encrypted refresh token, and syncs hourly into per-day meeting counts. Scope: `calendar.events.readonly`.
+- **Studio calendar (write, shared).** A mentor connects the studio Google account once (scope `calendar.events`); only the bot reads that token.
+- **Dashboard access.** Originally a client-side code gate (`mamba2026`, a deterrent, not security) plus a signed 90-day pass in the Slack "Open dashboard" link that skips it. **The dashboard agent is replacing this with real sign-in by role** (`src/lib/dash-auth.ts`, `src/routes/api/auth/`, `api/dash/session.ts`, `api/dash/snapshot.ts`); read those files for the current behaviour. `/about` and `/privacy` stay public (Google OAuth needs them).
+
+---
+
+## 7. Hosting, deploy and health
+
+- **Bot:** GCP e2-micro VM `venturebot` (project `venturedash-bot-6411`, us-central1-a), systemd service, files in `/opt/venturebot`. Update: copy changed files to the VM, `sudo systemctl restart venturebot`. See `deploy/README.md`.
+- **Site:** Cloudflare Worker `venturedash` -> https://venturedash.benlim631.workers.dev. After `npm run build`, set `compatibility_date` in `.output/server/wrangler.json` to today's **UTC** date and add `"html_handling": "none"` under `assets`, then `npx wrangler deploy --config .output/server/wrangler.json --name venturedash`. Worker secrets: `STATE_SECRET`, `GITHUB_WEBHOOK_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL`.
+- **Health:** the bot writes `bot_heartbeat` every 30 s (including whether the Slack websocket is really connected). `/api/health` returns 200 only when that is fresh, 503 otherwise. A Google Cloud uptime check on that URL emails the owner when it fails.
+
+---
+
+## 8. Environment variables (`.env`, never committed)
+
+`SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `VITE_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY` (+ optional `AI_MODEL`, default `gemini-3.8-flash`), `DASHBOARD_URL`, `STATE_SECRET`, `MENTOR_CODE`, `ONBOARDING_CODE` (optional), `GITHUB_APP_SLUG`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY_PATH` (or `GITHUB_APP_PRIVATE_KEY`), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`. The browser build reads `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from `.env.local` (publishable key only).
+
+---
+
+## 9. Testing
 
 ```bash
-# 1. Run Vitest Unit & Privacy Tests
-npm test
-
-# 2. Build Client & SSR Bundle (Vite + Nitro)
-npm run build
-
-# 3. Start Local Frontend Dev Server
-npm run dev
-# Default port: http://localhost:3000 (or Vite allocated port)
-# Access Code: mamba2026
-
-# 4. Test Slack Bot Extraction in Offline Dry-Run Mode
-python slack_bot.py --simulate
-
-# 5. Run Live Slack Bot (Requires .env tokens)
-python slack_bot.py
+npm test                          # Vitest (site, dashboard logic, webhook signing)
+python -m unittest discover tests # bot: agent rules, profile rules, GitHub/Google/meetings, daily prompts
+python slack_bot.py --simulate    # offline extraction/card dry run
+python slack_bot.py --daily-dry-run  # prints the prompts that would be sent now
+npm run build                     # client + SSR bundle
 ```
 
 ---
 
-## 6. How the Realtime Pub/Sub Connects to the Frontend
+## 10. Known gaps / ideas
 
-When migrating the frontend from the simulated state to live Supabase:
-
-1. Add `@supabase/supabase-js` to `package.json`.
-2. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `.env`.
-3. Subscribe to the `submissions` and `signals` tables:
-   ```ts
-   import { createClient } from "@supabase/supabase-js";
-   
-   const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
-   
-   supabase
-     .channel("cohort-live")
-     .on("postgres_changes", { event: "INSERT", schema: "public", table: "signals" }, (payload) => {
-       // Prepend to recentSignals state
-     })
-     .on("postgres_changes", { event: "*", schema: "public", table: "submissions" }, (payload) => {
-       // Update founderList state and trigger isPulsing: true
-     })
-     .subscribe();
-   ```
-
----
-
-## 7. High-Value Roadmap Items for Future Agents
-
-If you are tasked with extending Venture Studio OS, prioritize these high-leverage features:
-
-1. **Slack App Home Tab (`views.publish`)**:
-   Render the founder's personal sprint radar directly inside Slack's Home tab when they open the bot's DM. This solves the "dead tab" problem completely.
-2. **Ambient TV / Kiosk Display Mode**:
-   Add a full-screen toggle button (`F11` / kiosk layout) that strips navigation rails and optimizes typography for wall-mounted 55" office/incubator monitors.
-3. **Voice Audio Transcription Bridge**:
-   Connect Telegram voice messages or Slack `.m4a`/`.mp3` voice note audio attachments to OpenAI Whisper / Alibaba DashScope Paraformer to transcribe spoken voice memos before feeding them to Qwen.
-4. **Automated Monday Standup Digest**:
-   Create a scheduled job sending a concise Block Kit card every Monday at 09:00 into `#general` summarizing cohort velocity and unresolved blockers.
+- Weekly Monday digest for mentors; "talking but not building" alert (check-ins but no code activity).
+- Dashboard timeline showing GitHub/meeting signals prominently (coordinate with the dashboard agent).
+- Dashboard role-based sign-in is in progress by the dashboard agent; keep Slack "Open dashboard" links working with whatever it ships.
+- Move heavy Home queries into one RPC if the cohort grows beyond a few dozen people.

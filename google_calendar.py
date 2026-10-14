@@ -27,18 +27,20 @@ TOKEN_URL = "https://oauth2.googleapis.com/token"
 USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
 SCOPES = "openid email https://www.googleapis.com/auth/calendar.events.readonly"
+STUDIO_SCOPES = "openid email https://www.googleapis.com/auth/calendar.events"  # create meetings on the studio calendar
 SYNC_DAYS = 14
 
 
 # ---------- connect link & token handling ----------
 
-def connect_url(client_id: str | None, redirect_uri: str | None, secret: str | None, founder_id: str, startup_id: str) -> str | None:
+def connect_url(client_id: str | None, redirect_uri: str | None, secret: str | None, founder_id: str, startup_id: str,
+                studio: bool = False) -> str | None:
     """Google's consent screen, carrying a signed state that ties the result to this founder."""
     if not (client_id and redirect_uri and secret):
         return None
-    state = integrations.sign_state({"f": founder_id, "s": startup_id, "p": "google"}, secret)
+    state = integrations.sign_state({"f": founder_id, "s": "studio" if studio else startup_id, "p": "google-studio" if studio else "google"}, secret)
     return AUTH_URL + "?" + urlencode({
-        "client_id": client_id, "redirect_uri": redirect_uri, "response_type": "code", "scope": SCOPES,
+        "client_id": client_id, "redirect_uri": redirect_uri, "response_type": "code", "scope": STUDIO_SCOPES if studio else SCOPES,
         "access_type": "offline", "prompt": "consent", "state": state, "include_granted_scopes": "true",
     })
 
@@ -58,9 +60,10 @@ def decrypt_token(blob: str, secret: str) -> str | None:
         return None
 
 
-def _default_http(method: str, url: str, headers: dict | None = None, data: dict | None = None, params: dict | None = None):
+def _default_http(method: str, url: str, headers: dict | None = None, data: dict | None = None, params: dict | None = None,
+                  json: dict | None = None):
     import requests
-    r = requests.request(method, url, headers=headers, data=data, params=params, timeout=20)
+    r = requests.request(method, url, headers=headers, data=data, params=params, json=json, timeout=20)
     r.raise_for_status()
     return r.json()
 
@@ -87,7 +90,15 @@ class GoogleCalendar:
             "refresh_token": refresh, "grant_type": "refresh_token"})
         return data["access_token"]
 
-    def events(self, encrypted_refresh: str, since: datetime, until: datetime) -> list:
+    def create_event(self, encrypted_refresh: str, body: dict) -> dict:
+        """Creates the event on the connected (studio) calendar and emails the invitations. Returns Google's event resource."""
+        token = self.access_token(encrypted_refresh)
+        if not token:
+            raise RuntimeError("could not read the calendar token")
+        return self.http("POST", EVENTS_URL, headers={"Authorization": f"Bearer {token}"},
+                         params={"conferenceDataVersion": 1, "sendUpdates": "all"}, json=body)
+
+    def events(self, encrypted_refresh: str, since: datetime, until: datetime, only_ours: bool = False) -> list:
         token = self.access_token(encrypted_refresh)
         if not token:
             return []
@@ -95,7 +106,9 @@ class GoogleCalendar:
         while True:
             params = {"timeMin": since.isoformat(), "timeMax": until.isoformat(), "singleEvents": "true",
                       "orderBy": "startTime", "maxResults": 250,
-                      "fields": "nextPageToken,items(summary,start,end,status,attendees(email,self,responseStatus),visibility)"}
+                      "fields": "nextPageToken,items(summary,start,end,status,attendees(email,displayName,self,responseStatus),visibility,location,hangoutLink)"}
+            if only_ours:
+                params["privateExtendedProperty"] = "ventureos=1"  # never read anyone's other calendar events
             if page:
                 params["pageToken"] = page
             data = self.http("GET", EVENTS_URL, headers={"Authorization": f"Bearer {token}"}, params=params)

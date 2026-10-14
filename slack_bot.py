@@ -102,6 +102,7 @@ import threading
 import github_app
 import syllabus
 import google_calendar
+import meetings
 import integrations
 from profile_rules import match_person, looks_like_email, norm_name
 from daily_checkin import send_daily_prompts, send_nudges
@@ -169,6 +170,36 @@ def google_link(founder_id: str, startup_id: str) -> str | None:
     return google_calendar.connect_url(GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI, STATE_SECRET, founder_id, startup_id) if gcal else None
 
 
+def studio_row() -> dict | None:
+    try:
+        rows = supabase.table("studio_calendar").select("*").eq("id", "primary").execute().data
+        return rows[0] if rows else None
+    except Exception as e:
+        print(f"[Studio Calendar Warning] {e}")
+        return None
+
+
+def studio_connected() -> bool:
+    return studio_row() is not None
+
+
+def studio_events_fn(days: int):
+    """Upcoming events on the studio calendar, or None when it isn't connected."""
+    studio = studio_row()
+    if not (gcal and studio):
+        return None
+    now = datetime.now(timezone.utc)
+    try:
+        return gcal.events(studio["refresh_token"], now, now + timedelta(days=days), only_ours=True)
+    except Exception as e:
+        print(f"[Studio Events Warning] {e}")
+        return []
+
+
+def studio_link(slack_id: str) -> str | None:
+    return google_calendar.connect_url(GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI, STATE_SECRET, slack_id, "studio", studio=True) if gcal else None
+
+
 def my_calendar_text(founder_id: str, days: int) -> str:
     """Live, private view of this founder's own calendar (titles stay out of the database)."""
     if not gcal:
@@ -183,7 +214,8 @@ def github_link(founder_id: str, startup_id: str) -> str | None:
     return integrations.github_connect_url(GITHUB_APP_SLUG, STATE_SECRET, founder_id, startup_id)
 
 
-agent = (Agent(ai_client, AI_MODEL, supabase, memory, connect_url=github_link, calendar_link=google_link, calendar_text=my_calendar_text)
+agent = (Agent(ai_client, AI_MODEL, supabase, memory, connect_url=github_link, calendar_link=google_link, calendar_text=my_calendar_text,
+                studio_link=studio_link, studio_connected=studio_connected, studio_events=studio_events_fn)
          if (ai_client and supabase) else None)
 
 # Initialize Slack Bolt App
@@ -232,7 +264,7 @@ DEFAULT_DELIVERABLE = {
 
 # --- SYSTEM PROMPT ---
 SYSTEM_PROMPT = """
-You are MVP_buddy, the autonomous venture studio AI mentor.
+You are Venture Buddy, the autonomous venture studio AI mentor.
 Your role is to extract structured, actionable milestone progress from unstructured founder messages,
 voice note transcripts, and meeting summaries.
 
@@ -1119,7 +1151,7 @@ def publish_home(slack_user_id: str, client=None):
         role = get_role(slack_user_id)
         if role == "mentor":
             mine = [t for t in memory.open_tasks() if t.get("owner_slack_id") == slack_user_id]
-            blocks = build_mentor_blocks(safe_snapshot(), title="Mentor view", tasks=mine)
+            blocks = build_mentor_blocks(safe_snapshot(), title="Mentor view", tasks=mine) + studio_connect_blocks(slack_user_id)
             client.views_publish(user_id=slack_user_id, view={"type": "home", "blocks": blocks})
             return
         context = resolve_founder_context(slack_user_id) if role else None
@@ -1156,7 +1188,7 @@ def handle_greeting(message, say):
         say(blocks=build_mentor_blocks(safe_snapshot()), text="Cohort pulse")
         return
     say(
-        f"Hey <@{user_id}>! 👋 I'm *MVP_buddy*, your automated venture studio lead.\n\n"
+        f"Hey <@{user_id}>! 👋 I'm *Venture Buddy*, your automated venture studio lead.\n\n"
         f"You don't need to log into Jira or fill out forms. Whenever you work, hit a blocker, or finish customer interviews, "
         f"just send me a voice note or type an update right here!\n\n"
         f"I'll automatically parse your progress against the syllabus, generate a confirmation card for you to approve, "
@@ -1246,6 +1278,8 @@ def process_inbound_message(user_id: str, text: str, files: list, say):
                     text="Please confirm your dashboard update.")
             if result["rename"]:
                 say(blocks=build_rename_card(result["rename"]), text="Confirm startup rename")
+            if result.get("meeting"):
+                say(blocks=build_meeting_card(result["meeting"]), text="Confirm meeting")
             return
         except Exception as e:
             print(f"[Agent Error] {e}. Falling back to basic handling.")
@@ -1460,6 +1494,91 @@ def audit_deadlines_and_blockers():
         print(f"[Audit Error]: {e}")
 
 
+# --- SCHEDULING MEETINGS ---
+
+def build_meeting_card(m: dict) -> list:
+    begin = datetime.fromisoformat(m["begin"])
+    end = datetime.fromisoformat(m["end"])
+    nl = chr(10)
+    names = ", ".join(a["name"] for a in m["attendees"][:12]) + (f" and {len(m['attendees']) - 12} more" if len(m["attendees"]) > 12 else "")
+    where = "Online (a Google Meet link will be added)" if meetings.is_virtual(m["where"]) else m["where"]
+    repeat = {"weekly": "every week", "fortnightly": "every two weeks", "monthly": "every month"}.get(m.get("repeat") or "", "")
+    lines = [f"*{m['title']}*", f"🗓 {meetings.format_when(begin, end)}" + (f" · repeats {repeat}" if repeat else ""),
+             f"📍 {where}", f"👥 {len(m['attendees'])} invited: {names}"]
+    if m.get("missing"):
+        lines.append("⚠️ Not invited (no match or no email on file): " + ", ".join(m["missing"]))
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "text": "Here's the meeting I'll create. Invitations are emailed as soon as you confirm." + nl + nl.join(lines)}},
+        {"type": "actions", "elements": [
+            {"type": "button", "style": "primary", "text": {"type": "plain_text", "text": "Create & send invites"},
+             "action_id": "confirm_meeting", "value": m["id"]},
+            {"type": "button", "text": {"type": "plain_text", "text": "Cancel"}, "action_id": "cancel_meeting", "value": m["id"]}]},
+    ]
+
+
+@app.action("confirm_meeting")
+def handle_confirm_meeting(ack, body, client):
+    ack()
+    user_id = body["user"]["id"]
+    channel, ts = body["channel"]["id"], body["message"]["ts"]
+
+    def finish(text):
+        client.chat_update(channel=channel, ts=ts, text=text, blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text}}])
+
+    row = memory.get_meeting(body["actions"][0]["value"])
+    if not row:
+        finish("That meeting request has expired or was already handled.")
+        return
+    if row["requested_by"] != user_id:
+        client.chat_postEphemeral(channel=channel, user=user_id, text="Only the person who asked for this meeting can confirm it.")
+        return
+    m, studio = row["payload"], studio_row()
+    if not (gcal and studio):
+        finish("⚠️ The studio calendar isn't connected, so I couldn't create the meeting.")
+        return
+    try:
+        begin, end = datetime.fromisoformat(m["begin"]), datetime.fromisoformat(m["end"])
+        description = f"Requested by {m['requester']} through VentureOS."
+        event = gcal.create_event(studio["refresh_token"], meetings.build_event_body(
+            m["title"], begin, end, m["where"], m["attendees"], description, m.get("repeat")))
+        memory.delete_meeting(row["id"])
+        link = event.get("htmlLink")
+        meet = event.get("hangoutLink")
+        finish(f"✅ *{m['title']}* is on the calendar for {meetings.format_when(begin, end)}. Invitations went to "
+               f"{len(m['attendees'])} people." + (f" <{meet}|Google Meet link>" if meet else f" 📍 {m['where']}")
+               + (f" · <{link}|Open in Google Calendar>" if link else ""))
+    except Exception as e:
+        print(f"[Meeting Create Error] {e}")
+        finish("⚠️ Google wouldn't create that meeting. The studio calendar connection may need renewing; a mentor can reconnect it.")
+
+
+@app.action("cancel_meeting")
+def handle_cancel_meeting(ack, body, client):
+    ack()
+    memory.delete_meeting(body["actions"][0]["value"])
+    client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text="Meeting cancelled.",
+                       blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": "Meeting cancelled. Nothing was sent."}}])
+
+
+def studio_connect_blocks(slack_id: str) -> list:
+    """Mentor Home: one-time connect of the shared studio calendar."""
+    url = studio_link(slack_id)
+    if not url or studio_connected():
+        return []
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "text": (
+            "*Meetings* 🗓" + chr(10) + "Connect the studio Google Calendar once and I can set up meetings with the cohort when you ask "
+            "(\"set up a meet with everyone at 3 PM on Thursday at 111 Somerset\"). You confirm each one before invitations go out.")}},
+        {"type": "actions", "elements": [{"type": "button", "style": "primary", "text": {"type": "plain_text", "text": "Connect studio calendar"},
+                                          "url": url, "action_id": "connect_studio"}]},
+    ]
+
+
+@app.action("connect_studio")
+def handle_connect_studio(ack):
+    ack()  # link button
+
+
 # --- GOOGLE CALENDAR ---
 
 @app.action("connect_google")
@@ -1511,6 +1630,18 @@ def process_google_pending():
         try:
             supabase.table("google_pending").delete().eq("id", item["id"]).execute()  # single use, whatever happens next
             got = gcal.exchange_code(item["code"])
+            if item.get("kind") == "studio":
+                if not got.get("refresh_token"):
+                    raise RuntimeError("Google returned no refresh token")
+                supabase.table("studio_calendar").upsert({
+                    "id": "primary", "account": got["email"], "connected_by": item.get("slack_user_id"),
+                    "refresh_token": google_calendar.encrypt_token(got["refresh_token"], STATE_SECRET)}).execute()
+                if item.get("slack_user_id"):
+                    app.client.chat_postMessage(channel=item["slack_user_id"], text=(
+                        f"✅ *Studio calendar connected* ({got['email']}). Anyone can now ask me to set up a meeting, and I'll "
+                        "show a confirmation card before any invitation is sent."))
+                    publish_home(item["slack_user_id"], app.client)
+                continue
             if not got.get("refresh_token"):
                 raise RuntimeError("Google returned no refresh token")
             row = {"startup_id": item["startup_id"], "founder_id": item["founder_id"], "provider": "google",
@@ -1531,6 +1662,23 @@ def process_google_pending():
                                  daemon=True).start()
         except Exception as e:
             print(f"[Calendar Connect Error] {e}")
+
+
+# --- HEALTH HEARTBEAT ---
+
+_socket_handler = None  # set when the Socket Mode connection starts
+
+
+def beat():
+    """Tells the site the bot is alive. slack_connected is the real state of the Slack websocket, not just 'process running'."""
+    if not supabase:
+        return
+    try:
+        connected = bool(_socket_handler and _socket_handler.client.is_connected())
+        supabase.table("bot_heartbeat").upsert({"id": "main", "beat_at": datetime.now(timezone.utc).isoformat(),
+                                                "slack_connected": connected, "version": "venture-buddy"}).execute()
+    except Exception as e:
+        print(f"[Heartbeat Warning] {e}")
 
 
 # --- KEEP HOME TABS FRESH ---
@@ -1775,6 +1923,7 @@ if BackgroundScheduler:
     scheduler.add_job(audit_deadlines_and_blockers, "cron", hour=9, minute=0)
     scheduler.add_job(poll_new_connections, "interval", seconds=10, max_instances=1)
     scheduler.add_job(refresh_changed_homes, "interval", seconds=15, max_instances=1)
+    scheduler.add_job(beat, "interval", seconds=30, max_instances=1)
     scheduler.add_job(process_google_pending, "interval", seconds=10, max_instances=1)
     scheduler.add_job(sync_all_calendars, "interval", minutes=60, max_instances=1)
     scheduler.add_job(link_org_claims, "interval", seconds=60, max_instances=1)
@@ -1819,7 +1968,8 @@ if __name__ == "__main__":
 
     print("Venture Studio Slack Bot starting in Socket Mode...")
     if SLACK_BOT_TOKEN and SLACK_APP_TOKEN:
-        SocketModeHandler(app, SLACK_APP_TOKEN).start()
+        _socket_handler = SocketModeHandler(app, SLACK_APP_TOKEN)
+        _socket_handler.start()
     else:
         print(
             "SLACK_BOT_TOKEN or SLACK_APP_TOKEN not provided in .env.\n"

@@ -27,7 +27,7 @@ This guide walks through deploying the live database and connecting the Slack bo
 ```json
 {
   "display_information": {
-    "name": "MVP_buddy",
+    "name": "Venture Buddy",
     "description": "Autonomous technical and venture lead agent"
   },
   "features": {
@@ -37,7 +37,7 @@ This guide walks through deploying the live database and connecting the Slack bo
       "messages_tab_read_only_enabled": false
     },
     "bot_user": {
-      "display_name": "MVP_buddy",
+      "display_name": "Venture Buddy",
       "always_online": true
     }
   },
@@ -127,7 +127,7 @@ Run in live Socket Mode:
 python slack_bot.py
 ```
 
-When founders send a voice note or message to `@MVP_buddy`:
+When founders send a voice note or message to `@Venture Buddy`:
 1. The bot resolves their identity and fetches their active deliverable.
 2. AI extracts `status`, `progress`, `blocker`, and `digest`.
 3. The bot posts a Block Kit confirmation card with `[Confirm & Sync Dashboard]`.
@@ -151,3 +151,26 @@ Existing projects: run the migration lines noted above the `deliverables` table 
 ## 6. App Home Tab
 
 Founders opening the bot see their **sprint radar**: startup, this week's deliverable and due date, their latest confirmed check-in (status, progress, blocker), and an **Open dashboard** button when `DASHBOARD_URL` is set. It refreshes when they open the tab, when they're linked, and after each confirmed check-in. Unregistered users see the **Set up my profile** button instead. Requires the `app_home_opened` event (in the manifest above).
+
+
+---
+
+## 7. Migrations (run in this order in the SQL editor)
+
+After `schema.sql`, apply `supabase/migrations/` in filename order. Each file is safe to re-run.
+
+1. `2026-10-mentors-and-profile-setup.sql` (mentors, nullable stream/lead)
+2. `2026-10-notes-tasks-memory.sql` (notes, tasks, bot memory)
+3. `2026-10-milestones.sql`
+4. `2026-10-integrations.sql`, `2026-10-github-repos.sql`, `2026-10-github-org-claims.sql`
+5. `2026-10-google-calendar.sql`, `2026-10-studio-calendar.sql`
+6. `2026-10-bot-heartbeat.sql`
+
+Any other file in that folder was added by another agent; check its header before running it.
+
+## 8. Google Cloud (Calendar + meetings)
+
+1. Create an OAuth client (Web application) with redirect URI `https://<your-site>/api/google/callback`.
+2. Data Access scopes: `calendar.events.readonly` (founders) and `calendar.events` (the studio calendar a mentor connects once).
+3. Publish the app (Audience -> In production) and keep the public `/about` and `/privacy` pages reachable.
+4. Put `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env` and restart the bot.

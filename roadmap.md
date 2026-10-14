@@ -1,21 +1,20 @@
-# Venture Studio OS Roadmap
+# VentureOS Roadmap
 
-## Core Interface & Architecture
-- [x] Light semantic design system with orange accents
-- [x] Command center, KPIs, triage and founder matrix
-- [x] Filters, search and founder detail drawer
-- [x] Verify interactions and page rendering
-- [x] Replace identifying users and venture content with fictional demo examples
-- [x] Verify no original identities or venture details are served by the prototype
-- [x] Add anonymous cohort-member and MVP core-team demo perspectives and role responsibilities
-- [x] Verify role switching and prototype privacy
-- [x] Add sidebar resident-AI overlay with interactive text, file/voice simulation and Block Kit confirmation cards
-- [x] Extract sanitized curriculum context from the uploaded syllabus without real identities
-- [x] Verify chat controls, privacy and rendering
+## Built
+- [x] Slack assistant (Venture Buddy): role-aware (founder/mentor), tool-calling, persistent memory
+- [x] Profile setup with founder/mentor paths, mentor code, email matching and double-entry protection
+- [x] Check-in proposals, milestones (self-set and mentor-issued) with goals, tasks, private mentor notes
+- [x] Founder and mentor Home tabs that refresh within ~15 s of changes
+- [x] Daily 17:00 SGT check-in prompt with next-morning nudge; 48 h blocker audit
+- [x] GitHub App: connect, inline repo picker, webhooks, 14-day backfill, organisation claims
+- [x] Google Calendar (read-only meeting counts) and live "what's on my calendar?"
+- [x] Meeting scheduling on a shared studio calendar (proposal card, Meet link, 12-hour times)
+- [x] Live-only dashboard (no simulation), Slack "Open dashboard" pass, public About/Privacy pages
+- [x] Always-on bot on a GCP VM; bot health endpoint and uptime alert
 
-## Zero-Click Slack & Realtime Engine
-- [x] Relational Supabase schema (`supabase/schema.sql`) for cohorts, startups, founders, deliverables, submissions, and signals
-- [x] Deliverable-grounded Slack bot (`slack_bot.py`) mapping Slack User IDs to startup entities and current syllabus milestones
-- [x] Interactive Slack Block Kit confirmation card engine with `[Confirm & Sync]` and `[Adjust Details]` modal
-- [x] Proactive 48-hour blocker and T-48h deadline scheduler (`audit_deadlines_and_blockers`)
-- [x] Zero-click live simulation trigger on the dashboard with glowing pulse animations and real-time activity feed
+## Next
+- [ ] Weekly Monday digest for mentors
+- [ ] "Talking but not building" alert (check-ins without code activity)
+- [ ] Surface GitHub and meeting signals prominently on the dashboard timeline
+- [ ] Role-based dashboard sign-in (in progress, dashboard agent)
+- [ ] Voice-note transcription bridge (Slack audio attachments)

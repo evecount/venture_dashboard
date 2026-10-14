@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiDashClaimRouteImport } from './routes/api/dash/claim'
 import { Route as ApiDashHandledRouteImport } from './routes/api/dash/handled'
 import { Route as ApiDashSessionRouteImport } from './routes/api/dash/session'
@@ -35,6 +36,11 @@ const AboutRoute = AboutRouteImport.update({
 const PrivacyRoute = PrivacyRouteImport.update({
   id: '/privacy',
   path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiHealthRoute = ApiHealthRouteImport.update({
+  id: '/api/health',
+  path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiDashClaimRoute = ApiDashClaimRouteImport.update({
@@ -87,6 +93,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/privacy': typeof PrivacyRoute
+  '/api/health': typeof ApiHealthRoute
   '/api/dash/claim': typeof ApiDashClaimRoute
   '/api/dash/handled': typeof ApiDashHandledRoute
   '/api/dash/session': typeof ApiDashSessionRoute
@@ -101,6 +108,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/privacy': typeof PrivacyRoute
+  '/api/health': typeof ApiHealthRoute
   '/api/dash/claim': typeof ApiDashClaimRoute
   '/api/dash/handled': typeof ApiDashHandledRoute
   '/api/dash/session': typeof ApiDashSessionRoute
@@ -116,6 +124,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/privacy': typeof PrivacyRoute
+  '/api/health': typeof ApiHealthRoute
   '/api/dash/claim': typeof ApiDashClaimRoute
   '/api/dash/handled': typeof ApiDashHandledRoute
   '/api/dash/session': typeof ApiDashSessionRoute
@@ -132,6 +141,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/privacy'
+    | '/api/health'
     | '/api/dash/claim'
     | '/api/dash/handled'
     | '/api/dash/session'
@@ -146,6 +156,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/privacy'
+    | '/api/health'
     | '/api/dash/claim'
     | '/api/dash/handled'
     | '/api/dash/session'
@@ -160,6 +171,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/privacy'
+    | '/api/health'
     | '/api/dash/claim'
     | '/api/dash/handled'
     | '/api/dash/session'
@@ -175,6 +187,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
   PrivacyRoute: typeof PrivacyRoute
+  ApiHealthRoute: typeof ApiHealthRoute
   ApiDashClaimRoute: typeof ApiDashClaimRoute
   ApiDashHandledRoute: typeof ApiDashHandledRoute
   ApiDashSessionRoute: typeof ApiDashSessionRoute
@@ -207,6 +220,13 @@ declare module '@tanstack/react-router' {
       path: '/privacy'
       fullPath: '/privacy'
       preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/health': {
+      id: '/api/health'
+      path: '/api/health'
+      fullPath: '/api/health'
+      preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/dash/claim': {
@@ -279,6 +299,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
   PrivacyRoute: PrivacyRoute,
+  ApiHealthRoute: ApiHealthRoute,
   ApiDashClaimRoute: ApiDashClaimRoute,
   ApiDashHandledRoute: ApiDashHandledRoute,
   ApiDashSessionRoute: ApiDashSessionRoute,

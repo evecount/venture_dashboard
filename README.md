@@ -1,27 +1,35 @@
-# Venture Studio OS (Zero-Click Operations)
+# VentureOS
 
-**The first venture studio dashboard that requires ZERO clicking from your founders.**
+**A progress tracker for venture studio founders that asks them to fill in nothing.**
 
-[👉 View the Live Prototype](https://evecount.github.io/venture_dashboard/)
+Live site: https://venturedash.benlim631.workers.dev (founders and mentors get a personal link from Slack)
 
----
+## The problem
+Accelerators ask founders to report progress in Jira, Notion or weekly forms. Founders are busy building, so the reports are late, thin or missing, and mentors waste time chasing them.
 
-## The Problem
-Traditional venture accelerators and studios force founders to use Jira, Asana, or rigid Notion templates to track their weekly sprints. This creates massive friction. Founders are busy building; they don't want to log in, fill out forms, and click dropdown menus to report their blockers. 
+## How it works
+Founders talk to **Venture Buddy**, a Slack assistant, in plain language. It turns what they say into check-ins, milestones, goals and tasks, and **connects to the work itself**:
 
-## The Solution: Ambient Orchestration
-This dashboard is a **Read-Only Control Ledger**. 
+- **GitHub:** commits, pull requests and issues for the repositories the founder chooses (read-only).
+- **Google Calendar:** how many meetings they had, and how many were with people outside the team (counts only, never titles).
+- **Slack:** a daily "what did you get done today?" prompt, and a Home tab showing their sprint, milestones and connections.
 
-It is powered by a stealth, autonomous backend tier (architected by Cybrdeck) that lives entirely where the founders already are: **Slack and Telegram**.
+Mentors get a live picture: which startups are on track, blocked or quiet, with the evidence. They can ask Venture Buddy about any startup or founder, leave private notes, assign follow-ups, issue milestones, and **schedule meetings** with the cohort ("set up a meet with everyone at 3 PM on Thursday at 111 Somerset"). The bot always proposes first; nothing is sent until the requester confirms.
 
-Instead of filling out status reports, founders simply drop unstructured voice notes, meeting transcripts, or quick text rants into their Slack channel with our `MVP_buddy` agent. 
+The dashboard is a read-only view of the same live data. No simulated data anywhere.
 
-Behind the scenes, **Qwen AI** instantly parses the unstructured context, extracts the structured payload (`Status`, `Stream`, `Current Blockers`, `Syllabus Progress`), and pushes it straight to a Supabase database.
+## Stack
+Slack (Bolt, Socket Mode) · Python bot with a tool-calling LLM (Gemini) · Supabase (Postgres + Realtime) · TanStack Start on a Cloudflare Worker · GitHub App · Google Calendar API.
 
-The React dashboard updates in real-time for the Studio Mentors. 
+## Getting started
+```bash
+npm install
+npm test                           # site tests
+python -m unittest discover tests  # bot tests
+npm run dev                        # dashboard on http://localhost:8080
+python slack_bot.py                # the Slack bot (needs .env)
+```
+Setup of Slack, Supabase, the GitHub App and Google OAuth is in [supabase/README.md](supabase/README.md); running the bot 24/7 on a VM is in [deploy/README.md](deploy/README.md). **Developers and AI agents: read [AGENT_CONTEXT.md](AGENT_CONTEXT.md) first.**
 
-### Proactive Chasing (No More Follow-Ups)
-Because the bot has native access to the Slack API (`app.client.chat_postMessage`), it isn't just a passive listener. 
-If a founder's status remains "Blocked" in the Supabase ledger for more than 48 hours, the `MVP_buddy` bot will automatically DM them: *"Hey! The ledger shows you are still blocked on [issue]. Send me a voice memo or text update. Do you need me to schedule a sync with Gwen and Ben?"*
-
-**Zero friction. Zero clicking. Pure execution.**
+## Privacy
+What is stored and who can see it: https://venturedash.benlim631.workers.dev/privacy

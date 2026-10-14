@@ -102,5 +102,22 @@ class CalendarTests(unittest.TestCase):
         self.assertEqual(sb.store["deleted"], 1)  # only this founder's earlier rows
 
 
+    def test_studio_listing_is_limited_to_events_the_bot_created(self):
+        seen = {}
+
+        def http(method, url, headers=None, data=None, params=None, json=None):
+            if url == g.TOKEN_URL:
+                return {"access_token": "at"}
+            seen.update(params or {})
+            return {"items": []}
+
+        gc = g.GoogleCalendar("cid", "cs", "https://x/cb", "s", http=http)
+        gc.events(g.encrypt_token("r", "s"), datetime(2026, 10, 13, tzinfo=timezone.utc), datetime(2026, 10, 20, tzinfo=timezone.utc), only_ours=True)
+        self.assertEqual(seen.get("privateExtendedProperty"), "ventureos=1")
+        import meetings
+        body = meetings.build_event_body("T", datetime(2026, 10, 16, 15, tzinfo=meetings.SGT), datetime(2026, 10, 16, 16, tzinfo=meetings.SGT), "x", [], "d")
+        self.assertEqual(body["extendedProperties"]["private"], {"ventureos": "1"})
+
+
 if __name__ == "__main__":
     unittest.main()
