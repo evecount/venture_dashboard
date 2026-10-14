@@ -110,6 +110,30 @@ class GoogleTests(unittest.TestCase):
 
         self.assertIsNone(g.GoogleCalendar("c", "s", "https://x/cb", "k", http=http).create_open_meet(g.encrypt_token("r", "k")))
 
+    def test_a_slow_google_response_is_retried_but_a_permission_error_is_not(self):
+        calls = {"n": 0}
+
+        def flaky(method, url, headers=None, data=None, params=None, json=None):
+            if url == g.TOKEN_URL:
+                return {"access_token": "at"}
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise RuntimeError("Read timed out")
+            return {"meetingUri": "https://meet.google.com/abc-defg-hij"}
+
+        enc = g.encrypt_token("r", "k")
+        self.assertEqual(g.GoogleCalendar("c", "s", "https://x/cb", "k", http=flaky).create_open_meet(enc), "https://meet.google.com/abc-defg-hij")
+        denied = {"n": 0}
+
+        def forbidden(method, url, headers=None, data=None, params=None, json=None):
+            if url == g.TOKEN_URL:
+                return {"access_token": "at"}
+            denied["n"] += 1
+            raise RuntimeError("403 insufficient scope")
+
+        self.assertIsNone(g.GoogleCalendar("c", "s", "https://x/cb", "k", http=forbidden).create_open_meet(enc))
+        self.assertEqual(denied["n"], 1)
+
     def test_meet_links_in_the_location_are_shown_as_google_meet(self):
         e = ev()
         e["location"] = "https://meet.google.com/abc-defg-hij"

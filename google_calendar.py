@@ -110,13 +110,16 @@ class GoogleCalendar:
         token = self.access_token(encrypted_refresh)
         if not token:
             return None
-        try:
-            space = self.http("POST", "https://meet.googleapis.com/v2/spaces", headers={"Authorization": f"Bearer {token}"},
-                              json={"config": {"accessType": "OPEN"}})
-            return space.get("meetingUri")
-        except Exception as e:  # noqa: BLE001
-            print(f"[Open Meet Warning] {e}")
-            return None
+        for attempt in range(3):  # Google's Meet service is occasionally slow; a retry beats falling back to a lobby room
+            try:
+                space = self.http("POST", "https://meet.googleapis.com/v2/spaces", headers={"Authorization": f"Bearer {token}"},
+                                  json={"config": {"accessType": "OPEN"}})
+                return space.get("meetingUri")
+            except Exception as e:  # noqa: BLE001
+                print(f"[Open Meet Warning] attempt {attempt + 1}: {e}")
+                if "403" in str(e) or "401" in str(e):
+                    break  # a permission problem won't fix itself by retrying
+        return None
 
     def open_meet(self, encrypted_refresh: str, meet_code: str) -> bool:
         """
