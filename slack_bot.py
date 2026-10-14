@@ -1175,23 +1175,29 @@ def _milestone_lines(items: list) -> list:
 
 HOW_TO = {
     "founder": [
-        ("📝 Check in", [
-            "_\"Finished 3 customer interviews, but I'm stuck on pricing\"_",
-            "Send a voice note instead: I'll write out what I heard and you confirm the check-in"]),
-        ("🎯 Milestones & tasks", [
-            "_\"Set a milestone: 10 customer interviews by Oct 23. Goals: draft script, book 10 calls\"_",
-            "_\"I finished the script\"_ (I tick the goal off)",
-            "_\"Remind me to send the deck on Friday\"_"]),
-        ("❓ Ask me", [
+        ("📝 Check in: just tell me what you did", [
+            "_\"Finished 3 customer interviews, but I'm stuck on pricing\"_, or send a voice note",
+            "I write it up as a short check-in and show it to you. Press *Save*, or *Edit* to change the wording, status or blocker",
+            "Nothing is saved until you press Save. Saved check-ins are what your mentors see"]),
+        ("❓ Ask me anything", [
             "_\"What's due this week?\"_  ·  _\"What does the program look like?\"_  ·  _\"Who are the mentors?\"_",
-            "_\"Who sees my updates?\"_  ·  _\"What did I report last time?\"_",
-            "_\"What's on my calendar tomorrow?\"_  ·  _\"What meetings do I have coming up?\"_"]),
-        ("🗓 Meetings", [
-            "_\"Set up a meeting with Mo on Thursday at 3 PM, virtually\"_ (name the people; mentors can invite everyone)",
-            "_\"Move our Thursday meeting to 4 PM\"_ or _\"Cancel it\"_ for meetings you set up"]),
-        ("🔌 Connect your work", [
-            "Use the buttons above, or say _\"connect my GitHub\"_ / _\"connect my Google Calendar\"_",
+            "_\"Who sees my updates?\"_  ·  _\"What did I report last time?\"_  ·  _\"What's on my calendar tomorrow?\"_"]),
+        ("🎯 Milestones & to-dos", [
+            "_\"Set a milestone: 10 customer interviews by Oct 30. Goals: draft script, book 10 calls\"_",
+            "_\"I finished the script\"_ (I tick the goal off)  ·  _\"Remind me to send the deck on Friday\"_",
+            "Milestones set by mentors: you can tick their goals off; ask a mentor to change them"]),
+        ("🙋 Stuck? Get a mentor", [
+            "Tell me what's blocking you; mentors see blockers on their side",
+            "_\"Set up a call with Mo tomorrow at 2 PM, virtually\"_ (name the people; I show a card before inviting anyone)",
+            "_\"Move our Thursday meeting to 4 PM\"_  ·  _\"Cancel it\"_ (meetings you set up)"]),
+        ("🔌 Connect your work (optional)", [
+            "_\"Connect my GitHub\"_ so your commits and pull requests count without typing them",
+            "_\"Connect my Google Calendar\"_ so customer meetings count (only counts are stored)",
             "_\"Rename my startup to Acme\"_"]),
+        ("🤖 What I do on my own", [
+            "5:00 PM on program days: I ask how your day went. No reply? One reminder the next morning",
+            "If your last check-in says you're blocked, I follow up once after two days",
+            "A reminder an hour before meetings on the studio calendar"]),
     ],
     "mentor": [
         ("🔎 Ask me about the cohort", [
@@ -1200,15 +1206,17 @@ HOW_TO = {
         ("📌 Notes, tasks & milestones", [
             "_\"Note on SharedOut: needs a technical review\"_ (private to mentors)",
             "_\"Add a task for Auvira: send the deck by Friday\"_  ·  _\"Mark the deck task done\"_",
-            "_\"Set a milestone for Auvira: Landing page live by Oct 20. Goals: copy approved, page published\"_ (founders see it as set by mentors)",
-            "_\"Assign Auvira to the GTM stream\"_  ·  _\"Rename SharedOut to Acme\"_"]),
+            "_\"Set a milestone for Auvira: Landing page live by Oct 20. Goals: copy approved, page published\"_ "
+            "(add _\"by Arthur\"_ to credit another mentor; founders can only tick its goals)",
+            "_\"Assign Auvira to the GTM stream\"_  ·  _\"Rename SharedOut to Acme\"_ (I show a card first)"]),
         ("🗓 Meetings", [
             "_\"Set up a meet with everyone at 3 PM on Thursday at 111 Somerset\"_ or _\"...virtually\"_ (I show a card first)",
             "_\"Set up a fortnightly sprint with Takshma and Matthew, Thursdays at 3 PM\"_",
             "_\"Move Thursday's sprint to 4 PM\"_  ·  _\"Cancel the sprint\"_  ·  _\"What meetings are coming up?\"_"]),
         ("🤖 Automatic", [
             "Monday 9:00 AM digest, and a 9:15 AM nudge when a startup is blocked, quiet, or checking in without code activity",
-            "Reminders an hour before meetings, and a 5:00 PM daily prompt to founders"]),
+            "Founders: a 5:00 PM daily prompt, a morning reminder, and one follow-up when they stay blocked",
+            "Reminders an hour before meetings"]),
     ],
 }
 
@@ -1217,8 +1225,8 @@ def how_to_blocks(role: str) -> list:
     """A short, copy-able 'how to use Venture Buddy' section, different for founders and mentors."""
     nl = chr(10)
     blocks = [{"type": "divider"}, {"type": "header", "text": {"type": "plain_text", "text": "How to use Venture Buddy"}},
-              {"type": "context", "elements": [{"type": "mrkdwn", "text": "Chat with me in the *Messages* tab. Just write naturally; these are examples. "
-                                                "I always show a card to confirm before anything is saved or sent."}]}]
+              {"type": "context", "elements": [{"type": "mrkdwn", "text": "Message me in the *Messages* tab, or @mention me in a channel. "
+                                                "Write the way you'd talk; these are just examples. Type *help* any time to see this again."}]}]
     for title, lines in HOW_TO[role]:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f"*{title}*{nl}" + nl.join("• " + l for l in lines)}})
     return blocks
