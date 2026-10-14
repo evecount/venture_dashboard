@@ -132,15 +132,19 @@ function Dashboard({
   // Pulse cards whose latest check-in just changed.
   useEffect(() => {
     if (!roster) return;
+    let pulsed = false;
     setFounderList((prev) =>
       roster.map((r) => {
         const old = prev.find((p) => p.id === r.id);
         const changed =
           !!old &&
           (old.digest !== r.digest || old.progress !== r.progress || old.status !== r.status);
+        pulsed ||= changed;
         return { ...r, isPulsing: changed };
       }),
     );
+    // Only re-render again to clear the highlight when something actually changed.
+    if (!pulsed) return;
     const t = setTimeout(
       () => setFounderList((p) => p.map((f) => ({ ...f, isPulsing: false }))),
       4000,
@@ -162,9 +166,12 @@ function Dashboard({
     return () => window.removeEventListener("keydown", onKey);
   }, [isMember, onOpenStartup]);
 
+  // Scroll to the top only when a different startup is opened. Keyed on the id: the startup object itself is
+  // rebuilt on every 20-second refresh, which used to snap the page back to the top mid-scroll.
+  const openedId = opened?.id;
   useEffect(() => {
-    if (opened) window.scrollTo({ top: 0 });
-  }, [opened]);
+    if (openedId) window.scrollTo({ top: 0 });
+  }, [openedId]);
 
   function setPerspective(value: DemoPerspective) {
     setPreview(value);

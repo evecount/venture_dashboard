@@ -95,8 +95,8 @@ html {
   position: sticky;
   top: 0;
   z-index: 30;
-  background: color-mix(in oklch, var(--card) 92%, transparent);
-  backdrop-filter: saturate(1.4) blur(8px);
+  /* Solid, not a blurred see-through backdrop: re-blurring on every scroll frame made scrolling stutter. */
+  background: var(--card);
   border-bottom: 1px solid var(--border);
 }
 .dash-header-inner {
@@ -1211,11 +1211,6 @@ button.gate-row:hover .row-title {
 @media (max-width: 760px) {
   .hide-sm {
     display: none;
-  }
-  /* backdrop-filter would make the header the containing block for the fixed tab bar */
-  .dash-header {
-    backdrop-filter: none;
-    background: var(--card);
   }
   .dash-header-inner {
     grid-template-columns: minmax(0, 1fr) auto;
