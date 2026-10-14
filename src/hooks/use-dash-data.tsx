@@ -51,13 +51,16 @@ export type TaskRow = {
   status: string;
   created_at: string;
 };
-export type Goal = { id: string; title: string; done: boolean };
+/** Who set a milestone or goal (name is null when the person's record is gone). */
+export type SetBy = { name: string | null; role: "mentor" | "founder" } | null;
+export type Goal = { id: string; title: string; done: boolean; set_by?: SetBy };
 export type Milestone = {
   id: string;
   startup_id: string;
   title: string;
   due_date: string | null;
   status: "open" | "done" | "dropped";
+  set_by?: SetBy;
   goals: Goal[];
 };
 
