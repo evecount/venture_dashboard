@@ -105,9 +105,12 @@ html {
   height: 64px;
   padding: 0 24px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 16px;
+}
+.dash-header-inner > .tab-nav {
+  justify-self: center;
 }
 .brand-mark {
   height: 30px;
@@ -729,10 +732,12 @@ button.feed-row:hover {
   top: 4px;
 }
 
-@media (max-width: 1100px) {
-  .dash-header-inner {
-    grid-template-columns: auto 1fr auto;
+@media (max-width: 1360px) {
+  .sync-status .hide-sm {
+    display: none;
   }
+}
+@media (max-width: 1100px) {
   .tab-btn {
     padding: 0 10px;
   }

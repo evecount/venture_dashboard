@@ -31,17 +31,11 @@ export function ViewAs({
           if (valid) onChange(valid as DemoPerspective);
         }}
       >
-        <optgroup label="MVP program core team">
-          {studioRoles.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.title}
-            </option>
-          ))}
-        </optgroup>
-        <optgroup label="Cohort members">
+        <option value="coordinator">Mentor view</option>
+        <optgroup label="Cohort members · preview as founder">
           {members.map((founder) => (
             <option key={founder.id} value={founder.id}>
-              {founder.startup.split(" · ")[0]} · {founder.name}
+              {founder.startup.split(" · ")[0]}
             </option>
           ))}
         </optgroup>
