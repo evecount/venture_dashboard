@@ -104,6 +104,7 @@ supabase: Client = (
 from mentor_home import build_mentor_blocks as mentor_blocks, summarize_startups
 import threading
 
+import announce
 import digest
 import transcribe
 import github_app
@@ -1213,6 +1214,8 @@ HOW_TO = {
             "_\"Set up a meet with everyone at 3 PM on Thursday at 111 Somerset\"_ or _\"...virtually\"_ (I show a card first)",
             "_\"Set up a fortnightly sprint with Takshma and Matthew, Thursdays at 3 PM\"_",
             "_\"Move Thursday's sprint to 4 PM\"_  ·  _\"Cancel the sprint\"_  ·  _\"What meetings are coming up?\"_"]),
+        ("📣 Announcements", [
+            "_\"Tell everyone office hours moved to 4 PM\"_  ·  _\"Tell the founders to send their pitch decks by Friday\"_  ·  _\"Tell Auvira the sprint is face to face\"_ (I show who gets it first)"]),
         ("🤖 Automatic", [
             "Monday 9:00 AM digest, and a 9:15 AM nudge when a startup is blocked, quiet, or checking in without code activity",
             "Founders: a 5:00 PM daily prompt, a morning reminder, and one follow-up when they stay blocked",
@@ -1280,6 +1283,24 @@ def getting_started_blocks(founder_id: str, latest: dict | None, milestones: lis
             {"type": "divider"}]
 
 
+def setup_checklist_blocks(context: dict, latest, milestones: list, conns: list, gcal_rows: list) -> list:
+    """'Get set up' progress for a founder, shown until every step is done."""
+    me = context["founder_id"]
+    steps = [
+        (True, "Profile", ""),
+        (bool(latest), "Send your first check-in", "message me what you worked on; a line or a voice note is fine"),
+        (any(c.get("founder_id") == me and integrations.monitored_repos(c) for c in conns), "Connect GitHub and choose your repo", "see *GitHub* below"),
+        (any(g.get("founder_id") == me for g in gcal_rows), "Connect Google Calendar", "see *Google Calendar* below"),
+        (any(m.get("created_by_role") != "mentor" for m in milestones), "Set your first milestone", "for example, tell me: Set a milestone: 10 customer interviews by Oct 23"),
+    ]
+    done = sum(1 for ok, _, _ in steps if ok)
+    if done == len(steps):
+        return []
+    nl = chr(10)
+    lines = [("✅ " if ok else "⬜ ") + label + (f": {hint}" if hint and not ok else "") for ok, label, hint in steps]
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": f"*Get set up* ({done} of {len(steps)} done){nl}" + nl.join(lines)}}]
+
+
 def build_home_view(context: dict | None, latest: dict | None, tasks: list | None = None, milestones: list | None = None, conns: list | None = None, gcal_rows: list | None = None,
                     meeting_lines: list | None = None) -> dict:
     """Founder's personal sprint radar. context=None means the user isn't on the roster yet."""
@@ -1309,6 +1330,7 @@ def build_home_view(context: dict | None, latest: dict | None, tasks: list | Non
     blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": (
         f"*Due this week*{nl}{d['title']}" + (f"{nl}📅 Due {due_text}" if due_text else ""))}})
 
+    blocks += setup_checklist_blocks(context, latest, milestones or [], conns or [], gcal_rows or [])
     if meeting_lines:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Your upcoming meetings*" + nl + nl.join(meeting_lines)}})
     if latest:
@@ -1729,6 +1751,21 @@ def audit_deadlines_and_blockers(dry_run: bool = False) -> list:
 
 def build_meeting_card(m: dict) -> list:
     nl = chr(10)
+    if m.get("kind") == "announce":
+        names = ", ".join(p["name"] for p in m["recipients"][:15]) + (f" and {len(m['recipients']) - 15} more" if len(m["recipients"]) > 15 else "")
+        quoted = nl.join("> " + line for line in m["message"].splitlines() if line.strip())
+        lines = [f"I'll send this as a direct message to *{len(m['recipients'])} people*: {names}", quoted]
+        if m.get("unreachable"):
+            lines.append("⚠️ Not on Slack yet, so they won't get it: " + ", ".join(m["unreachable"]))
+        if m.get("unknown"):
+            lines.append("⚠️ No match for: " + ", ".join(m["unknown"]))
+        return [
+            {"type": "section", "text": {"type": "mrkdwn", "text": "*Announcement preview*" + nl + nl.join(lines)}},
+            {"type": "actions", "elements": [
+                {"type": "button", "style": "primary", "text": {"type": "plain_text", "text": f"Send to {len(m['recipients'])} people"},
+                 "action_id": "confirm_meeting", "value": m["id"]},
+                {"type": "button", "text": {"type": "plain_text", "text": "Don't send"}, "action_id": "cancel_meeting", "value": m["id"]}]},
+        ]
     if m.get("kind") == "change":
         if m["action"] == "cancel":
             body = (f"I'll *cancel* {m['title']} ({m['old']}). The {m['attendee_count']} people invited will be told.")
@@ -1779,6 +1816,22 @@ def handle_confirm_meeting(ack, body, client):
         return
     if row["requested_by"] != user_id:
         client.chat_postEphemeral(channel=channel, user=user_id, text="Only the person who asked for this meeting can confirm it.")
+        return
+    if row["payload"].get("kind") == "announce":
+        m = row["payload"]
+        if not (get_role(user_id) == "mentor" and m.get("requester_slack") == user_id):
+            client.chat_postEphemeral(channel=channel, user=user_id, text="Only the mentor who wrote this announcement can send it.")
+            return
+        text, sent, failed = announce.format_announcement(m["requester"], m["message"]), 0, []
+        for person in m["recipients"]:
+            try:
+                client.chat_postMessage(channel=person["slack"], text=text)
+                sent += 1
+            except Exception as e:
+                print(f"[Announcement Error] {person['slack']}: {e}")
+                failed.append(person["name"])
+        memory.delete_meeting(row["id"])
+        finish(f"✅ Announcement sent to {sent} {'person' if sent == 1 else 'people'}." + (f" ⚠️ Couldn't reach: {', '.join(failed)}." if failed else ""))
         return
     m, studio = row["payload"], studio_row()
     if not (gcal and studio):
