@@ -39,6 +39,18 @@ class Settings:
     def get(self, key: str):
         return self.all().get(key, DEFAULTS.get(key))
 
+    def set(self, key: str, value) -> bool:
+        if key not in DEFAULTS or not self.sb:
+            return False
+        try:
+            self.sb.table("bot_settings").upsert({"key": key, "value": value,
+                                                  "updated_at": datetime.now(timezone.utc).isoformat()}).execute()
+            self._cache = (0.0, {})
+            return True
+        except Exception as e:  # noqa: BLE001
+            print(f"[Settings Warning] {e}")
+            return False
+
 
 class LogTee:
     """Wraps stdout: everything still prints, and complete lines are queued for `bot_logs`."""

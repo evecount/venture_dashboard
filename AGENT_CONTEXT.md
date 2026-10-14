@@ -56,6 +56,7 @@ Founder/Mentor in Slack ──► Venture Buddy (Python, Socket Mode, always on)
 | `google_calendar.py` | Google OAuth, encrypted tokens, read-only event sync into counts, live "my calendar", studio-calendar event creation. |
 | `meetings.py` | Meeting requests: time parsing, 12-hour formatting, attendee resolution, event bodies. |
 | `channel_memory.py` | Reads only the Slack channels switched on in the Developer page, keeps 7 days of their messages, builds the per-person channel context (only channels that person is a member of). |
+| `dev_home.py` | Developer view on the Slack Home tab (Mentor view / Developer switch, developers only): channel toggles, settings, test-as-someone, tools, recent warnings. |
 | `dev_controls.py` | Developer-page settings (`bot_settings`), command queue (`bot_commands`) and console copy (`bot_logs`). |
 | `src/routes/dev.tsx`, `src/routes/api/dev/*`, `src/lib/dev-auth.ts` | Developer page (channels, test console, controls, logs). Only for `DEV_EMAILS` (default ben@evecount.com) matched against `mentors.email`; everyone else gets 404. |
 | `src/routes/` | TanStack Start site: `index.tsx` (dashboard), `about.tsx`/`privacy.tsx` (public, needed for Google OAuth), `api/github/{callback,webhook}.ts`, `api/google/callback.ts`, `api/dash/*`, `api/health.ts`. |

@@ -110,6 +110,7 @@ from bot_agent import Agent
 from bot_memory import Memory
 from channel_memory import ChannelMemory, NEEDED_SCOPES
 import dev_controls
+import dev_home
 
 # Console output is also kept in bot_logs for the dashboard's Developer page.
 log_tee = dev_controls.install_log_tee() if "--simulate" not in sys.argv else None
@@ -1195,8 +1196,14 @@ def publish_home(slack_user_id: str, client=None):
     try:
         role = get_role(slack_user_id)
         if role == "mentor":
+            developer = is_developer(slack_user_id)
+            if developer and _home_mode.get(slack_user_id) == "dev":
+                publish_dev_home(slack_user_id, client)
+                return
             mine = [t for t in memory.open_tasks() if t.get("owner_slack_id") == slack_user_id]
             blocks = build_mentor_blocks(safe_snapshot(), title="Mentor view", tasks=mine, slack_user_id=slack_user_id) + studio_connect_blocks(slack_user_id)
+            if developer:
+                blocks.insert(1, dev_home.mode_switch("mentor"))
             client.views_publish(user_id=slack_user_id, view={"type": "home", "blocks": blocks})
             return
         context = resolve_founder_context(slack_user_id) if role else None
@@ -2060,6 +2067,187 @@ DEV_COMMANDS = {
     "daily_preview": dev_daily_preview,
     "clear_history": dev_clear_history,
 }
+
+
+# --- DEVELOPER VIEW ON THE SLACK HOME TAB (developers only; every handler re-checks) ---
+
+_home_mode: dict = {}   # slack_id -> "dev" | "mentor"
+_dev_last: dict = {}    # slack_id -> {"label", "text"}: last tool result shown on the Developer view
+_scope_cache = {"at": 0.0, "scopes": []}
+DEV_LABELS = {"status": "Status & scopes", "show_context": "What the bot sees", "daily_preview": "Preview daily prompts",
+              "republish_homes": "Republish Home tabs", "clear_history": "Clear my chat memory",
+              "refresh_channels": "Refresh channel list"}
+
+
+def dev_home_state(uid: str) -> dict:
+    import time as _time
+    if _time.time() - _scope_cache["at"] > 3600:
+        _scope_cache.update(at=_time.time(), scopes=granted_scopes())
+    missing = [s for s in NEEDED_SCOPES if _scope_cache["scopes"] and s not in _scope_cache["scopes"]]
+    connected = bool(_socket_handler and _socket_handler.client.is_connected())
+    status = (f"{'🟢 Slack connected' if connected else '🔴 Slack not connected'} · agent {'on' if agent else 'OFF'} · "
+              f"model `{settings.get('ai_model') or AI_MODEL}`"
+              + (f" · ⚠️ missing scopes: {', '.join(missing)}" if missing else ""))
+    try:
+        chans = supabase.table("bot_channels").select("id,name,is_private,num_members,enabled,status").order("name").execute().data or []
+    except Exception as e:
+        chans, status = [], status + f" · ⚠️ channel table unavailable ({e})"[:200]
+    try:
+        logs = (supabase.table("bot_logs").select("line,created_at").or_("line.ilike.*warning*,line.ilike.*error*")
+                .order("id", desc=True).limit(8).execute().data or [])
+        warnings = [f"{r['created_at'][5:16].replace('T', ' ')} {r['line'][:300]}" for r in logs]
+    except Exception:
+        warnings = []
+    return {"status": status, "settings": settings.all(), "channels": chans, "last": _dev_last.get(uid), "warnings": warnings}
+
+
+def publish_dev_home(uid: str, client=None):
+    try:
+        (client or app.client).views_publish(user_id=uid, view={"type": "home", "blocks": dev_home.build_dev_home(dev_home_state(uid))})
+    except Exception as e:
+        print(f"[Dev Home Error] {e}")
+
+
+def _developer(body) -> str | None:
+    uid = body["user"]["id"]
+    return uid if is_developer(uid) else None
+
+
+def _in_background(fn):
+    threading.Thread(target=fn, daemon=True).start()
+
+
+@app.action("home_mode_dev")
+def handle_home_mode_dev(ack, body, client):
+    ack()
+    uid = _developer(body)
+    if uid:
+        _home_mode[uid] = "dev"
+        publish_home(uid, client)
+
+
+@app.action("home_mode_mentor")
+def handle_home_mode_mentor(ack, body, client):
+    ack()
+    uid = body["user"]["id"]
+    _home_mode.pop(uid, None)
+    publish_home(uid, client)
+
+
+@app.action("dev_channel_toggle")
+def handle_dev_channel_toggle(ack, body, client):
+    ack()
+    uid = _developer(body)
+    if not uid:
+        return
+    act = body["actions"][0]
+    cid, turn_on = act["value"], act["text"]["text"] == "Turn on"
+
+    def run():
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            supabase.table("bot_channels").update({"enabled": turn_on, "updated_at": now,
+                                                   "status": "Syncing…" if turn_on else "Off. Its messages were forgotten."}).eq("id", cid).execute()
+            if not turn_on:
+                supabase.table("channel_messages").delete().eq("channel_id", cid).execute()
+        except Exception as e:
+            print(f"[Dev Warning] channel toggle: {e}")
+        channels.forget_cache()
+        publish_dev_home(uid, client)
+        if turn_on:
+            channels.activate(cid)
+            publish_dev_home(uid, client)
+    _in_background(run)
+
+
+@app.action("dev_refresh_channels")
+def handle_dev_refresh_channels(ack, body, client):
+    ack()
+    uid = _developer(body)
+    if uid:
+        def run():
+            _dev_last[uid] = {"label": "Refresh channel list", "text": channels.refresh_list()}
+            publish_dev_home(uid, client)
+        _in_background(run)
+
+
+@app.action("dev_setting_toggle")
+def handle_dev_setting_toggle(ack, body, client):
+    ack()
+    uid = _developer(body)
+    key = body["actions"][0]["value"]
+    if uid and key in ("paused", "daily_checkin", "channel_context"):
+        settings.set(key, not settings.get(key))
+        publish_dev_home(uid, client)
+
+
+@app.action("dev_edit_settings")
+def handle_dev_edit_settings(ack, body, client):
+    ack()
+    if _developer(body):
+        client.views_open(trigger_id=body["trigger_id"], view=dev_home.build_settings_modal(settings.all()))
+
+
+@app.view("modal_dev_settings")
+def handle_dev_settings_submit(ack, body, client, view):
+    ack()
+    uid = _developer(body)
+    if uid:
+        values = view["state"]["values"]
+        settings.set("ai_model", (values["model"]["v"].get("value") or "").strip())
+        settings.set("extra_instructions", (values["extra"]["v"].get("value") or "").strip())
+        publish_dev_home(uid, client)
+
+
+@app.action("dev_test_as")
+def handle_dev_test_as(ack, body, client):
+    ack()
+    if _developer(body):
+        client.views_open(trigger_id=body["trigger_id"], view=dev_home.build_test_modal())
+
+
+@app.view("modal_dev_test")
+def handle_dev_test_submit(ack, body, client, view):
+    ack()
+    uid = _developer(body)
+    if not uid:
+        return
+    values = view["state"]["values"]
+    who, text = values["who"]["v"].get("selected_user"), values["text"]["v"].get("value") or ""
+
+    def run():
+        try:
+            answer = dev_ask({"as_slack_id": who, "text": text}, uid)
+        except Exception as e:
+            answer = f"Error: {type(e).__name__}: {e}"
+        client.chat_postMessage(channel=uid, text=f"🧪 *Test as <@{who}>:* {text}\n\n{answer}"[:39000])
+    _in_background(run)
+
+
+@app.action(re.compile(r"^dev_cmd_"))
+def handle_dev_cmd(ack, body, client):
+    ack()
+    uid = _developer(body)
+    cmd = body["actions"][0]["value"]
+    if not uid or cmd not in DEV_COMMANDS:
+        return
+
+    def run():
+        _dev_last[uid] = {"label": DEV_LABELS.get(cmd, cmd), "text": "Working…"}
+        publish_dev_home(uid, client)
+        try:
+            result = DEV_COMMANDS[cmd]({}, uid)
+        except Exception as e:
+            result = f"Error: {type(e).__name__}: {e}"
+        if cmd == "status":
+            _scope_cache["at"] = 0.0
+        if cmd == "show_context":  # too long for the Home tab: send it as DMs
+            for i in range(0, min(len(result), 36000), 3500):
+                client.chat_postMessage(channel=uid, text=f"```{result[i:i + 3500]}```")
+            result = f"Sent to your DMs ({len(result)} characters)."
+        _dev_last[uid] = {"label": DEV_LABELS.get(cmd, cmd), "text": result}
+        publish_dev_home(uid, client)
+    _in_background(run)
 
 
 # Initialize scheduler if available (all times Singapore time)
