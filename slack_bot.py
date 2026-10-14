@@ -1039,7 +1039,7 @@ def dashboard_button_element(founder_id: str | None = None, slack_user_id: str |
     url = integrations.dashboard_url(DASHBOARD_URL, STATE_SECRET, founder_id, slack_user_id)
     if not url:
         return None
-    return {"type": "button", "text": {"type": "plain_text", "text": "Open dashboard"}, "url": url, "action_id": "open_dashboard"}
+    return {"type": "button", "text": {"type": "plain_text", "text": "🟣 Open dashboard", "emoji": True}, "url": url, "action_id": "open_dashboard"}
 
 
 def dashboard_button_blocks(founder_id: str | None = None, slack_user_id: str | None = None) -> list:
