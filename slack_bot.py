@@ -1330,7 +1330,12 @@ def handle_app_home_opened(event, client):
 GREETING_RE = re.compile(r"^\s*(help|onboard|hi|hii+|hello|hey|heya|yo|start|get started)( there)?\s*[!.?👋]*\s*$", re.IGNORECASE)
 
 
-@app.message(GREETING_RE)
+def is_direct_message(message) -> bool:
+    """People talk to each other in channels. Only a DM with the bot (or an @mention, handled elsewhere) is addressed to it."""
+    return message.get("channel_type") == "im"
+
+
+@app.message(GREETING_RE, matchers=[is_direct_message])
 def handle_greeting(message, say):
     user_id = message.get("user")
     if user_id and get_role(user_id) == "mentor":
