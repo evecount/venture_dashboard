@@ -4,11 +4,16 @@ import { useDashData } from "@/hooks/use-dash-data";
 export type TimelineEntry = {
   id: string;
   kind: "checkin" | "blocker" | "signal";
+  /** For signals: commit, pull_request, issue, meeting, ... */
+  type?: string | undefined;
   at: string;
   title: string;
   detail: string;
   status?: string;
   progress?: number | undefined;
+  /** Commits in a push, or meetings in a day. */
+  weight?: number | undefined;
+  merged?: boolean | undefined;
 };
 
 type SubRow = {
@@ -24,6 +29,8 @@ type SigRow = {
   type: string;
   headline: string;
   detail: string | null;
+  weight?: number | undefined;
+  merged?: boolean | undefined;
   created_at: string;
 };
 
@@ -54,12 +61,40 @@ export function mergeTimeline(subs: SubRow[], sigs: SigRow[]): TimelineEntry[] {
     entries.push({
       id: `sig-${g.id}`,
       kind: "signal",
+      type: g.type,
       at: g.created_at,
       title: g.headline,
       detail: g.detail ?? "",
+      weight: g.weight,
+      merged: g.merged,
     });
   }
   return entries.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+}
+
+export type TimelineGroup = "checkin" | "code" | "meeting" | "other";
+
+/** Which filter chip an entry belongs to. */
+export function entryGroup(e: TimelineEntry): TimelineGroup {
+  if (e.kind !== "signal") return "checkin";
+  if (e.type === "commit" || e.type === "pull_request" || e.type === "issue") return "code";
+  if (e.type === "meeting") return "meeting";
+  return "other";
+}
+
+export type WorkSummary = { commits: number; prsMerged: number; meetings: number };
+
+/** Real work in the last `days` days: commits pushed, pull requests merged, meetings held. */
+export function workSummary(entries: TimelineEntry[], now = Date.now(), days = 7): WorkSummary {
+  const since = now - days * 24 * 60 * 60 * 1000;
+  const out: WorkSummary = { commits: 0, prsMerged: 0, meetings: 0 };
+  for (const e of entries) {
+    if (e.kind !== "signal" || Date.parse(e.at) < since) continue;
+    if (e.type === "commit") out.commits += e.weight ?? 1;
+    else if (e.type === "pull_request" && e.merged) out.prsMerged += 1;
+    else if (e.type === "meeting") out.meetings += e.weight ?? 1;
+  }
+  return out;
 }
 
 /** The timeline for one startup, from the dashboard snapshot (newest 40 check-ins and signals). */
