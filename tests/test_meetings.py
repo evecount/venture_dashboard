@@ -168,3 +168,14 @@ class ComingUpTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CalendarOnlyTests(unittest.TestCase):
+    def test_studio_wide_note_is_visible_to_founders_without_invites(self):
+        from datetime import timezone
+        b = datetime(2026, 10, 29, 11, 0, tzinfo=timezone.utc)
+        body = m.build_event_body("Sprint 2", b, b, "111 Somerset", [], "x", studio_wide=True)
+        self.assertEqual(body["attendees"], [])
+        self.assertTrue(m.visible_to(body, "ann@x.com", False))
+        plain = m.build_event_body("Sprint 2", b, b, "111 Somerset", [], "x")
+        self.assertFalse(m.visible_to(plain, "ann@x.com", False))

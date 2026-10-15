@@ -79,7 +79,7 @@ def resolve_attendees(specs: list, founders: list, mentors: list, requester_slac
 
 def build_event_body(title: str, begin: datetime, end: datetime, where: str, attendees: list, description: str,
                      repeat: str | None = None, requester_slack: str | None = None,
-                     meet_link: str | None = None) -> dict:
+                     meet_link: str | None = None, studio_wide: bool = False) -> dict:
     """Google Calendar event: 'virtual' gets a Meet link, anything else is the location text."""
     body = {
         "summary": title[:200], "description": description[:1000],
@@ -89,6 +89,8 @@ def build_event_body(title: str, begin: datetime, end: datetime, where: str, att
         "reminders": {"useDefault": True},
         "extendedProperties": {"private": {"ventureos": "1", **({"requester": requester_slack} if requester_slack else {})}},  # lets the bot find ITS meetings and nothing else
     }
+    if studio_wide:  # a calendar note with no invitees: everyone in the cohort can see it
+        body["extendedProperties"]["private"]["studiowide"] = "1"
     if meet_link:  # an OPEN Meet room made through the Meet API: attach its link as the location
         body["location"] = meet_link
         body["description"] = (body["description"] + " Join: " + meet_link)[:1000]
@@ -129,7 +131,7 @@ def describe_event(ev: dict, show_attendees: bool) -> str:
 
 def visible_to(ev: dict, email: str | None, is_mentor: bool) -> bool:
     """Mentors see every studio-calendar meeting; a founder only sees the ones they are invited to."""
-    if is_mentor:
+    if is_mentor or ((ev.get("extendedProperties") or {}).get("private") or {}).get("studiowide") == "1":
         return True
     return bool(email) and any((a.get("email") or "").lower() == email.lower() for a in (ev.get("attendees") or []))
 

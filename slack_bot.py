@@ -1796,6 +1796,16 @@ def build_meeting_card(m: dict) -> list:
         ]
     begin = datetime.fromisoformat(m["begin"])
     end = datetime.fromisoformat(m["end"])
+    if m.get("calendar_only"):
+        where = "Online" if meetings.is_virtual(m["where"]) else m["where"]
+        lines = [f"*{m['title']}*", f"🗓 {meetings.format_when(begin, end)}", f"📍 {where}"]
+        return [
+            {"type": "section", "text": {"type": "mrkdwn", "text": "I'll add this to the studio calendar. *No invitations or emails will be sent.*" + nl + nl.join(lines)}},
+            {"type": "actions", "elements": [
+                {"type": "button", "style": "primary", "text": {"type": "plain_text", "text": "Add to calendar"},
+                 "action_id": "confirm_meeting", "value": m["id"]},
+                {"type": "button", "text": {"type": "plain_text", "text": "Cancel"}, "action_id": "cancel_meeting", "value": m["id"]}]},
+        ]
     names = ", ".join(a["name"] for a in m["attendees"][:12]) + (f" and {len(m['attendees']) - 12} more" if len(m["attendees"]) > 12 else "")
     where = "Online (a Google Meet link will be added)" if meetings.is_virtual(m["where"]) else m["where"]
     repeat = {"weekly": "every week", "fortnightly": "every two weeks", "monthly": "every month"}.get(m.get("repeat") or "", "")
@@ -1868,10 +1878,11 @@ def handle_confirm_meeting(ack, body, client):
             return
         begin, end = datetime.fromisoformat(m["begin"]), datetime.fromisoformat(m["end"])
         description = (f"Requested by {m['requester']} through VentureOS. Join with the Google account this invitation was sent to.")
-        open_link = gcal.create_open_meet(studio["refresh_token"]) if meetings.is_virtual(m["where"]) else None
+        only = bool(m.get("calendar_only"))
+        open_link = gcal.create_open_meet(studio["refresh_token"]) if meetings.is_virtual(m["where"]) and not only else None
         event = gcal.create_event(studio["refresh_token"], meetings.build_event_body(
             m["title"], begin, end, m["where"], m["attendees"], description, m.get("repeat"), m.get("requester_slack"),
-            meet_link=open_link))
+            meet_link=open_link, studio_wide=only))
         memory.delete_meeting(row["id"])
         _studio_cache["at"] = 0.0
         link, meet = event.get("htmlLink"), open_link or event.get("hangoutLink")
@@ -1881,7 +1892,8 @@ def handle_confirm_meeting(ack, body, client):
         elif meet:
             note = (" ⚠️ Guests may need to be admitted by the host: a mentor needs to reconnect the studio calendar once "
                     "to allow open Meet rooms.")
-        finish(f"✅ *{m['title']}* is on the calendar for {meetings.format_when(begin, end)}. Invitations went to "
+        finish(f"✅ *{m['title']}* is on the studio calendar for {meetings.format_when(begin, end)}. No invitations were sent." if only else
+               f"✅ *{m['title']}* is on the calendar for {meetings.format_when(begin, end)}. Invitations went to "
                f"{len(m['attendees'])} people." + (f" <{meet}|Google Meet link>" if meet else f" 📍 {m['where']}")
                + (f" · <{link}|Open in Google Calendar>" if link else "") + note)
     except Exception as e:
