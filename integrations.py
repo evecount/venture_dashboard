@@ -17,6 +17,9 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 STATE_TTL_SECONDS = 60 * 60  # a connect link is valid for an hour
+# GitHub install links live longer: founders often come back to the same Slack button later, and an expired link
+# left the app installed on GitHub but never linked to the startup. The state is still signed and names the founder.
+GITHUB_LINK_TTL = 7 * 24 * 60 * 60
 SIGNAL_TYPES = ("commit", "pull_request", "issue", "meeting")
 
 
@@ -56,7 +59,7 @@ def github_connect_url(app_slug: str | None, secret: str | None, founder_id: str
     """Link to GitHub's install screen, or None when the GitHub App isn't configured."""
     if not (app_slug and secret):
         return None
-    state = sign_state({"f": founder_id, "s": startup_id, "p": "github"}, secret)
+    state = sign_state({"f": founder_id, "s": startup_id, "p": "github"}, secret, ttl=GITHUB_LINK_TTL)
     return f"https://github.com/apps/{app_slug}/installations/new?state={state}"
 
 

@@ -38,6 +38,13 @@ class IntegrationTests(unittest.TestCase):
         self.assertIsNone(i.github_connect_url("my-app", None, "f", "st"))
         self.assertIn("github.com/apps/my-app/installations/new?state=", i.github_connect_url("my-app", "s", "f", "st"))
 
+    def test_github_link_lasts_a_week(self):
+        url = i.github_connect_url("my-app", "s", "f", "st")
+        state = url.split("state=")[1]
+        import base64, json as _json, time
+        body = _json.loads(base64.urlsafe_b64decode(state.split(".")[0] + "=="))
+        self.assertGreater(body["exp"] - time.time(), 6 * 24 * 3600)
+
     def test_activity_summary_counts_real_work(self):
         rows = [
             {"type": "commit", "meta": {"commits": 3, "repo": "a/web"}, "created_at": "2026-10-13T10:00:00+00:00"},
