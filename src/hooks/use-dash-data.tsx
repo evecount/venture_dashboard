@@ -50,6 +50,16 @@ export type TaskRow = {
   status: string;
   created_at: string;
 };
+/** An event on a mentor's own connected calendar (mentors only). Private events arrive as "Busy". */
+export type MentorBusyRow = {
+  id: string;
+  mentor: string;
+  title: string;
+  busy_only: boolean;
+  all_day: boolean;
+  starts_at: string;
+  ends_at: string | null;
+};
 /** A meeting on the studio calendar (synced by the bot). `people` is mentor-only; founders get an empty list. */
 export type MeetingRow = {
   id: string;
@@ -84,6 +94,7 @@ export type DashSnapshot = {
   notes: NoteRow[];
   tasks: TaskRow[];
   meetings: MeetingRow[];
+  mentorBusy: MentorBusyRow[];
 };
 
 type DashData = {

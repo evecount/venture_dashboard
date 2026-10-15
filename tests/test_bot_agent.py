@@ -200,6 +200,31 @@ class AgentTests(unittest.TestCase):
         tool = next(t for t in build_tools("founder") if t["function"]["name"] == "add_milestone")
         self.assertNotIn("issued_by", tool["function"]["parameters"]["properties"])
 
+    def _availability_agent(self):
+        tables = {
+            "startups": STARTUPS,
+            "mentors": [{"name": "Arthur Andre Pandaan", "email": "a@x.com", "slack_user_id": "UARTHUR"},
+                        {"name": "Gwen Lim", "email": "g@x.com", "slack_user_id": "UGWEN"}],
+            "mentor_calendars": [{"slack_user_id": "UARTHUR"}],
+            "mentor_events": [{"slack_user_id": "UARTHUR", "event_id": "e1", "title": "Board call", "busy_only": False,
+                               "all_day": False, "starts_at": "2026-10-16T15:00:00+08:00", "ends_at": "2026-10-16T16:00:00+08:00"}],
+        }
+        return tables
+
+    def test_mentors_see_each_others_busy_times_and_free_slots(self):
+        agent = Agent(fake_ai([("check_availability", {"date": "2026-10-16"})]), "m", FakeSB(self._availability_agent()), FakeMemory())
+        text = agent.respond(MENTOR, "when are the mentors free on friday?")["text"]
+        self.assertIn("Arthur Andre Pandaan: Board call (3:00 pm–4:00 pm)", text)
+        self.assertIn("Everyone's free at 9:00 AM, 10:00 AM, 11:00 AM", text)
+        self.assertIn("Not connected yet, so not checked: Gwen Lim", text)
+
+    def test_founders_only_see_that_a_mentor_is_busy(self):
+        agent = Agent(fake_ai([("check_availability", {"date": "2026-10-16", "people": ["Arthur"]})]), "m",
+                      FakeSB(self._availability_agent()), FakeMemory())
+        text = agent.respond(FOUNDER, "when is arthur free friday?")["text"]
+        self.assertIn("Arthur Andre Pandaan: busy", text)
+        self.assertNotIn("Board call", text)
+
     def test_tick_goal_by_ref(self):
         agent, mem = self.agent([("update_goal", {"goal_ref": "gggggg0", "done": True})])
         mem.ms.append({"id": "mmmmmm0", "startup_id": "startup-auvira", "title": "M", "goals": [

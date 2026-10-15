@@ -11,7 +11,7 @@ import {
   Users,
   Video,
 } from "lucide-react";
-import type { DashSnapshot, MeetingRow } from "@/hooks/use-dash-data";
+import type { DashSnapshot, MeetingRow, MentorBusyRow } from "@/hooks/use-dash-data";
 import type { Founder } from "./data";
 import {
   describeSession,
@@ -137,6 +137,7 @@ export function ProgramView({
           today={today}
           sessionDates={new Set(sessions.map((x) => x.date))}
           meetings={snapshot.meetings}
+          mentorBusy={snapshot.mentorBusy ?? []}
         />
       )}
 
@@ -162,12 +163,14 @@ function WeekDetail({
   today,
   sessionDates,
   meetings,
+  mentorBusy,
 }: {
   w: ProgramWeek;
   program: ProgramState;
   today: string;
   sessionDates: Set<string>;
   meetings: MeetingRow[];
+  mentorBusy: MentorBusyRow[];
 }) {
   const p = splitPhase(w.phase);
   const isNow = w.week === program.week;
@@ -203,6 +206,18 @@ function WeekDetail({
           const s = describeSession(e);
           const state = e.date === today ? "today" : e.date < today ? "past" : "";
           const sprintDay = sessionDates.has(e.date);
+          // All-day events cover every day from their start up to (not including) their end date.
+          const busy = mentorBusy
+            .filter((b) => {
+              const start = sgtDate(new Date(b.starts_at));
+              if (!b.all_day) return start === e.date;
+              const end = b.ends_at ? sgtDate(new Date(b.ends_at)) : start;
+              return start <= e.date && (e.date < end || start === end);
+            })
+            .sort(
+              (a, b) =>
+                Number(b.all_day) - Number(a.all_day) || a.starts_at.localeCompare(b.starts_at),
+            );
           const dayMeetings = meetings
             .filter((m) => sgtDate(new Date(m.starts_at)) === e.date)
             .sort((a, b) => sgtClock(a.starts_at).localeCompare(sgtClock(b.starts_at)));
@@ -231,6 +246,25 @@ function WeekDetail({
                 <p className="day-build">
                   <Hammer size={13} /> {s.build}
                 </p>
+              )}
+              {busy.length > 0 && (
+                <details className="day-busy">
+                  <summary>
+                    <Users size={12} /> Mentors&apos; calendars · {busy.length}
+                  </summary>
+                  <ul>
+                    {busy.map((b) => (
+                      <li key={b.id} className={b.busy_only ? "private" : ""}>
+                        <span className="day-meeting-time">
+                          {b.all_day ? "All day" : sgtTime(b.starts_at)}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="day-busy-who">{b.mentor.split(" ")[0]}</span> {b.title}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
               )}
               {dayMeetings.length > 0 && (
                 <ul className="day-meetings" aria-label="Meetings on the studio calendar">

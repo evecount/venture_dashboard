@@ -160,7 +160,7 @@ class GoogleCalendar:
         while True:
             params = {"timeMin": since.isoformat(), "timeMax": until.isoformat(), "singleEvents": "true",
                       "orderBy": "startTime", "maxResults": 250,
-                      "fields": "nextPageToken,items(id,summary,start,end,status,attendees(email,displayName,self,responseStatus),visibility,location,hangoutLink,extendedProperties/private)"}
+                      "fields": "nextPageToken,items(id,summary,start,end,status,transparency,attendees(email,displayName,self,responseStatus),visibility,location,hangoutLink,extendedProperties/private)"}
             if only_ours:
                 params["privateExtendedProperty"] = "ventureos=1"  # never read anyone's other calendar events
             if page:

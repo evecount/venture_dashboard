@@ -34,6 +34,16 @@ type EventRow = {
   meet_url: string | null;
   attendees: Array<{ name: string; email: string; response: string }> | null;
 };
+type MentorEventRow = {
+  id: string;
+  event_id: string;
+  slack_user_id: string;
+  title: string;
+  busy_only: boolean;
+  all_day: boolean;
+  starts_at: string;
+  ends_at: string | null;
+};
 type Repos = { startup_id: string; repos: string[] | null; selected_repos: string[] | null };
 
 // Everything the dashboard shows, scoped to who is asking: mentors see the cohort, a founder sees only their
@@ -99,6 +109,30 @@ export const Route = createFileRoute("/api/dash/snapshot")({
             .filter((p) => p.email)
             .map((p) => [p.email!.toLowerCase(), p.startup_id]),
         );
+        // Mentors' own calendars (connected read-only through the bot): mentors only, never founders. Studio meetings
+        // also appear on attendees' calendars, so those copies are dropped here.
+        const studioIds = new Set((events.data ?? []).map((e) => e.id));
+        const [mentorEvents, mentorNames] =
+          identity.role === "mentor"
+            ? await Promise.all([
+                admin<MentorEventRow[]>(
+                  `mentor_events?select=id,event_id,slack_user_id,title,busy_only,all_day,starts_at,ends_at&ends_at=gte.${since}&order=starts_at.asc&limit=400`,
+                ),
+                admin<{ slack_user_id: string; name: string }[]>(
+                  "mentors?select=slack_user_id,name",
+                ),
+              ])
+            : [
+                { ok: true, data: [] as MentorEventRow[] },
+                { ok: true, data: [] },
+              ];
+        const nameOf = new Map((mentorNames.data ?? []).map((m) => [m.slack_user_id, m.name]));
+        const mentorBusy = (mentorEvents.ok ? (mentorEvents.data ?? []) : [])
+          .filter((e) => !studioIds.has(e.event_id))
+          .map(({ slack_user_id, event_id: _e, ...e }) => ({
+            ...e,
+            mentor: nameOf.get(slack_user_id) ?? "A mentor",
+          }));
         const myEmail = identity.role === "founder" ? roster.data?.[0]?.email?.toLowerCase() : null;
         const meetings = (events.ok ? (events.data ?? []) : [])
           .filter(
@@ -186,6 +220,7 @@ export const Route = createFileRoute("/api/dash/snapshot")({
           notes: notes.data ?? [],
           tasks: tasks.data ?? [],
           meetings,
+          mentorBusy,
         });
       },
     },

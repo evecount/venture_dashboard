@@ -114,6 +114,7 @@ import meetings
 import time
 import voice_compare
 import studio_events
+import mentor_calendars
 import integrations
 from profile_rules import match_person, looks_like_email, norm_name
 import daily_checkin
@@ -1368,7 +1369,7 @@ def publish_home(slack_user_id: str, client=None):
             mine = [t for t in memory.open_tasks() if t.get("owner_slack_id") == slack_user_id]
             blocks = (build_mentor_blocks(safe_snapshot(), title="Mentor view", tasks=mine, slack_user_id=slack_user_id,
                                           footer_button=False)
-                      + studio_connect_blocks(slack_user_id) + how_to_blocks("mentor"))
+                      + studio_connect_blocks(slack_user_id) + my_calendar_blocks(slack_user_id) + how_to_blocks("mentor"))
             if developer:
                 blocks.insert(1, dev_home.mode_switch("mentor"))
             blocks = add_to_top_row(blocks, dashboard_button_element(slack_user_id=slack_user_id))
@@ -1940,6 +1941,51 @@ def studio_connect_blocks(slack_id: str) -> list:
     ]
 
 
+def my_calendar_blocks(slack_id: str) -> list:
+    """Mentor Home: connect your own Google Calendar (read-only) so the bot knows when you're busy. Never the studio one."""
+    url = mentor_calendars.connect_url(GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI, STATE_SECRET, slack_id) if gcal else None
+    if not (url and supabase):
+        return []
+    row = mentor_calendars.connection(supabase, slack_id)
+    if row:
+        return [
+            {"type": "section", "text": {"type": "mrkdwn", "text": (
+                "*Your calendar* 📆" + chr(10) + f"Connected: *{row.get('account') or 'your Google Calendar'}*. I use it to suggest meeting "
+                "times and flag clashes, and other mentors see your schedule on the dashboard (private events show as Busy).")}},
+            {"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": "Disconnect my calendar"},
+                                              "action_id": "disconnect_my_calendar", "value": slack_id,
+                                              "confirm": {"title": {"type": "plain_text", "text": "Disconnect your calendar?"},
+                                                          "text": {"type": "plain_text", "text": "I'll stop reading it and remove your events from the dashboard."},
+                                                          "confirm": {"type": "plain_text", "text": "Disconnect"},
+                                                          "deny": {"type": "plain_text", "text": "Keep it"}}}]},
+        ]
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "text": (
+            "*Your calendar* 📆" + chr(10) + "Connect your own Google Calendar (read-only) so I can find times when the mentors are free "
+            "and warn about clashes. Other mentors see your schedule on the dashboard; events you mark private show as Busy. "
+            "This is separate from the studio calendar.")}},
+        {"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": "Connect my calendar"},
+                                          "url": url, "action_id": "connect_my_calendar"}]},
+    ]
+
+
+@app.action("connect_my_calendar")
+def handle_connect_my_calendar(ack):
+    ack()  # link button
+
+
+@app.action("disconnect_my_calendar")
+def handle_disconnect_my_calendar(ack, body, client):
+    ack()
+    user_id = body["user"]["id"]
+    try:
+        mentor_calendars.disconnect(supabase, user_id)
+        client.chat_postMessage(channel=user_id, text="✅ Your calendar is disconnected. I've removed your events from the dashboard.")
+    except Exception as e:
+        print(f"[Mentor Calendar Error] disconnect {user_id}: {e}")
+    publish_home(user_id, client)
+
+
 @app.action("connect_studio")
 def handle_connect_studio(ack):
     ack()  # link button
@@ -1996,6 +2042,17 @@ def process_google_pending():
         try:
             supabase.table("google_pending").delete().eq("id", item["id"]).execute()  # single use, whatever happens next
             got = gcal.exchange_code(item["code"])
+            if item.get("kind") == "mentor":
+                sid = item.get("slack_user_id")
+                if not (sid and get_role(sid) == "mentor"):
+                    continue  # only mentors connect their own calendar this way
+                mentor_calendars.save_connection(supabase, sid, got, STATE_SECRET)
+                app.client.chat_postMessage(channel=sid, text=(
+                    f"✅ *Your calendar is connected* ({got.get('email')}). I'll use it to suggest meeting times and flag clashes, "
+                    "and other mentors can see your schedule on the dashboard. Events you mark private in Google show as Busy."))
+                threading.Thread(target=lambda: mentor_calendars.sync_all(supabase, gcal), daemon=True).start()
+                publish_home(sid, app.client)
+                continue
             if item.get("kind") == "studio":
                 if not got.get("refresh_token"):
                     raise RuntimeError("Google returned no refresh token")
@@ -2770,6 +2827,7 @@ if BackgroundScheduler:
     scheduler.add_job(run_alerts, "cron", day_of_week="mon-fri", hour=9, minute=15)
     scheduler.add_job(process_google_pending, "interval", seconds=10, max_instances=1)
     scheduler.add_job(sync_all_calendars, "interval", minutes=60, max_instances=1)
+    scheduler.add_job(lambda: mentor_calendars.sync_all(supabase, gcal), "interval", minutes=10, max_instances=1)
     scheduler.add_job(link_org_claims, "interval", seconds=60, max_instances=1)
     scheduler.add_job(lambda: dev_controls.run_commands(supabase, DEV_COMMANDS), "interval", seconds=5, max_instances=1)
     scheduler.add_job(lambda: dev_controls.flush_logs(supabase, log_tee), "interval", seconds=10, max_instances=1)

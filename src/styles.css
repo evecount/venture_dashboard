@@ -1553,6 +1553,44 @@ button.gate-row:hover .row-title {
   }
 }
 
+.day-busy {
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  font-size: 13px;
+}
+.day-busy summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  list-style: none;
+}
+.day-busy summary::-webkit-details-marker {
+  display: none;
+}
+.day-busy summary:hover {
+  color: var(--foreground);
+}
+.day-busy ul {
+  display: grid;
+  gap: 5px;
+  margin-top: 6px;
+}
+.day-busy li {
+  display: flex;
+  gap: 8px;
+  line-height: 1.35;
+}
+.day-busy li.private {
+  color: var(--muted-foreground);
+}
+.day-busy-who {
+  font-weight: 600;
+}
+
 @media (max-width: 1360px) {
   .sync-status .hide-sm {
     display: none;

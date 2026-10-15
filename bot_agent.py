@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 import announce
 import integrations
 import meetings
+import mentor_calendars
 import syllabus
 from bot_memory import Memory
 from mentor_home import summarize_startups
@@ -122,6 +123,14 @@ def _meeting_tools(role: str) -> list:
         "new_start_time": {"type": "string", "description": "24-hour HH:MM converted from the user's 12-hour time (reschedule only)"},
         "duration_minutes": {"type": "integer", "description": "Keep the old length unless they say otherwise"},
     }, ["title", "action"]))
+    tools.append(_tool("check_availability", (
+        "When are mentors free on a day? Uses the calendars mentors connected themselves. Use it for 'when is Arthur free "
+        "on Thursday?', 'find a time for the mentors next Tuesday', or before proposing a time for a meeting with mentors."), {
+        "date": {"type": "string", "description": "YYYY-MM-DD"},
+        "people": {"type": "array", "items": {"type": "string"},
+                   "description": "Mentor names or Slack ids; empty or ['mentors'] for every mentor"},
+        "duration_minutes": {"type": "integer", "description": "Length of the meeting to fit, default 60"},
+    }, ["date"]))
     tools.append(_tool("upcoming_meetings", (
         "List real meetings on the shared studio Google Calendar (the ones set up through this assistant). Use it for questions like "
         "'what meetings are coming up?', 'what's happening on Thursday?', 'who is it with?'. Founders only see meetings they are invited to."),
@@ -466,6 +475,8 @@ class Agent:
                 if not shown:
                     return f"📅 No meetings on the studio calendar in the next {days} day{'s' if days != 1 else ''}."
                 return "📅 Studio calendar:" + chr(10) + chr(10).join(meetings.describe_event(e, role == "mentor") for e in shown[:15])
+            if name == "check_availability":
+                return self._availability(ident, args)
             if name == "schedule_meeting":
                 return self._schedule(ident, args, out)
             if name == "change_meeting":
@@ -624,6 +635,15 @@ class Agent:
                     conflicts.append(f"{ev.get('summary', 'a meeting')} ({meetings.format_when(*meetings.event_times(ev))})")
         except Exception as e:  # noqa: BLE001 - a failed overlap check must not block scheduling
             print(f"[Agent Warning] conflict check: {e}")
+        try:  # clashes on mentors' own connected calendars (studio meetings they're invited to are already covered)
+            by_email = {(m.get("email") or "").lower(): m for m in mentors_ if m.get("slack_user_id")}
+            ids = [by_email[p["email"].lower()]["slack_user_id"] for p in people if p["email"].lower() in by_email]
+            studio_ids = {ev.get("id") for ev in (self.studio_events(60) or [])} if self.studio_events else set()
+            blocks = [b for b in mentor_calendars.busy_blocks(self.sb, ids, begin, end) if b.get("event_id") not in studio_ids]
+            names = {m["slack_user_id"]: m.get("name") or "A mentor" for m in mentors_ if m.get("slack_user_id")}
+            conflicts += [f"{line} on their own calendar" for line in mentor_calendars.clash_lines(blocks, names, role == "mentor")]
+        except Exception as e:  # noqa: BLE001
+            print(f"[Agent Warning] mentor calendar check: {e}")
         payload = {"title": str(args.get("title") or "Meeting")[:200], "begin": begin.isoformat(), "end": end.isoformat(),
                    "where": where, "attendees": people, "repeat": repeat, "requester": ident["name"], "requester_slack": me,
                    "missing": got["missing"], "conflicts": conflicts}
@@ -632,6 +652,45 @@ class Agent:
             return "⚠️ I couldn't prepare that meeting (is the pending_meetings table created?)."
         out["meeting"] = {"id": meeting_id, **payload}
         return ""
+
+    def _availability(self, ident: dict, args: dict) -> str:
+        """Busy times and free slots for mentors on one day, from the calendars they connected themselves."""
+        try:
+            day = date.fromisoformat(str(args.get("date"))[:10])
+        except ValueError:
+            return "⚠️ Which day? Give me a date."
+        mentors_ = [m for m in (self.sb.table("mentors").select("name,email,slack_user_id").execute().data or []) if m.get("slack_user_id")]
+        try:
+            connected = {r["slack_user_id"] for r in (self.sb.table("mentor_calendars").select("slack_user_id").execute().data or [])}
+        except Exception:  # noqa: BLE001 - table not created yet
+            connected = set()
+        wanted = [str(p).strip().lower() for p in (args.get("people") or []) if str(p).strip()]
+        if wanted and wanted != ["mentors"]:
+            picked = [m for m in mentors_ if m["slack_user_id"].lower() in wanted
+                      or any(w in (m.get("name") or "").lower() for w in wanted)]
+        else:
+            picked = mentors_
+        if not picked:
+            return "⚠️ I couldn't find those mentors."
+        on = [m for m in picked if m["slack_user_id"] in connected]
+        off = [m.get("name") or "A mentor" for m in picked if m["slack_user_id"] not in connected]
+        if not on:
+            return ("📅 None of them have connected their calendar yet, so I can't see when they're free. "
+                    "Mentors can press *Connect my calendar* on their Home tab.")
+        begin = datetime.combine(day, datetime.min.time(), SGT)
+        blocks = mentor_calendars.busy_blocks(self.sb, [m["slack_user_id"] for m in on], begin, begin + timedelta(days=1))
+        names = {m["slack_user_id"]: m.get("name") or "A mentor" for m in on}
+        lines = [f"📅 *{day.strftime('%A %b')} {day.day}*"]
+        busy = mentor_calendars.clash_lines(blocks, names, ident["role"] == "mentor")
+        lines += ["Busy:"] + [f"• {b}" for b in busy] if busy else [f"Nobody is busy that day ({', '.join(names.values())})."]
+        slots = mentor_calendars.free_slots(blocks, day, int(args.get("duration_minutes") or 60))
+        if slots:
+            lines.append("Everyone's free at " + ", ".join(meetings.time_12h(s) for s in slots) + " (between 9 am and 6 pm).")
+        else:
+            lines.append("There's no slot between 9 am and 6 pm when everyone is free.")
+        if off:
+            lines.append(f"Not connected yet, so not checked: {', '.join(off)}.")
+        return chr(10).join(lines)
 
     def _change(self, ident: dict, args: dict, out: dict) -> str:
         role, me = ident["role"], ident["slack_id"]
