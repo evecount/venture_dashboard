@@ -1332,7 +1332,6 @@ def build_home_view(context: dict | None, latest: dict | None, tasks: list | Non
     blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": (
         f"*Due this week*{nl}{d['title']}" + (f"{nl}📅 Due {due_text}" if due_text else ""))}})
 
-    blocks += setup_checklist_blocks(context, latest, milestones or [], conns or [], gcal_rows or [])
     if meeting_lines:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Your upcoming meetings*" + nl + nl.join(meeting_lines)}})
     if latest:
