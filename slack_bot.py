@@ -113,6 +113,7 @@ import google_calendar
 import meetings
 import time
 import voice_compare
+import studio_events
 import integrations
 from profile_rules import match_person, looks_like_email, norm_name
 import daily_checkin
@@ -2736,6 +2737,9 @@ if BackgroundScheduler:
     scheduler.add_job(refresh_changed_homes, "interval", seconds=15, max_instances=1)
     scheduler.add_job(beat, "interval", seconds=30, max_instances=1)
     scheduler.add_job(send_meeting_reminders, "interval", minutes=5, max_instances=1)
+    # Copy upcoming studio meetings into studio_events for the dashboard (only the bot's own events).
+    scheduler.add_job(lambda: studio_events.sync(supabase, studio_events_fn(studio_events.WINDOW_DAYS)),
+                      "interval", minutes=5, max_instances=1, next_run_time=datetime.now(timezone.utc) + timedelta(seconds=20))
     scheduler.add_job(run_weekly_digest, "cron", day_of_week="mon", hour=9, minute=0)
     scheduler.add_job(run_alerts, "cron", day_of_week="mon-fri", hour=9, minute=15)
     scheduler.add_job(process_google_pending, "interval", seconds=10, max_instances=1)

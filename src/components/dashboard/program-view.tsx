@@ -9,14 +9,18 @@ import {
   Palmtree,
   Store,
   Users,
+  Video,
 } from "lucide-react";
-import type { DashSnapshot } from "@/hooks/use-dash-data";
+import type { DashSnapshot, MeetingRow } from "@/hooks/use-dash-data";
 import type { Founder } from "./data";
 import {
   describeSession,
   formatDay,
+  sgtClock,
   sgtDate,
+  sgtTime,
   splitPhase,
+  sprintSessions,
   type ProgramState,
   type ProgramWeek,
   type SessionKind,
@@ -53,6 +57,8 @@ export function ProgramView({
   const today = sgtDate(now);
   const selected = program.weeks.find((w) => w.week === week) ?? program.weeks[0];
   const current = splitPhase(program.phase);
+  const sessions = sprintSessions(program.weeks);
+  const sessionWeeks = new Set(sessions.map((x) => x.week));
 
   // Six sprints of two weeks each.
   const sprints = new Map<number, ProgramWeek[]>();
@@ -105,6 +111,14 @@ export function ProgramView({
                         Week {w.week}
                         {state === "now" && <span className="pill pill-orange">This week</span>}
                         {p.review && state !== "now" && <span className="rm-review">Review</span>}
+                        {sessionWeeks.has(w.week) && (
+                          <span
+                            className="rm-sprint"
+                            title="Fortnightly sprint session on Thursday"
+                          >
+                            <Users size={12} /> Sprint session
+                          </span>
+                        )}
                       </span>
                       <span className="rm-theme">{p.theme}</span>
                     </button>
@@ -116,7 +130,15 @@ export function ProgramView({
         </ol>
       </section>
 
-      {selected && <WeekDetail w={selected} program={program} today={today} />}
+      {selected && (
+        <WeekDetail
+          w={selected}
+          program={program}
+          today={today}
+          sessionDates={new Set(sessions.map((x) => x.date))}
+          meetings={snapshot.meetings}
+        />
+      )}
 
       {founders.length > 0 && (
         <div className="mt-4">
@@ -138,10 +160,14 @@ function WeekDetail({
   w,
   program,
   today,
+  sessionDates,
+  meetings,
 }: {
   w: ProgramWeek;
   program: ProgramState;
   today: string;
+  sessionDates: Set<string>;
+  meetings: MeetingRow[];
 }) {
   const p = splitPhase(w.phase);
   const isNow = w.week === program.week;
@@ -176,12 +202,21 @@ function WeekDetail({
         {w.events.map((e) => {
           const s = describeSession(e);
           const state = e.date === today ? "today" : e.date < today ? "past" : "";
+          const sprintDay = sessionDates.has(e.date);
+          const dayMeetings = meetings
+            .filter((m) => sgtDate(new Date(m.starts_at)) === e.date)
+            .sort((a, b) => sgtClock(a.starts_at).localeCompare(sgtClock(b.starts_at)));
           return (
             <li key={e.date} className={`day-card ${state} kind-${s.kind}`}>
               <p className="day-when">
                 {state === "today" ? "Today" : formatDay(e.date, { weekday: "long" })}
                 <span>{formatDay(e.date, { day: "numeric", month: "short" })}</span>
               </p>
+              {sprintDay && (
+                <p className="day-sprint">
+                  <Users size={13} /> Fortnightly sprint session
+                </p>
+              )}
               <p className="day-session">
                 <span className="day-icon" aria-hidden="true">
                   {ICON[s.kind]}
@@ -196,6 +231,28 @@ function WeekDetail({
                 <p className="day-build">
                   <Hammer size={13} /> {s.build}
                 </p>
+              )}
+              {dayMeetings.length > 0 && (
+                <ul className="day-meetings" aria-label="Meetings on the studio calendar">
+                  {dayMeetings.map((m) => (
+                    <li key={m.id}>
+                      <span className="day-meeting-time">{sgtTime(m.starts_at)}</span>
+                      <span className="min-w-0">
+                        <span className="day-meeting-title">{m.title}</span>
+                        {m.meet_url && (
+                          <a
+                            href={m.meet_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="day-meeting-join"
+                          >
+                            <Video size={12} /> Join
+                          </a>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               )}
             </li>
           );

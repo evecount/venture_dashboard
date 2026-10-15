@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   describeSession,
+  nextSprintSession,
   programState,
   sgtDate,
   splitPhase,
+  sprintSessions,
   syllabus,
 } from "@/components/dashboard/program";
 import { attentionReason, isHandled } from "@/components/dashboard/roster";
@@ -116,5 +118,21 @@ describe("plain schedule labels", () => {
     expect(splitPhase("Sprint 6: Iterate, Demo & 90-Day Scale Plan / Sprint 6 Review").review).toBe(
       true,
     );
+  });
+});
+
+describe("fortnightly sprint session", () => {
+  const { weeks } = programState(new Date("2026-10-15T02:00:00Z"));
+  it("falls on the Thursday of each sprint's second week", () => {
+    expect(
+      sprintSessions(weeks)
+        .map((x) => x.date)
+        .slice(0, 3),
+    ).toEqual(["2026-10-15", "2026-10-29", "2026-11-12"]);
+    expect(sprintSessions(weeks)[0]).toMatchObject({ sprint: 1, week: 2 });
+  });
+  it("finds the next one, counting today", () => {
+    expect(nextSprintSession(weeks, "2026-10-15")?.date).toBe("2026-10-15");
+    expect(nextSprintSession(weeks, "2026-10-16")?.date).toBe("2026-10-29");
   });
 });

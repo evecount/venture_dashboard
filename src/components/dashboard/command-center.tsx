@@ -20,17 +20,19 @@ import {
   Search,
   Sun,
   Undo2,
+  Users,
   Video,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { type Founder, type DemoPerspective, isStudioRole } from "./data";
 import { attentionReason, isHandled, relativeTime } from "./roster";
-import { formatDay, programState, sgtDate, type ProgramState, type SyllabusEvent } from "./program";
+import { formatDay, nextSprintSession, programState, sgtDate, type ProgramState } from "./program";
 import { gateStatus, upcomingMilestones, weeklyProgress } from "./insights";
 import { setByLabel } from "./milestones";
 import { GateBoard } from "./gates";
 import { ProgramView } from "./program-view";
+import { ComingUp } from "./coming-up";
 import { StartupPage } from "./startup-page";
 import { DeveloperLink } from "./developer-link";
 import {
@@ -343,6 +345,27 @@ function Dashboard({
   );
 }
 
+/** Today's date plus the next fortnightly sprint session (Thursday of each sprint's second week). */
+function SprintChip({ program, now }: { program: ProgramState; now: Date }) {
+  const today = sgtDate(now);
+  const next = nextSprintSession(program.weeks, today);
+  return (
+    <div className="page-head-side">
+      {next && (
+        <span className={`sprint-chip ${next.date === today ? "today" : ""}`}>
+          <Users size={14} />
+          {next.date === today
+            ? `Sprint ${next.sprint} session today`
+            : `Next sprint session · ${formatDay(next.date)}`}
+        </span>
+      )}
+      <span className="page-date">
+        {formatDay(today, { weekday: "short", day: "numeric", month: "long" })}
+      </span>
+    </div>
+  );
+}
+
 function TodayView({
   founders,
   program,
@@ -389,11 +412,7 @@ function TodayView({
             {program.phase}
           </>
         }
-        right={
-          <span className="page-date">
-            {formatDay(sgtDate(now), { weekday: "short", day: "numeric", month: "long" })}
-          </span>
-        }
+        right={<SprintChip program={program} now={now} />}
       />
 
       <div className="kpi-strip">
@@ -501,91 +520,15 @@ function TodayView({
             )}
           </section>
         </div>
-        <ComingUp founders={founders} snapshot={snapshot} now={now} openStartup={openStartup} />
+        <ComingUp
+          founders={founders}
+          snapshot={snapshot}
+          program={program}
+          now={now}
+          openStartup={openStartup}
+        />
       </div>
     </>
-  );
-}
-
-/** Open milestones across the cohort, earliest due first (no due date last). */
-function ComingUp({
-  founders,
-  snapshot,
-  now,
-  openStartup,
-}: {
-  founders: Founder[];
-  snapshot: DashSnapshot;
-  now: Date;
-  openStartup: (id: string) => void;
-}) {
-  const [showAll, setShowAll] = useState(false);
-  const names = new Map(founders.map((f) => [f.id, startupName(f)]));
-  const items = upcomingMilestones(snapshot.milestones, sgtDate(now)).filter((m) =>
-    names.has(m.startup_id),
-  );
-  const LIMIT = 6;
-  const shown = showAll ? items : items.slice(0, LIMIT);
-  return (
-    <section className="panel" aria-labelledby="coming-up">
-      <div className="panel-head">
-        <h2 id="coming-up">Coming up</h2>
-        {items.length > 0 && <span className="panel-meta">Milestones, earliest due first</span>}
-      </div>
-      {items.length === 0 ? (
-        <p className="muted-note">
-          No open milestones. Founders and mentors set them through the bot, e.g. &ldquo;Set a
-          milestone: 10 customer interviews by Oct 23&rdquo;.
-        </p>
-      ) : (
-        <ol className="agenda">
-          {shown.map((m) => {
-            const done = m.goals.filter((g) => g.done).length;
-            const by = setByLabel(m.set_by);
-            return (
-              <li key={m.id} className={m.overdue ? "overdue" : m.dueToday ? "now" : ""}>
-                <button
-                  type="button"
-                  className="agenda-btn"
-                  onClick={() => openStartup(m.startup_id)}
-                >
-                  <p className="agenda-when">
-                    {m.due_date === null
-                      ? "No due date"
-                      : m.overdue
-                        ? `Overdue · was due ${formatDay(m.due_date)}`
-                        : m.dueToday
-                          ? "Due today"
-                          : `Due ${formatDay(m.due_date)}`}
-                  </p>
-                  <p className="agenda-what">{m.title}</p>
-                  <p className="agenda-who">
-                    {names.get(m.startup_id)}
-                    {m.goals.length > 0 && (
-                      <>
-                        <span className="dot-sep">·</span>
-                        {done}/{m.goals.length} goals
-                      </>
-                    )}
-                    {by && (
-                      <>
-                        <span className="dot-sep">·</span>
-                        Set by {by}
-                      </>
-                    )}
-                  </p>
-                </button>
-              </li>
-            );
-          })}
-        </ol>
-      )}
-      {items.length > LIMIT && (
-        <Button variant="quiet" size="sm" className="mt-3" onClick={() => setShowAll(!showAll)}>
-          {showAll ? "Show fewer" : `Show all ${items.length}`}
-        </Button>
-      )}
-    </section>
   );
 }
 

@@ -1,8 +1,8 @@
-import { ArrowLeft, Flag, MessageSquare, NotebookPen } from "lucide-react";
+import { ArrowLeft, Flag, MessageSquare, NotebookPen, Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { DashSnapshot } from "@/hooks/use-dash-data";
 import type { Founder } from "./data";
-import { formatDay, type ProgramState } from "./program";
+import { formatDay, sgtDate, sgtTime, type ProgramState } from "./program";
 import { blockedDays, checkinStreak, gateStatus, weeklyProgress } from "./insights";
 import {
   GatePill,
@@ -42,6 +42,11 @@ export function StartupPage({
   const series = weeklyProgress(founder.id, snapshot.submissions, program.weeks);
   const notes = snapshot.notes.filter((n) => n.startup_id === founder.id);
   const tasks = snapshot.tasks.filter((t) => t.startup_id === founder.id);
+  const meetings = snapshot.meetings.filter(
+    (m) =>
+      m.startup_ids.includes(founder.id) &&
+      (m.ends_at ? Date.parse(m.ends_at) : Date.parse(m.starts_at)) >= now.getTime(),
+  );
   const blocker = founder.blocker && founder.blocker !== "None" ? founder.blocker : null;
 
   return (
@@ -149,6 +154,47 @@ export function StartupPage({
         <aside className="split-side">
           <section className="panel">
             <Milestones founder={founder} />
+          </section>
+
+          <section className="panel" aria-labelledby="meetings-title">
+            <div className="panel-head">
+              <h2 id="meetings-title">Upcoming meetings</h2>
+              {meetings.length > 0 && <span className="pill pill-neutral">{meetings.length}</span>}
+            </div>
+            {meetings.length === 0 ? (
+              <p className="muted-note">
+                None booked. Meetings set up through the bot appear here.
+              </p>
+            ) : (
+              <ul className="list">
+                {meetings.map((m) => {
+                  const day = sgtDate(new Date(m.starts_at));
+                  return (
+                    <li key={m.id}>
+                      <Video size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block">{m.title}</span>
+                        <span className="list-meta">
+                          {day === sgtDate(now) ? "Today" : formatDay(day)}, {sgtTime(m.starts_at)}
+                          {m.ends_at ? `–${sgtTime(m.ends_at)}` : ""}
+                          {m.people.length > 0 ? ` · with ${m.people.slice(0, 4).join(", ")}` : ""}
+                        </span>
+                      </span>
+                      {m.meet_url && (
+                        <a
+                          className="agenda-join"
+                          href={m.meet_url}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Join
+                        </a>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </section>
 
           <section className="panel" aria-labelledby="tasks-title">

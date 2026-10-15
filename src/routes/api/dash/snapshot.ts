@@ -25,6 +25,15 @@ type MilestoneRow = {
   created_by_role: string | null;
   goals: Array<{ id: string; title: string; done: boolean; created_by: string | null }> | null;
 };
+type EventRow = {
+  id: string;
+  title: string;
+  starts_at: string;
+  ends_at: string | null;
+  location: string | null;
+  meet_url: string | null;
+  attendees: Array<{ name: string; email: string; response: string }> | null;
+};
 type Repos = { startup_id: string; repos: string[] | null; selected_repos: string[] | null };
 
 // Everything the dashboard shows, scoped to who is asking: mentors see the cohort, a founder sees only their
@@ -71,6 +80,46 @@ export const Route = createFileRoute("/api/dash/snapshot")({
             ),
           ]);
         if (!startups.ok) return json({ error: "unavailable" }, 502);
+
+        // Studio meetings, copied from the studio calendar by the bot. Mentors see every meeting; a founder only
+        // the ones they're invited to (same rule as the bot). Attendee emails never leave the server.
+        const since = encodeURIComponent(new Date(Date.now() - 12 * 3600_000).toISOString());
+        const [events, roster] = await Promise.all([
+          admin<EventRow[]>(
+            `studio_events?select=id,title,starts_at,ends_at,location,meet_url,attendees&starts_at=gte.${since}&order=starts_at.asc&limit=100`,
+          ),
+          admin<{ id: string; email: string | null; startup_id: string | null }[]>(
+            identity.role === "founder"
+              ? `founders?select=id,email,startup_id&id=eq.${encodeURIComponent(identity.founderId)}`
+              : "founders?select=id,email,startup_id",
+          ),
+        ]);
+        const startupByEmail = new Map(
+          (roster.data ?? [])
+            .filter((p) => p.email)
+            .map((p) => [p.email!.toLowerCase(), p.startup_id]),
+        );
+        const myEmail = identity.role === "founder" ? roster.data?.[0]?.email?.toLowerCase() : null;
+        const meetings = (events.ok ? (events.data ?? []) : [])
+          .filter(
+            (e) =>
+              identity.role === "mentor" ||
+              (!!myEmail && (e.attendees ?? []).some((a) => a.email === myEmail)),
+          )
+          .map(({ attendees, ...e }) => ({
+            ...e,
+            startup_ids: [
+              ...new Set(
+                (attendees ?? [])
+                  .map((a) => startupByEmail.get(a.email))
+                  .filter((x): x is string => !!x),
+              ),
+            ],
+            people:
+              identity.role === "mentor"
+                ? (attendees ?? []).map((a) => a.name || a.email.split("@")[0])
+                : [],
+          }));
 
         // Who set each milestone or goal: Slack IDs become names here, so the browser never sees Slack IDs.
         const setters = new Set<string>();
@@ -136,6 +185,7 @@ export const Route = createFileRoute("/api/dash/snapshot")({
           ),
           notes: notes.data ?? [],
           tasks: tasks.data ?? [],
+          meetings,
         });
       },
     },

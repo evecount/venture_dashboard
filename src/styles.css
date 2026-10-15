@@ -1441,6 +1441,118 @@ button.gate-row:hover .row-title {
   }
 }
 
+/* ---------- Sprint sessions and studio meetings ---------- */
+.page-head-side {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 14px;
+}
+.sprint-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: var(--info-soft);
+  color: var(--info);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.sprint-chip.today {
+  background: var(--accent);
+  color: var(--primary);
+}
+.agenda-kind {
+  display: inline-flex;
+  margin-right: 6px;
+  vertical-align: -2px;
+}
+.agenda > li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.agenda > li > button,
+.agenda > li > div {
+  flex: 1;
+  min-width: 0;
+}
+.agenda-join {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--foreground);
+}
+.agenda-join:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.agenda-sprint .agenda-what {
+  color: var(--info);
+}
+.rm-sprint {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--info);
+}
+.day-sprint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--info-soft);
+  color: var(--info);
+  font-size: 12px;
+  font-weight: 500;
+}
+.day-meetings {
+  display: grid;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+.day-meetings li {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.day-meeting-time {
+  flex-shrink: 0;
+  min-width: 58px;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.day-meeting-title {
+  display: block;
+  font-weight: 500;
+}
+.day-meeting-join {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--primary);
+}
+@media (max-width: 760px) {
+  .page-head-side {
+    justify-content: flex-start;
+  }
+}
+
 @media (max-width: 1360px) {
   .sync-status .hide-sm {
     display: none;

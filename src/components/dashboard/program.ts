@@ -210,3 +210,42 @@ export function splitPhase(phase: string): {
   const theme = rest.replace(/\s*(&|\/)\s*Sprint\s+\d+\s+Review$/i, "").trim();
   return { sprint: m ? Number(m[1]) : null, theme, review };
 }
+
+export type SprintSession = { date: string; sprint: number; week: number };
+
+/** The fortnightly sprint session: Thursday of each sprint's second week (weeks 2, 4, 6…). */
+export function sprintSessions(weeks: ProgramWeek[]): SprintSession[] {
+  return weeks
+    .filter((w) => w.week % 2 === 0)
+    .flatMap((w) => {
+      const thu = w.events.find((e) => e.day === "Thu");
+      return thu ? [{ date: thu.date, sprint: w.week / 2, week: w.week }] : [];
+    });
+}
+
+export function nextSprintSession(weeks: ProgramWeek[], today: string): SprintSession | null {
+  return sprintSessions(weeks).find((s) => s.date >= today) ?? null;
+}
+
+/** "3:00 pm" in Singapore time. */
+export function sgtTime(iso: string): string {
+  return new Date(iso)
+    .toLocaleTimeString("en-SG", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+      timeZone: "Asia/Singapore",
+    })
+    .replace(/\s?([ap])\.?m\.?/i, " $1m")
+    .toLowerCase();
+}
+
+/** "15:00" in Singapore time, for sorting within a day. */
+export function sgtClock(iso: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZone: "Asia/Singapore",
+  }).format(new Date(iso));
+}

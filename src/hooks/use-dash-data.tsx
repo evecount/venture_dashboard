@@ -50,6 +50,17 @@ export type TaskRow = {
   status: string;
   created_at: string;
 };
+/** A meeting on the studio calendar (synced by the bot). `people` is mentor-only; founders get an empty list. */
+export type MeetingRow = {
+  id: string;
+  title: string;
+  starts_at: string;
+  ends_at: string | null;
+  location: string | null;
+  meet_url: string | null;
+  startup_ids: string[];
+  people: string[];
+};
 /** Who set a milestone or goal (name is null when the person's record is gone). */
 export type SetBy = { name: string | null; role: "mentor" | "founder" } | null;
 export type Goal = { id: string; title: string; done: boolean; set_by?: SetBy };
@@ -72,6 +83,7 @@ export type DashSnapshot = {
   milestones: Milestone[];
   notes: NoteRow[];
   tasks: TaskRow[];
+  meetings: MeetingRow[];
 };
 
 type DashData = {
