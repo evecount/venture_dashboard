@@ -449,7 +449,8 @@ class Agent:
             if name == "connect_studio_calendar" and role == "mentor":
                 url = self.studio_link(me) if self.studio_link else None
                 return (f"🔗 <{url}|Connect the studio calendar>. Sign in with the Google account that should organise the meetings."
-                        if url else "Google Calendar isn't set up for this workspace yet.")
+                        if url else "Connecting the studio calendar is a developer-only step, so I can't send you that link. "
+                        "Once it's connected you can ask me to set up meetings.")
             if name == "upcoming_meetings":
                 if not self.studio_events:
                     return "The studio calendar isn't set up yet."

@@ -67,10 +67,8 @@ def sync(sb, events: list | None, now: datetime | None = None) -> int:
 # ---------- keeping the shared studio calendar on one account ----------
 
 def can_reconnect_studio(row: dict | None, slack_id: str, developer: bool) -> bool:
-    """Only the mentor who connected the studio calendar (or the developer) gets a Reconnect button."""
-    if not row:
-        return True  # nothing connected yet: any mentor can set it up once
-    return developer or (bool(slack_id) and row.get("connected_by") == slack_id)
+    """Connecting or reconnecting the shared studio calendar is a developer-only action (DEV_EMAILS)."""
+    return developer
 
 
 def studio_account_refusal(row: dict | None, new_email: str | None) -> str | None:

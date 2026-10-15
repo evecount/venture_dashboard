@@ -264,7 +264,8 @@ def github_link(founder_id: str, startup_id: str) -> str | None:
 
 
 agent = (Agent(ai_client, AI_MODEL, supabase, memory, connect_url=github_link, calendar_link=google_link, calendar_text=my_calendar_text,
-                studio_link=studio_link, studio_connected=studio_connected, studio_events=studio_events_fn,
+                studio_link=lambda sid: studio_link(sid) if is_developer(sid) else None,  # dev-only
+                studio_connected=studio_connected, studio_events=studio_events_fn,
                 settings=settings, channel_context=channels.context_for)
          if (ai_client and supabase) else None)
 
@@ -1918,7 +1919,7 @@ def studio_connect_blocks(slack_id: str) -> list:
     if row:
         section = {"type": "section", "text": {"type": "mrkdwn", "text": "*Meetings* 🗓" + chr(10) + f"Studio calendar: *{row.get('account', 'connected')}*. "
                                                 "Ask me to set up, move or cancel a meeting."}}
-        # Locked to one account: only whoever connected it (or the developer) can reconnect, and only with that account.
+        # Locked to one account: only the developer can reconnect, and only with that same account.
         if not studio_events.can_reconnect_studio(row, slack_id, is_developer(slack_id)):
             return [section]
         return [
@@ -1926,6 +1927,10 @@ def studio_connect_blocks(slack_id: str) -> list:
             {"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": "Reconnect studio calendar"},
                                               "url": url, "action_id": "connect_studio"}]},
         ]
+    if not studio_events.can_reconnect_studio(None, slack_id, is_developer(slack_id)):
+        return [{"type": "section", "text": {"type": "mrkdwn", "text": (
+            "*Meetings* 🗓" + chr(10) + "The studio calendar isn't connected yet. The developer sets it up; then you can ask me to "
+            "set up, move or cancel meetings.")}}]
     return [
         {"type": "section", "text": {"type": "mrkdwn", "text": (
             "*Meetings* 🗓" + chr(10) + "Connect the studio Google Calendar once and I can set up meetings with the cohort when you ask "
