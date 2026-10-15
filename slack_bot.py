@@ -111,6 +111,8 @@ import github_app
 import syllabus
 import google_calendar
 import meetings
+import time
+import voice_compare
 import integrations
 from profile_rules import match_person, looks_like_email, norm_name
 import daily_checkin
@@ -1499,6 +1501,11 @@ def voice_hints() -> list:
     return hints
 
 
+# Side-by-side trial of Gemini's dedicated speech model (see voice_compare.py). VOICE_COMPARE_MODEL=off stops it.
+VOICE_COMPARE_MODEL = "" if os.environ.get("VOICE_COMPARE_MODEL", "").lower() == "off" else (
+    os.environ.get("VOICE_COMPARE_MODEL") or ("gemini-3.5-transcribe" if GEMINI_API_KEY else ""))
+
+
 def transcribe_voice(audio_files: list, say) -> str:
     """Transcribes Slack voice notes with Gemini and replies with what was heard so mistakes can be spotted. '' on failure."""
     if not (GEMINI_API_KEY and SLACK_BOT_TOKEN):
@@ -1508,7 +1515,13 @@ def transcribe_voice(audio_files: list, say) -> str:
     for f in audio_files[:transcribe.MAX_FILES]:
         try:
             data = transcribe.download(f, SLACK_BOT_TOKEN)
-            parts.append(transcribe.transcribe_audio(data, transcribe.gemini_mime(f), GEMINI_API_KEY, AI_MODEL, hints=hints))
+            mime, started = transcribe.gemini_mime(f), time.monotonic()
+            parts.append(transcribe.transcribe_audio(data, mime, GEMINI_API_KEY, AI_MODEL, hints=hints))
+            if VOICE_COMPARE_MODEL and supabase:  # trial only: founders never see the candidate's text
+                voice_compare.compare_in_background(
+                    supabase, data, mime, parts[-1], int((time.monotonic() - started) * 1000),
+                    lambda d, m: transcribe.transcribe_dedicated(d, m, GEMINI_API_KEY, VOICE_COMPARE_MODEL, vocab=hints),
+                    VOICE_COMPARE_MODEL)
         except Exception as e:
             print(f"[Voice Error] {e}")
             say("I couldn't transcribe that voice note. It may be too long or in a format I can't read. Could you try again or type it out?")
@@ -2384,6 +2397,7 @@ def is_developer(slack_user_id: str) -> bool:
 def prune_dev_data():
     print(f"[Channels] pruned {channels.prune()} messages older than 7 days")
     dev_controls.prune_logs(supabase)
+    voice_compare.prune(supabase)
 
 
 def granted_scopes() -> list:
@@ -2472,6 +2486,7 @@ DEV_COMMANDS = {
     "republish_homes": dev_republish,
     "daily_preview": dev_daily_preview,
     "clear_history": dev_clear_history,
+    "voice_compare": lambda _a, _b: voice_compare.report(voice_compare.recent(supabase)),
 }
 
 
@@ -2483,7 +2498,7 @@ _channels_note: dict = {}  # slack_id -> result of the last "Refresh list", show
 _scope_cache = {"at": 0.0, "scopes": []}
 DEV_LABELS = {"status": "Status & scopes", "show_context": "What the bot sees", "daily_preview": "Preview daily prompts",
               "republish_homes": "Republish Home tabs", "clear_history": "Clear my chat memory",
-              "refresh_channels": "Refresh channel list"}
+              "refresh_channels": "Refresh channel list", "voice_compare": "Compare voice models"}
 
 
 def dev_home_state(uid: str) -> dict:

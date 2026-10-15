@@ -8,6 +8,9 @@ HTTP is injectable so everything is testable offline.
 import base64
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+INTERACTIONS_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
+# Singlish particles help the dedicated speech model, which takes a vocabulary list instead of instructions.
+SINGLISH_VOCAB = ["lah", "lor", "leh", "sia", "meh", "alamak", "shiok", "kopi", "can or not"]
 MAX_BYTES = 18 * 1024 * 1024  # stays under Gemini's inline-data limit
 MAX_FILES = 3
 
@@ -76,3 +79,17 @@ def transcribe_audio(data: bytes, mime: str, api_key: str, model: str, http=_def
         except Exception as e:  # noqa: BLE001
             last = e
     raise RuntimeError(f"transcription failed: {last}")
+
+
+def transcribe_dedicated(data: bytes, mime: str, api_key: str, model: str = "gemini-3.5-transcribe",
+                         http=_default_http, vocab: list | None = None) -> str:
+    """Gemini's speech-to-text model (Interactions API, inline audio, custom vocabulary). '' when nothing was heard."""
+    mime = {"audio/mp4": "audio/m4a", "audio/aac": "audio/aac"}.get(mime, mime)  # its format list has m4a, not mp4
+    terms = list(dict.fromkeys(t for t in (vocab or []) + SINGLISH_VOCAB if t))[:100]
+    body = {"model": model,
+            "input": [{"type": "audio", "data": base64.b64encode(data).decode(), "mime_type": mime}],
+            "generation_config": {"transcription_config": {"custom_vocabulary": terms}}}
+    res = http("POST", INTERACTIONS_URL, headers={"x-goog-api-key": api_key, "content-type": "application/json"}, json=body).json()
+    texts = [c.get("text", "") for st in res.get("steps") or [] if st.get("type") == "model_output"
+             for c in st.get("content") or [] if c.get("type") == "text"]
+    return "".join(texts).strip()

@@ -78,6 +78,7 @@ def build_dev_home(state: dict) -> list:
                    {"type": "button", "text": {"type": "plain_text", "text": "Preview daily prompts"}, "action_id": "dev_cmd_daily_preview", "value": "daily_preview"},
                    {"type": "button", "text": {"type": "plain_text", "text": "Republish Home tabs"}, "action_id": "dev_cmd_republish_homes", "value": "republish_homes"},
                    {"type": "button", "text": {"type": "plain_text", "text": "Clear my chat memory"}, "action_id": "dev_cmd_clear_history", "value": "clear_history"},
+                   {"type": "button", "text": {"type": "plain_text", "text": "Compare voice models"}, "action_id": "dev_cmd_voice_compare", "value": "voice_compare"},
                ]}]
     blocks += result_blocks(state.get("last"))
 
