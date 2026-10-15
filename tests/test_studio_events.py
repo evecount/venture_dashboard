@@ -70,5 +70,20 @@ class StudioEventsTests(unittest.TestCase):
         self.assertEqual(se.sync(Recorder(fail=True), [ev()], NOW), 0)
 
 
+class StudioLockTests(unittest.TestCase):
+    ROW = {"id": "primary", "account": "studio@example.com", "connected_by": "UCONNECTOR"}
+
+    def test_only_the_connector_or_developer_can_reconnect(self):
+        self.assertTrue(se.can_reconnect_studio(self.ROW, "UCONNECTOR", False))
+        self.assertTrue(se.can_reconnect_studio(self.ROW, "UOTHER", True))
+        self.assertFalse(se.can_reconnect_studio(self.ROW, "UOTHER", False))
+        self.assertTrue(se.can_reconnect_studio(None, "UANYONE", False))  # first connection
+
+    def test_a_different_account_is_refused_but_the_same_one_is_fine(self):
+        self.assertIsNone(se.studio_account_refusal(self.ROW, "Studio@Example.com"))
+        self.assertIn("studio@example.com", se.studio_account_refusal(self.ROW, "mentor@gmail.com"))
+        self.assertIsNone(se.studio_account_refusal(None, "first@example.com"))
+
+
 if __name__ == "__main__":
     unittest.main()

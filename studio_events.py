@@ -62,3 +62,28 @@ def sync(sb, events: list | None, now: datetime | None = None) -> int:
         print(f"[Studio Events Sync Warning] {e}")
         return 0
     return len(rows)
+
+
+# ---------- keeping the shared studio calendar on one account ----------
+
+def can_reconnect_studio(row: dict | None, slack_id: str, developer: bool) -> bool:
+    """Only the mentor who connected the studio calendar (or the developer) gets a Reconnect button."""
+    if not row:
+        return True  # nothing connected yet: any mentor can set it up once
+    return developer or (bool(slack_id) and row.get("connected_by") == slack_id)
+
+
+def studio_account_refusal(row: dict | None, new_email: str | None) -> str | None:
+    """
+    Why a studio-calendar connection must be refused, or None if it's fine. Reconnecting the same account is allowed
+    (e.g. to grant a new permission); switching to a different account is not, because every meeting booked on the
+    current account would drop out of the bot and the dashboard, and new invitations would come from someone's
+    personal address.
+    """
+    current = (row or {}).get("account")
+    if not current or not new_email:
+        return None
+    if new_email.strip().lower() == str(current).strip().lower():
+        return None
+    return (f"The studio calendar is *{current}*, so I kept it. You signed in as {new_email}. To reconnect it, sign in "
+            f"with {current}. Moving the studio calendar to another account is a deliberate change: ask the developer.")

@@ -1916,9 +1916,13 @@ def studio_connect_blocks(slack_id: str) -> list:
         return []
     row = studio_row()
     if row:
+        section = {"type": "section", "text": {"type": "mrkdwn", "text": "*Meetings* 🗓" + chr(10) + f"Studio calendar: *{row.get('account', 'connected')}*. "
+                                                "Ask me to set up, move or cancel a meeting."}}
+        # Locked to one account: only whoever connected it (or the developer) can reconnect, and only with that account.
+        if not studio_events.can_reconnect_studio(row, slack_id, is_developer(slack_id)):
+            return [section]
         return [
-            {"type": "section", "text": {"type": "mrkdwn", "text": "*Meetings* 🗓" + chr(10) + f"Studio calendar: *{row.get('account', 'connected')}*. "
-                                         "Ask me to set up, move or cancel a meeting."}},
+            section,
             {"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": "Reconnect studio calendar"},
                                               "url": url, "action_id": "connect_studio"}]},
         ]
@@ -1990,6 +1994,11 @@ def process_google_pending():
             if item.get("kind") == "studio":
                 if not got.get("refresh_token"):
                     raise RuntimeError("Google returned no refresh token")
+                refusal = studio_events.studio_account_refusal(studio_row(), got.get("email"))
+                if refusal:
+                    if item.get("slack_user_id"):
+                        app.client.chat_postMessage(channel=item["slack_user_id"], text="🔒 " + refusal)
+                    continue
                 supabase.table("studio_calendar").upsert({
                     "id": "primary", "account": got["email"], "connected_by": item.get("slack_user_id"),
                     "refresh_token": google_calendar.encrypt_token(got["refresh_token"], STATE_SECRET)}).execute()
