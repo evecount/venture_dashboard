@@ -3,6 +3,7 @@ import {
   DashDataProvider,
   useDashData,
   type DashSnapshot,
+  type MeetingRow,
   type SignalRow,
 } from "@/hooks/use-dash-data";
 import { useAuth } from "@/components/auth/sign-in-gate";
@@ -27,12 +28,19 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { type Founder, type DemoPerspective, isStudioRole } from "./data";
 import { attentionReason, isHandled, relativeTime } from "./roster";
-import { formatDay, nextSprintSession, programState, sgtDate, type ProgramState } from "./program";
+import {
+  formatDay,
+  nextSprintSession,
+  programState,
+  sgtDate,
+  sgtTime,
+  type ProgramState,
+} from "./program";
 import { gateStatus, upcomingMilestones, weeklyProgress } from "./insights";
 import { setByLabel } from "./milestones";
 import { GateBoard } from "./gates";
 import { ProgramView } from "./program-view";
-import { ComingUp } from "./coming-up";
+import { ComingUp, sprintMeeting } from "./coming-up";
 import { StartupPage } from "./startup-page";
 import { DeveloperLink } from "./developer-link";
 import {
@@ -346,17 +354,27 @@ function Dashboard({
 }
 
 /** Today's date plus the next fortnightly sprint session (Thursday of each sprint's second week). */
-function SprintChip({ program, now }: { program: ProgramState; now: Date }) {
+function SprintChip({
+  program,
+  now,
+  meetings,
+}: {
+  program: ProgramState;
+  now: Date;
+  meetings: MeetingRow[];
+}) {
   const today = sgtDate(now);
   const next = nextSprintSession(program.weeks, today);
+  const booked = next ? sprintMeeting(meetings, next.date) : undefined;
+  const at = booked ? `, ${sgtTime(booked.starts_at)}` : "";
   return (
     <div className="page-head-side">
       {next && (
         <span className={`sprint-chip ${next.date === today ? "today" : ""}`}>
           <Users size={14} />
           {next.date === today
-            ? `Sprint ${next.sprint} session today`
-            : `Next sprint session · ${formatDay(next.date)}`}
+            ? `Sprint ${next.sprint} session today${at}`
+            : `Next sprint session · ${formatDay(next.date)}${at}`}
         </span>
       )}
       <span className="page-date">
@@ -412,7 +430,7 @@ function TodayView({
             {program.phase}
           </>
         }
-        right={<SprintChip program={program} now={now} />}
+        right={<SprintChip program={program} now={now} meetings={snapshot.meetings} />}
       />
 
       <div className="kpi-strip">

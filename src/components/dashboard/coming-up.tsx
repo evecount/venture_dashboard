@@ -35,6 +35,11 @@ const ICON = {
 
 const dot = <span className="dot-sep">·</span>;
 
+/** The real studio meeting for a sprint session: on that Thursday, with "sprint" in its title (e.g. "Fortnightly sprint"). */
+export function sprintMeeting(meetings: MeetingRow[], date: string): MeetingRow | undefined {
+  return meetings.find((m) => sgtDate(new Date(m.starts_at)) === date && /sprint/i.test(m.title));
+}
+
 /**
  * What's next across the cohort, in date order: studio-calendar meetings (next 2 weeks), the next fortnightly
  * sprint session, and open milestones (undated last).
@@ -58,15 +63,29 @@ export function ComingUp({
   const names = new Map(founders.map((f) => [f.id, startupName(f)]));
   const items: Item[] = [];
 
+  // When the sprint session is booked on the studio calendar, show that meeting (time, Join link) as the session
+  // instead of a second, generic entry.
+  const sprint = nextSprintSession(program.weeks, today);
+  const booked = sprint ? sprintMeeting(snapshot.meetings, sprint.date) : undefined;
+
   for (const m of snapshot.meetings) {
     const day = sgtDate(new Date(m.starts_at));
     if (day < today || day > horizon || (m.ends_at && Date.parse(m.ends_at) < now.getTime()))
       continue;
-    items.push(meetingItem(m, day, today, names));
+    const item = meetingItem(m, day, today, names);
+    if (sprint && m.id === booked?.id) {
+      item.kind = "sprint";
+      item.meta = (
+        <>
+          Sprint {sprint.sprint} session{dot}
+          {item.meta}
+        </>
+      );
+    }
+    items.push(item);
   }
 
-  const sprint = nextSprintSession(program.weeks, today);
-  if (sprint) {
+  if (sprint && !booked) {
     items.push({
       key: `sprint-${sprint.date}`,
       sort: `${sprint.date} 00:00`,
