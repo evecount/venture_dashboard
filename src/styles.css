@@ -1591,6 +1591,21 @@ button.gate-row:hover .row-title {
   font-weight: 600;
 }
 
+/* Progress the bot estimated from GitHub work: lighter and striped until someone confirms it. */
+.est-fill {
+  background: repeating-linear-gradient(135deg, var(--primary) 0 6px, color-mix(in oklch, var(--primary) 55%, transparent) 6px 12px);
+}
+.goal-pct {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--foreground);
+  white-space: nowrap;
+}
+.goal-pct.est {
+  color: var(--info);
+}
+
 @media (max-width: 1360px) {
   .sync-status .hide-sm {
     display: none;

@@ -15,6 +15,16 @@ type SignalRow = {
   meta: { repo?: string; commits?: number; merged?: boolean; meetings?: number } | null;
   created_at: string;
 };
+/**
+ * Rows from a query, or none if it failed. A failed PostgREST call returns an error object, not a list, so reading
+ * `.data` directly would crash the whole dashboard over one missing table or column.
+ */
+function rowsOf<T>(r: { ok: boolean; data: T[] | null }): T[];
+function rowsOf(r: { ok: boolean; data: unknown }): unknown[];
+function rowsOf(r: { ok: boolean; data: unknown }): unknown[] {
+  return r.ok && Array.isArray(r.data) ? r.data : [];
+}
+
 type MilestoneRow = {
   id: string;
   startup_id: string;
@@ -23,7 +33,15 @@ type MilestoneRow = {
   status: string;
   created_by: string | null;
   created_by_role: string | null;
-  goals: Array<{ id: string; title: string; done: boolean; created_by: string | null }> | null;
+  goals: Array<{
+    id: string;
+    title: string;
+    done: boolean;
+    created_by: string | null;
+    progress: number | null;
+    est_progress: number | null;
+    est_reason: string | null;
+  }> | null;
 };
 type EventRow = {
   id: string;
@@ -77,7 +95,7 @@ export const Route = createFileRoute("/api/dash/snapshot")({
             ),
             mentorOnly("blocker_reviews?select=startup_id,handled_at"),
             admin<MilestoneRow[]>(
-              `milestones?select=id,startup_id,title,due_date,status,created_by,created_by_role,goals(id,title,done,created_by)&status=neq.dropped` +
+              `milestones?select=id,startup_id,title,due_date,status,created_by,created_by_role,goals(id,title,done,created_by,progress,est_progress,est_reason)&status=neq.dropped` +
                 `&order=due_date.asc.nullslast${by("startup_id")}`,
             ),
             // Mentor notes about a startup are for the studio team, not the founders.
@@ -105,13 +123,13 @@ export const Route = createFileRoute("/api/dash/snapshot")({
           ),
         ]);
         const startupByEmail = new Map(
-          (roster.data ?? [])
+          rowsOf(roster)
             .filter((p) => p.email)
             .map((p) => [p.email!.toLowerCase(), p.startup_id]),
         );
         // Mentors' own calendars (connected read-only through the bot): mentors only, never founders. Studio meetings
         // also appear on attendees' calendars, so those copies are dropped here.
-        const studioIds = new Set((events.data ?? []).map((e) => e.id));
+        const studioIds = new Set(rowsOf(events).map((e) => e.id));
         const [mentorEvents, mentorNames] =
           identity.role === "mentor"
             ? await Promise.all([
@@ -126,15 +144,16 @@ export const Route = createFileRoute("/api/dash/snapshot")({
                 { ok: true, data: [] as MentorEventRow[] },
                 { ok: true, data: [] },
               ];
-        const nameOf = new Map((mentorNames.data ?? []).map((m) => [m.slack_user_id, m.name]));
-        const mentorBusy = (mentorEvents.ok ? (mentorEvents.data ?? []) : [])
+        const nameOf = new Map(rowsOf(mentorNames).map((m) => [m.slack_user_id, m.name]));
+        const mentorBusy = (mentorEvents.ok ? rowsOf(mentorEvents) : [])
           .filter((e) => !studioIds.has(e.event_id))
           .map(({ slack_user_id, event_id: _e, ...e }) => ({
             ...e,
             mentor: nameOf.get(slack_user_id) ?? "A mentor",
           }));
-        const myEmail = identity.role === "founder" ? roster.data?.[0]?.email?.toLowerCase() : null;
-        const meetings = (events.ok ? (events.data ?? []) : [])
+        const myEmail =
+          identity.role === "founder" ? rowsOf(roster)[0]?.email?.toLowerCase() : null;
+        const meetings = (events.ok ? rowsOf(events) : [])
           .filter(
             (e) =>
               identity.role === "mentor" ||
@@ -157,7 +176,7 @@ export const Route = createFileRoute("/api/dash/snapshot")({
 
         // Who set each milestone or goal: Slack IDs become names here, so the browser never sees Slack IDs.
         const setters = new Set<string>();
-        for (const m of milestones.data ?? []) {
+        for (const m of rowsOf(milestones)) {
           if (m.created_by) setters.add(m.created_by);
           for (const g of m.goals ?? []) if (g.created_by) setters.add(g.created_by);
         }
@@ -173,11 +192,13 @@ export const Route = createFileRoute("/api/dash/snapshot")({
                   `founders?select=slack_user_id,name&slack_user_id=in.(${ids})`,
                 ),
               ])
-            : [{ data: [] }, { data: [] }];
-          for (const f of fs.data ?? [])
+            : [
+                { ok: true, data: [] },
+                { ok: true, data: [] },
+              ];
+          for (const f of rowsOf(fs))
             people.set(f.slack_user_id, { name: f.name, role: "founder" });
-          for (const m of ms.data ?? [])
-            people.set(m.slack_user_id, { name: m.name, role: "mentor" });
+          for (const m of rowsOf(ms)) people.set(m.slack_user_id, { name: m.name, role: "mentor" });
         }
         const setBy = (id: string | null | undefined, role?: string | null) => {
           const p = id ? people.get(id) : undefined;
@@ -188,9 +209,9 @@ export const Route = createFileRoute("/api/dash/snapshot")({
         // GitHub work counts only for the repos the founder currently monitors; changing the choice in Slack
         // changes what shows here straight away (older rows from other repos are hidden, not deleted).
         const reposBy = new Map<string, Repos[]>();
-        for (const r of repos.data ?? [])
+        for (const r of rowsOf(repos))
           reposBy.set(r.startup_id, [...(reposBy.get(r.startup_id) ?? []), r]);
-        const visible = (signals.data ?? []).filter(
+        const visible = rowsOf(signals).filter(
           (s) =>
             !GITHUB_TYPES.has(s.type) ||
             (reposBy.get(s.startup_id ?? "") ?? []).some((r) =>
@@ -200,25 +221,23 @@ export const Route = createFileRoute("/api/dash/snapshot")({
 
         return json({
           identity,
-          startups: startups.data ?? [],
-          founders: founders.data ?? [],
-          submissions: submissions.data ?? [],
+          startups: rowsOf(startups),
+          founders: rowsOf(founders),
+          submissions: rowsOf(submissions),
           // Only the counts the trends need leave the server, not repo names or other metadata.
           signals: visible.map(({ meta, ...s }) => ({
             ...s,
             weight: Number(meta?.commits ?? meta?.meetings ?? 1) || 1,
             merged: !!meta?.merged,
           })),
-          handled: handled.data ?? [],
-          milestones: (milestones.data ?? []).map(
-            ({ created_by, created_by_role, goals, ...m }) => ({
-              ...m,
-              set_by: setBy(created_by, created_by_role),
-              goals: (goals ?? []).map(({ created_by: by, ...g }) => ({ ...g, set_by: setBy(by) })),
-            }),
-          ),
-          notes: notes.data ?? [],
-          tasks: tasks.data ?? [],
+          handled: rowsOf(handled),
+          milestones: rowsOf(milestones).map(({ created_by, created_by_role, goals, ...m }) => ({
+            ...m,
+            set_by: setBy(created_by, created_by_role),
+            goals: (goals ?? []).map(({ created_by: by, ...g }) => ({ ...g, set_by: setBy(by) })),
+          })),
+          notes: rowsOf(notes),
+          tasks: rowsOf(tasks),
           meetings,
           mentorBusy,
         });

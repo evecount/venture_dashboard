@@ -195,3 +195,21 @@ export function upcomingMilestones<M extends MilestoneLike>(milestones: M[], tod
             : a.due_date.localeCompare(b.due_date),
     );
 }
+
+type GoalLike = { done: boolean; progress?: number | null; est_progress?: number | null };
+
+/** Same rule as the bot (progress_estimator.goal_value): done = 100; else the GitHub estimate if any; else official. */
+export function goalValue(g: GoalLike): { pct: number; estimated: boolean } {
+  if (g.done) return { pct: 100, estimated: false };
+  if (g.est_progress != null) return { pct: g.est_progress, estimated: true };
+  return { pct: g.progress ?? 0, estimated: false };
+}
+
+export function milestoneValue(goals: GoalLike[]): { pct: number; estimated: boolean } {
+  if (!goals.length) return { pct: 0, estimated: false };
+  const vals = goals.map(goalValue);
+  return {
+    pct: Math.round(vals.reduce((n, v) => n + v.pct, 0) / vals.length),
+    estimated: vals.some((v) => v.estimated),
+  };
+}

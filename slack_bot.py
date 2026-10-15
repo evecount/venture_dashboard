@@ -115,6 +115,7 @@ import time
 import voice_compare
 import studio_events
 import mentor_calendars
+import progress_estimator
 import integrations
 from profile_rules import match_person, looks_like_email, norm_name
 import daily_checkin
@@ -1168,14 +1169,23 @@ def build_connections_blocks(founder_id: str, startup_id: str, rows: list) -> li
     return blocks
 
 
+def _goal_suffix(g: dict) -> str:
+    pct, est = progress_estimator.goal_value(g)
+    if g.get("done") or not pct:
+        return ""
+    return f" · _~{pct}% est. from GitHub_" if est else f" · {pct}%"
+
+
 def _milestone_lines(items: list) -> list:
     lines = []
     for m in items[:4]:
         goals = m.get("goals") or []
         done = sum(1 for g in goals if g.get("done"))
         due = f" · due {m['due_date']}" if m.get("due_date") else ""
-        lines.append(f"🎯 *{m['title']}*{due} · {done}/{len(goals)} goals")
-        lines += [("      ✅ " if g.get("done") else "      ⬜ ") + g["title"] for g in goals[:6]]
+        pct, est = progress_estimator.milestone_value(goals)
+        overall = f" · {'~' if est else ''}{pct}%" if pct else ""
+        lines.append(f"🎯 *{m['title']}*{due} · {done}/{len(goals)} goals{overall}")
+        lines += [("      ✅ " if g.get("done") else "      ⬜ ") + g["title"] + _goal_suffix(g) for g in goals[:6]]
     return lines
 
 
@@ -1967,6 +1977,73 @@ def my_calendar_blocks(slack_id: str) -> list:
         {"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": "Connect my calendar"},
                                           "url": url, "action_id": "connect_my_calendar"}]},
     ]
+
+
+# --- PROGRESS ESTIMATES FROM GITHUB WORK ---
+
+def notify_founders(startup_id: str, blocks: list, text: str):
+    """DMs every Slack-linked founder of a startup."""
+    for f in supabase.table("founders").select("slack_user_id").eq("startup_id", startup_id).execute().data or []:
+        if f.get("slack_user_id"):
+            try:
+                app.client.chat_postMessage(channel=f["slack_user_id"], text=text, blocks=blocks)
+            except Exception as e:
+                print(f"[Progress Estimate Warning] DM {f['slack_user_id']}: {e}")
+
+
+def run_progress_estimates():
+    if ai_client and supabase and SLACK_BOT_TOKEN:
+        progress_estimator.run(supabase, ai_client, AI_MODEL, notify=notify_founders)
+
+
+def _goal_for(user_id: str, goal_id: str) -> dict | None:
+    """The goal, if this person may update it: a founder of its startup, or any mentor."""
+    rows = supabase.table("goals").select("id,title,est_progress,milestones(startup_id)").eq("id", goal_id).execute().data
+    if not rows:
+        return None
+    g = rows[0]
+    if get_role(user_id) == "mentor":
+        return g
+    me = supabase.table("founders").select("startup_id").eq("slack_user_id", user_id).execute().data
+    return g if me and me[0]["startup_id"] == (g.get("milestones") or {}).get("startup_id") else None
+
+
+def _settle_goal(body, client, goal_id: str, patch: dict, said: str):
+    user_id = body["user"]["id"]
+    g = _goal_for(user_id, goal_id)
+    if not g:
+        client.chat_postMessage(channel=user_id, text="⚠️ I couldn't update that goal (it may have been removed).")
+        return
+    supabase.table("goals").update({**patch, "est_progress": None, "est_reason": None, "est_at": None}).eq("id", goal_id).execute()
+    try:
+        client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=said,
+                           blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": said.replace("{title}", g["title"])}}])
+    except Exception as e:
+        print(f"[Progress Estimate Warning] update card: {e}")
+    publish_home(user_id, client)
+
+
+@app.action("confirm_goal_estimate")
+def handle_confirm_goal_estimate(ack, body, client):
+    ack()
+    goal_id = body["actions"][0]["value"]
+    rows = supabase.table("goals").select("est_progress").eq("id", goal_id).execute().data
+    pct = (rows[0].get("est_progress") if rows else None) or 0
+    _settle_goal(body, client, goal_id, {"progress": pct}, f"✅ *{{title}}*: {pct}% confirmed.")
+
+
+@app.action("set_goal_progress")
+def handle_set_goal_progress(ack, body, client):
+    ack()
+    goal_id, pct = body["actions"][0]["selected_option"]["value"].split("|")
+    _settle_goal(body, client, goal_id, {"progress": int(pct)}, f"✅ *{{title}}*: set to {int(pct)}%.")
+
+
+@app.action("mark_goal_done")
+def handle_mark_goal_done(ack, body, client):
+    ack()
+    _settle_goal(body, client, body["actions"][0]["value"],
+                 {"done": True, "done_at": datetime.now(timezone.utc).isoformat(), "progress": 100}, "🎉 *{title}*: marked done.")
 
 
 @app.action("connect_my_calendar")
@@ -2828,6 +2905,7 @@ if BackgroundScheduler:
     scheduler.add_job(process_google_pending, "interval", seconds=10, max_instances=1)
     scheduler.add_job(sync_all_calendars, "interval", minutes=60, max_instances=1)
     scheduler.add_job(lambda: mentor_calendars.sync_all(supabase, gcal), "interval", minutes=10, max_instances=1)
+    scheduler.add_job(run_progress_estimates, "interval", minutes=10, max_instances=1)
     scheduler.add_job(link_org_claims, "interval", seconds=60, max_instances=1)
     scheduler.add_job(lambda: dev_controls.run_commands(supabase, DEV_COMMANDS), "interval", seconds=5, max_instances=1)
     scheduler.add_job(lambda: dev_controls.flush_logs(supabase, log_tee), "interval", seconds=10, max_instances=1)

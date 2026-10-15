@@ -3,9 +3,11 @@ import { programState } from "@/components/dashboard/program";
 import {
   blockedDays,
   checkinStreak,
-  upcomingMilestones,
   expectedProgress,
   gateStatus,
+  goalValue,
+  milestoneValue,
+  upcomingMilestones,
   weeklyProgress,
 } from "@/components/dashboard/insights";
 
@@ -119,5 +121,20 @@ describe("coming up", () => {
     expect(out.map((x) => x.id)).toEqual(["past", "today", "soon", "late", "none"]);
     expect(out[0]!.overdue).toBe(true);
     expect(out[1]!.dueToday).toBe(true);
+  });
+});
+
+describe("goal progress with GitHub estimates", () => {
+  it("shows done as 100, then the estimate, then official progress", () => {
+    expect(goalValue({ done: true, est_progress: 40 })).toEqual({ pct: 100, estimated: false });
+    expect(goalValue({ done: false, progress: 20, est_progress: 60 })).toEqual({
+      pct: 60,
+      estimated: true,
+    });
+    expect(goalValue({ done: false, progress: 30 })).toEqual({ pct: 30, estimated: false });
+    expect(milestoneValue([{ done: true }, { done: false, est_progress: 50 }])).toEqual({
+      pct: 75,
+      estimated: true,
+    });
   });
 });

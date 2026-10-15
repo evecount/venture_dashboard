@@ -1,5 +1,6 @@
 import { CheckCheck, Circle, Target } from "lucide-react";
 import { useMilestones } from "@/hooks/use-milestones";
+import { goalValue, milestoneValue } from "./insights";
 import type { SetBy } from "@/hooks/use-dash-data";
 import type { Founder } from "./data";
 
@@ -27,11 +28,10 @@ export function Milestones({ founder }: { founder: Founder }) {
       <div className="drawer-history">
         {items?.map((m) => {
           const done = m.goals.filter((g) => g.done).length;
-          const pct = m.goals.length
-            ? Math.round((done / m.goals.length) * 100)
-            : m.status === "done"
-              ? 100
-              : 0;
+          const overall = m.goals.length
+            ? milestoneValue(m.goals)
+            : { pct: m.status === "done" ? 100 : 0, estimated: false };
+          const pct = overall.pct;
           const by = setByLabel(m.set_by);
           return (
             <article key={m.id}>
@@ -54,18 +54,28 @@ export function Milestones({ founder }: { founder: Founder }) {
                 aria-valuenow={pct}
                 aria-valuemin={0}
                 aria-valuemax={100}
-                aria-label={`${pct}% of goals done`}
+                aria-label={`About ${pct}% done`}
               >
-                <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
+                <div
+                  className={`h-full ${overall.estimated ? "est-fill" : "bg-primary"}`}
+                  style={{ width: `${pct}%` }}
+                />
               </div>
               <p className="mt-1.5 text-xs text-muted-foreground">
                 {done}/{m.goals.length} goals done
+                {pct > 0 && (
+                  <>
+                    {" · "}
+                    {overall.estimated ? `~${pct}% incl. GitHub estimates` : `${pct}%`}
+                  </>
+                )}
               </p>
               <ul className="mt-2 space-y-1.5">
                 {m.goals.map((g) => {
                   // Only call out who added a goal when it differs from whoever set the milestone.
                   const goalBy = setByLabel(g.set_by);
                   const differs = goalBy && goalBy !== by;
+                  const v = goalValue(g);
                   return (
                     <li key={g.id} className="flex items-start gap-2 text-sm leading-relaxed">
                       {g.done ? (
@@ -77,6 +87,23 @@ export function Milestones({ founder }: { founder: Founder }) {
                         <span className={g.done ? "text-muted-foreground line-through" : ""}>
                           {g.title}
                         </span>
+                        {!g.done && v.pct > 0 && (
+                          <span
+                            className={`goal-pct ${v.estimated ? "est" : ""}`}
+                            title={
+                              v.estimated
+                                ? (g.est_reason ?? "Estimated from GitHub work")
+                                : undefined
+                            }
+                          >
+                            {v.estimated ? `~${v.pct}% est. from GitHub` : `${v.pct}%`}
+                          </span>
+                        )}
+                        {v.estimated && g.est_reason && (
+                          <span className="block text-xs text-muted-foreground">
+                            {g.est_reason}
+                          </span>
+                        )}
                         {differs && (
                           <span className="block text-xs text-muted-foreground">
                             Added by {goalBy}

@@ -73,7 +73,17 @@ export type MeetingRow = {
 };
 /** Who set a milestone or goal (name is null when the person's record is gone). */
 export type SetBy = { name: string | null; role: "mentor" | "founder" } | null;
-export type Goal = { id: string; title: string; done: boolean; set_by?: SetBy };
+export type Goal = {
+  id: string;
+  title: string;
+  done: boolean;
+  set_by?: SetBy;
+  /** Official partial progress, set or confirmed by a founder or mentor. */
+  progress?: number | null;
+  /** The bot's estimate from GitHub work, until someone confirms or adjusts it. */
+  est_progress?: number | null;
+  est_reason?: string | null;
+};
 export type Milestone = {
   id: string;
   startup_id: string;
