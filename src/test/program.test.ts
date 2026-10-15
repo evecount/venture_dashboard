@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { programState, sgtDate, syllabus } from "@/components/dashboard/program";
+import {
+  describeSession,
+  programState,
+  sgtDate,
+  splitPhase,
+  syllabus,
+} from "@/components/dashboard/program";
 import { attentionReason, isHandled } from "@/components/dashboard/roster";
 import type { Founder } from "@/components/dashboard/data";
 
@@ -73,5 +79,42 @@ describe("attention queue", () => {
       isHandled({ ...blocked, lastCheckInAt: "2026-10-13T12:00:00Z" }, "2026-10-13T11:00:00Z"),
     ).toBe(false);
     expect(isHandled(f({ health: "quiet" }), "2026-10-13T11:00:00Z")).toBe(true);
+  });
+});
+
+describe("plain schedule labels", () => {
+  it("describes every syllabus day without owner titles", () => {
+    for (const e of syllabus) {
+      const d = describeSession(e);
+      expect(d.kind).not.toBe("other");
+      expect(`${d.title} ${d.about} ${d.build}`).not.toMatch(
+        /Founders \/|Functional Lead|Industry Lead|Program Lead/,
+      );
+    }
+    const mon = describeSession(syllabus[0]!);
+    expect(mon).toMatchObject({
+      kind: "mentor",
+      title: "Mentor sync",
+      length: "45 min",
+      build: "4–6 hrs build time",
+    });
+    const review = syllabus.find((e) => /formal review/i.test(e.activity))!;
+    expect(describeSession(review)).toMatchObject({ kind: "gate", length: "60–90 min" });
+  });
+
+  it("splits a sprint phase into number, theme and review week", () => {
+    expect(splitPhase("Sprint 1: Ideation, Concept Selection & Sprint 1 Review")).toEqual({
+      sprint: 1,
+      theme: "Ideation, Concept Selection",
+      review: true,
+    });
+    expect(splitPhase("Sprint 5: MVP Build Sprint I")).toEqual({
+      sprint: 5,
+      theme: "MVP Build Sprint I",
+      review: false,
+    });
+    expect(splitPhase("Sprint 6: Iterate, Demo & 90-Day Scale Plan / Sprint 6 Review").review).toBe(
+      true,
+    );
   });
 });

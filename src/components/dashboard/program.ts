@@ -107,3 +107,106 @@ export function formatDay(
 ) {
   return new Date(`${date}T00:00:00Z`).toLocaleDateString("en-SG", { ...opts, timeZone: "UTC" });
 }
+
+export type SessionKind =
+  "mentor" | "specialist" | "industry" | "office" | "prep" | "gate" | "holiday" | "other";
+
+export type DaySession = {
+  kind: SessionKind;
+  title: string;
+  length: string | null;
+  about: string | null;
+  build: string | null;
+};
+
+const dash = (t: string) => t.replace(/(\d)-(\d)/g, "$1–$2");
+
+/**
+ * Turns a syllabus line like "4-6 hrs build time + 45 min Mentor/Advisor Sync (Decisions/Accountability)" into
+ * plain labels: what the session is, how long, what it covers and the build time. No owner titles.
+ */
+export function describeSession(e: Pick<SyllabusEvent, "activity" | "focus">): DaySession {
+  const a = e.activity;
+  const build = /^(\d+(?:-\d+)?\s*hrs?)\s+(build time|deep work)/i.exec(a);
+  const buildLabel = build ? `${dash(build[1]!)} ${build[2]!.toLowerCase()}` : null;
+  const len = (re: RegExp) => {
+    const m = re.exec(a);
+    return m ? dash(m[1]!) : null;
+  };
+  if (/holiday/i.test(a))
+    return {
+      kind: "holiday",
+      title: "Public holiday",
+      length: null,
+      about: a.replace(/^.*?\(|\)$/g, ""),
+      build: null,
+    };
+  if (/mentor\/advisor sync/i.test(a))
+    return {
+      kind: "mentor",
+      title: "Mentor sync",
+      length: len(/(\d+\s*min)\s+mentor/i),
+      about: "Decisions and accountability",
+      build: buildLabel,
+    };
+  if (/functional specialist/i.test(a))
+    return {
+      kind: "specialist",
+      title: "Specialist session",
+      length: len(/(\d+\s*min)\s+functional/i),
+      about: "Product, engineering or go-to-market",
+      build: buildLabel,
+    };
+  if (/industry specialist/i.test(a))
+    return {
+      kind: "industry",
+      title: "Industry specialist",
+      length: len(/(\d+\s*min)\s+industry/i),
+      about: "Domain and customer insight",
+      build: buildLabel,
+    };
+  if (/office hours/i.test(a))
+    return {
+      kind: "office",
+      title: "Office hours",
+      length: len(/^(\d+\s*hrs?)/i),
+      about: "Dashboard review, unblocking and decisions",
+      build: null,
+    };
+  if (/formal review/i.test(a))
+    return {
+      kind: "gate",
+      title: "Gate review",
+      length: len(/^(\d+-\d+\s*min)/i),
+      about: "KPIs, evidence pack and a go / iterate / pivot decision",
+      build: null,
+    };
+  if (/demo prep/i.test(a))
+    return {
+      kind: "prep",
+      title: "Demo prep",
+      length: null,
+      about: "Analytics, demo prep and KPI dashboard update",
+      build: null,
+    };
+  return {
+    kind: "other",
+    title: e.focus || "Session",
+    length: null,
+    about: a || null,
+    build: buildLabel,
+  };
+}
+
+/** "Sprint 1: Ideation, Concept Selection & Sprint 1 Review" -> { sprint: 1, theme: "Ideation, Concept Selection", review: true } */
+export function splitPhase(phase: string): {
+  sprint: number | null;
+  theme: string;
+  review: boolean;
+} {
+  const m = /^Sprint\s+(\d+):\s*(.*)$/i.exec(phase.trim());
+  const rest = (m ? m[2]! : phase).trim();
+  const review = /(&|\/)\s*Sprint\s+\d+\s+Review$/i.test(rest);
+  const theme = rest.replace(/\s*(&|\/)\s*Sprint\s+\d+\s+Review$/i, "").trim();
+  return { sprint: m ? Number(m[1]) : null, theme, review };
+}

@@ -29,7 +29,8 @@ import { attentionReason, isHandled, relativeTime } from "./roster";
 import { formatDay, programState, sgtDate, type ProgramState, type SyllabusEvent } from "./program";
 import { gateStatus, upcomingMilestones, weeklyProgress } from "./insights";
 import { setByLabel } from "./milestones";
-import { GateBoard, GateMatrix } from "./gates";
+import { GateBoard } from "./gates";
+import { ProgramView } from "./program-view";
 import { StartupPage } from "./startup-page";
 import { DeveloperLink } from "./developer-link";
 import {
@@ -911,90 +912,5 @@ function ActivityGroup({ startup, items }: { startup: string; items: SignalRow[]
         </ul>
       )}
     </div>
-  );
-}
-
-function ProgramView({
-  program,
-  now,
-  founders,
-  snapshot,
-  openStartup,
-}: {
-  program: ProgramState;
-  now: Date;
-  founders: Founder[];
-  snapshot: DashSnapshot;
-  openStartup: (id: string) => void;
-}) {
-  const [week, setWeek] = useState(program.week);
-  const today = sgtDate(now);
-  const w = program.weeks.find((x) => x.week === week);
-  return (
-    <>
-      <PageHead title="Program" sub={`12-week MVP program · currently week ${program.week}`} />
-      {founders.length > 0 && (
-        <GateMatrix
-          founders={founders}
-          program={program}
-          subs={snapshot.submissions}
-          signals={snapshot.signals}
-          now={now}
-          openStartup={openStartup}
-        />
-      )}
-      <section className="panel mt-6" aria-labelledby="schedule-title">
-        <div className="panel-head">
-          <h2 id="schedule-title">Schedule</h2>
-        </div>
-        <div className="week-band" role="tablist" aria-label="Program weeks">
-          {program.weeks.map((x) => (
-            <button
-              key={x.week}
-              type="button"
-              role="tab"
-              aria-selected={x.week === week}
-              title={x.phase}
-              className={`week ${x.week < program.week ? "past" : ""} ${x.week === program.week ? "current" : ""} ${x.week === week ? "selected" : ""}`}
-              onClick={() => setWeek(x.week)}
-            >
-              <span className="week-bar" />
-              <span className="week-num">{x.week}</span>
-            </button>
-          ))}
-        </div>
-        {w && (
-          <div className="mt-6">
-            <p className="eyebrow">
-              Week {w.week}
-              {w.week === program.week ? " · this week" : ""}
-            </p>
-            <h3 className="mt-1 text-lg font-semibold">{w.phase}</h3>
-            {w.deliverable && (
-              <div className="deliverable-box">
-                <p className="eyebrow">Gate · {w.gateDate ? formatDay(w.gateDate) : "—"}</p>
-                <p className="mt-1 font-medium">{w.deliverable}</p>
-              </div>
-            )}
-            <ol className="agenda mt-5">
-              {w.events.map((e: SyllabusEvent) => (
-                <li
-                  key={e.date}
-                  className={e.date === today ? "now" : e.date < today ? "past" : ""}
-                >
-                  <p className="agenda-when">{e.date === today ? "Today" : formatDay(e.date)}</p>
-                  <p className="agenda-what">{e.focus}</p>
-                  <p className="agenda-who">
-                    {e.activity}
-                    <span className="dot-sep">·</span>
-                    {e.owner}
-                  </p>
-                </li>
-              ))}
-            </ol>
-          </div>
-        )}
-      </section>
-    </>
   );
 }
