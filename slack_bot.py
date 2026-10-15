@@ -1986,7 +1986,8 @@ def notify_founders(startup_id: str, blocks: list, text: str):
     for f in supabase.table("founders").select("slack_user_id").eq("startup_id", startup_id).execute().data or []:
         if f.get("slack_user_id"):
             try:
-                app.client.chat_postMessage(channel=f["slack_user_id"], text=text, blocks=blocks)
+                sent = app.client.chat_postMessage(channel=f["slack_user_id"], text=text, blocks=blocks)
+                print(f"[Progress Estimate] card sent to {f['slack_user_id']} ({startup_id}) ts={sent.get('ts')}: {text}")
             except Exception as e:
                 print(f"[Progress Estimate Warning] DM {f['slack_user_id']}: {e}")
 
