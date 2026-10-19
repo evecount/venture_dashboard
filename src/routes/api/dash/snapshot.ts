@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { admin } from "@/lib/supabase-admin";
 import { isMonitored } from "@/lib/integrations";
+import { visibleTasks } from "@/lib/dash-scope";
 import { identityFromRequest, json } from "@/lib/dash-auth";
 
 const GITHUB_TYPES = new Set(["commit", "pull_request", "issue"]);
@@ -79,16 +80,19 @@ export const Route = createFileRoute("/api/dash/snapshot")({
           identity.role === "mentor"
             ? admin<T>(path)
             : Promise.resolve({ ok: true, data: [] as T });
+        // Mentors share one cohort-wide query, so its cap is generous and limited to recent weeks; otherwise one busy
+        // startup would push the others' signals out and their trends would read as "no activity".
+        const signalsSince = encodeURIComponent(new Date(Date.now() - 45 * 86_400_000).toISOString());
         const [startups, founders, submissions, signals, repos, handled, milestones, notes, tasks] =
           await Promise.all([
             admin(`startups?select=id,name,tagline,stream,lead${by("id")}`),
             admin(`founders?select=id,name,startup_id,profile,target_audience${by("startup_id")}`),
             admin(
               `submissions?select=id,startup_id,founder_id,deliverable_id,status,progress,blocker,digest,raw_transcript,artifact_url,created_at` +
-                `&confirmed=eq.true&order=created_at.desc&limit=300${by("startup_id")}`,
+                `&confirmed=eq.true&order=created_at.desc&limit=${only ? 300 : 800}${by("startup_id")}`,
             ),
             admin<SignalRow[]>(
-              `signals?select=id,startup_id,type,headline,detail,stream,meta,created_at&order=created_at.desc&limit=200${by("startup_id")}`,
+              `signals?select=id,startup_id,type,headline,detail,stream,meta,created_at&created_at=gte.${signalsSince}&order=created_at.desc&limit=${only ? 300 : 1500}${by("startup_id")}`,
             ),
             admin<Repos[]>(
               `integrations?select=startup_id,repos,selected_repos&provider=eq.github${by("startup_id")}`,
@@ -102,12 +106,19 @@ export const Route = createFileRoute("/api/dash/snapshot")({
             mentorOnly(
               "notes?select=id,startup_id,author_name,body,created_at&order=created_at.desc&limit=200",
             ),
-            admin(
+            admin<{ owner_slack_id: string | null }[]>(
               `tasks?select=id,startup_id,owner_slack_id,title,due_date,status,created_at&status=eq.open` +
                 `&order=due_date.asc.nullslast&limit=200${by("startup_id")}`,
             ),
           ]);
         if (!startups.ok) return json({ error: "unavailable" }, 502);
+        // Slack ids of the founder's own team: their tasks stay visible, mentors' private ones do not.
+        const teamSlack =
+          identity.role === "founder"
+            ? await admin<{ slack_user_id: string }[]>(
+                `founders?select=slack_user_id&startup_id=eq.${only}&slack_user_id=not.is.null`,
+              )
+            : { ok: true, data: [] as { slack_user_id: string }[] };
 
         // Studio meetings, copied from the studio calendar by the bot. Mentors see every meeting; a founder only
         // the ones they're invited to (same rule as the bot). Attendee emails never leave the server.
@@ -237,7 +248,11 @@ export const Route = createFileRoute("/api/dash/snapshot")({
             goals: (goals ?? []).map(({ created_by: by, ...g }) => ({ ...g, set_by: setBy(by) })),
           })),
           notes: rowsOf(notes),
-          tasks: rowsOf(tasks),
+          tasks: visibleTasks(
+            rowsOf(tasks),
+            identity.role,
+            rowsOf(teamSlack).map((f) => f.slack_user_id),
+          ),
           meetings,
           mentorBusy,
         });

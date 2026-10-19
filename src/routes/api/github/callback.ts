@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { admin } from "@/lib/supabase-admin";
 import { verifyState } from "@/lib/integrations";
+import { canLinkInstallation } from "@/lib/dash-scope";
 
 const page = (title: string, body: string, status = 200) =>
   new Response(
@@ -33,6 +34,15 @@ export const Route = createFileRoute("/api/github/callback")({
           `github_installations?select=account,repos&installation_id=eq.${installationId}`,
         );
         const known = staged.data?.[0];
+        // An installation already linked to another startup is never re-pointed: the id comes from the URL, so a
+        // valid link for one startup must not be able to take over someone else's connection.
+        const current = await admin<{ startup_id: string }[]>(
+          `integrations?select=startup_id&provider=eq.github&external_id=eq.${installationId}&limit=1`,
+        );
+        if (!current.ok) return page("Something went wrong", "I couldn't check the connection. Please try again from Slack.", 500);
+        if (!canLinkInstallation(current.data?.[0], state.s)) {
+          return page("Already connected", "That GitHub installation is already linked to another startup, so I left it as it is. Ask a mentor if this looks wrong.", 409);
+        }
         const res = await admin("integrations?on_conflict=provider,external_id", {
           method: "POST",
           prefer: "resolution=merge-duplicates,return=minimal",

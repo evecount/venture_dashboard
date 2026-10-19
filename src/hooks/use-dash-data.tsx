@@ -44,7 +44,6 @@ export type NoteRow = {
 export type TaskRow = {
   id: string;
   startup_id: string | null;
-  owner_slack_id: string | null;
   title: string;
   due_date: string | null;
   status: string;
