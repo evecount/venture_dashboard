@@ -1,6 +1,6 @@
 import { CheckCheck, Circle, Target } from "lucide-react";
 import { useMilestones } from "@/hooks/use-milestones";
-import { goalValue, milestoneValue } from "./insights";
+import { goalValue, isMilestoneComplete, milestoneValue } from "./insights";
 import type { SetBy } from "@/hooks/use-dash-data";
 import type { Founder } from "./data";
 
@@ -40,7 +40,7 @@ export function Milestones({ founder }: { founder: Founder }) {
                 {m.due_date
                   ? `Due ${new Date(m.due_date).toLocaleDateString("en-SG", { month: "short", day: "numeric" })}`
                   : "No due date"}
-                {m.status === "done" && " · Done"}
+                {isMilestoneComplete(m) && " · Done"}
               </p>
               <p className="mt-1.5 text-[15px] font-medium">{m.title}</p>
               {by && (

@@ -100,3 +100,26 @@ class DirectAnnounceTests(unittest.TestCase):
         sb = mock.MagicMock()
         sb.table.return_value.delete.return_value.eq.return_value.execute.side_effect = RuntimeError("disconnected")
         self.assertTrue(Memory(sb).claim_meeting("m1"))
+
+
+class MilestoneSyncTests(unittest.TestCase):
+    def memory(self, status, goals):
+        sb = mock.MagicMock()
+        sb.table.return_value.select.return_value.eq.return_value.execute.return_value.data = [
+            {"status": status, "goals": [{"done": d} for d in goals]}]
+        return Memory(sb), sb
+
+    def test_last_goal_ticked_completes_the_milestone(self):
+        mem, sb = self.memory("open", [True, True])
+        self.assertEqual(mem.sync_milestone("m1"), "done")
+        self.assertEqual(sb.table.return_value.update.call_args[0][0]["status"], "done")
+
+    def test_new_or_unticked_goal_reopens_it(self):
+        mem, _ = self.memory("done", [True, False])
+        self.assertEqual(mem.sync_milestone("m1"), "open")
+
+    def test_nothing_changes_when_status_already_matches_or_dropped_or_no_goals(self):
+        for status, goals in (("open", [True, False]), ("done", [True]), ("dropped", [True]), ("open", [])):
+            mem, sb = self.memory(status, goals)
+            self.assertIsNone(mem.sync_milestone("m1"))
+            sb.table.return_value.update.assert_not_called()

@@ -18,6 +18,8 @@ import {
   type TimelineGroup,
 } from "@/hooks/use-timeline";
 import type { Founder } from "./data";
+import { deliverableId } from "./insights";
+import { programState } from "./program";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -36,8 +38,19 @@ function blockedForDays(entries: TimelineEntry[]): number | null {
 function progressDelta(entries: TimelineEntry[], index: number): number | null {
   const current = entries[index];
   if (current?.progress === undefined) return null;
-  const previous = entries.slice(index + 1).find((e) => e.progress !== undefined);
+  // Progress is per deliverable: a new week's 20% is not a drop from last week's 60%.
+  const previous = entries
+    .slice(index + 1)
+    .find((e) => e.progress !== undefined && e.deliverableId === current.deliverableId);
   return previous?.progress === undefined ? null : current.progress - previous.progress;
+}
+
+/** "on current deliverable" only when the check-in is for this program week; otherwise name its week. */
+export function progressScope(e: TimelineEntry, now = new Date()): string {
+  const current = deliverableId(programState(now).week);
+  if (!e.deliverableId || e.deliverableId === current) return "on current deliverable";
+  const week = Number(e.deliverableId.replace(/\D/g, ""));
+  return week ? `on week ${week}'s deliverable (last check-in)` : "on an earlier deliverable";
 }
 
 function icon(e: TimelineEntry) {
@@ -82,7 +95,7 @@ export function Timeline({ founder, refreshKey }: { founder: Founder; refreshKey
         <div className="mb-4 flex flex-wrap items-center gap-2 text-[11px]">
           {latest && (
             <span className="pill pill-neutral">
-              <TrendingUp size={10} /> {latest.progress}% on current deliverable
+              <TrendingUp size={10} /> {latest.progress}% {progressScope(latest)}
             </span>
           )}
           {blocked !== null && (

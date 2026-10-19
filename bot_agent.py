@@ -636,6 +636,7 @@ class Agent:
                 title = str(args.get("title", "")).strip()
                 if not (title and mem.add_goal(m["id"], title, me)):
                     return "⚠️ I couldn't add that goal."
+                mem.sync_milestone(m["id"])  # a finished milestone reopens when it gets a new goal
                 return f"➕ Goal added to {m['title']}: {title}" + self._supersede(m.get("startup_id"), m["id"], [title])
             patch = {}
             if args.get("title"):
@@ -656,7 +657,10 @@ class Agent:
         if role == "founder" and issued and (name == "remove_goal" or args.get("title")):
             return locked
         if name == "remove_goal":
-            return f"🗑 Removed goal: {g['title']}" if mem.remove_goal(g["id"]) else "⚠️ I couldn't remove that goal."
+            if not mem.remove_goal(g["id"]):
+                return "⚠️ I couldn't remove that goal."
+            mem.sync_milestone(g["milestone"]["id"])
+            return f"🗑 Removed goal: {g['title']}"
         patch = {}
         if args.get("title"):
             patch["title"] = str(args["title"])[:300]
@@ -667,8 +671,9 @@ class Agent:
         ok = mem.update_goal(g["id"], patch)
         if not ok:
             return "⚠️ I couldn't update that goal."
+        finished = mem.sync_milestone(g["milestone"]["id"]) if "done" in patch else None
         if patch.get("done") is True:
-            return f"✅ Goal done: {g['title']}"
+            return f"✅ Goal done: {g['title']}" + (f" That completes the milestone *{g['milestone']['title']}* 🎉" if finished == "done" else "")
         return "✏️ Goal updated."
 
     # ---------- meetings ----------

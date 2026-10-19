@@ -11,6 +11,8 @@ export type TimelineEntry = {
   detail: string;
   status?: string;
   progress?: number | undefined;
+  /** Which week's deliverable a check-in's progress is measured against (del-wk03). */
+  deliverableId?: string | undefined;
   /** Commits in a push, or meetings in a day. */
   weight?: number | undefined;
   merged?: boolean | undefined;
@@ -18,6 +20,7 @@ export type TimelineEntry = {
 
 type SubRow = {
   id: string;
+  deliverable_id?: string | null;
   status: string;
   progress: number | null;
   blocker: string | null;
@@ -49,6 +52,7 @@ export function mergeTimeline(subs: SubRow[], sigs: SigRow[]): TimelineEntry[] {
         : s.digest,
     status: s.status,
     progress: s.progress ?? undefined,
+    deliverableId: s.deliverable_id ?? undefined,
   }));
   for (const g of sigs) {
     // The Slack bot writes a signal alongside every check-in; skip those echoes.

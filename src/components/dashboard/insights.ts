@@ -175,12 +175,23 @@ export function blockedDays(startupId: string, subs: SubLike[], now: Date): numb
   return Math.round(total / DAY);
 }
 
-type MilestoneLike = { id: string; startup_id: string; due_date: string | null; status: string };
+type MilestoneLike = {
+  id: string;
+  startup_id: string;
+  due_date: string | null;
+  status: string;
+  goals?: { done: boolean }[];
+};
+
+/** Finished: marked done, or it has goals and every one is ticked (older milestones were never marked done). */
+export function isMilestoneComplete(m: Pick<MilestoneLike, "status" | "goals">): boolean {
+  return m.status === "done" || (!!m.goals?.length && m.goals.every((g) => g.done));
+}
 
 /** Open milestones, earliest due first and undated last, flagged when overdue or due today (SGT date). */
 export function upcomingMilestones<M extends MilestoneLike>(milestones: M[], today: string) {
   return milestones
-    .filter((m) => m.status === "open")
+    .filter((m) => m.status === "open" && !isMilestoneComplete(m))
     .map((m) => {
       const due = m.due_date ? m.due_date.slice(0, 10) : null;
       return { ...m, due_date: due, overdue: !!due && due < today, dueToday: due === today };

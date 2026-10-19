@@ -2185,7 +2185,7 @@ def run_progress_estimates():
 
 def _goal_for(user_id: str, goal_id: str) -> dict | None:
     """The goal, if this person may update it: a founder of its startup, or any mentor."""
-    rows = supabase.table("goals").select("id,title,est_progress,milestones(startup_id)").eq("id", goal_id).execute().data
+    rows = supabase.table("goals").select("id,title,est_progress,milestone_id,milestones(startup_id)").eq("id", goal_id).execute().data
     if not rows:
         return None
     g = rows[0]
@@ -2202,6 +2202,8 @@ def _settle_goal(body, client, goal_id: str, patch: dict, said: str):
         client.chat_postMessage(channel=user_id, text="⚠️ I couldn't update that goal (it may have been removed).")
         return
     supabase.table("goals").update({**patch, "est_progress": None, "est_reason": None, "est_at": None}).eq("id", goal_id).execute()
+    if "done" in patch and g.get("milestone_id"):
+        memory.sync_milestone(g["milestone_id"])
     try:
         client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=said,
                            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": said.replace("{title}", g["title"])}}])
