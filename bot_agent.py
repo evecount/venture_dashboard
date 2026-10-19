@@ -273,7 +273,7 @@ class Agent:
         lines.append("Work signals: " + integrations.activity_line(
             integrations.activity_summary(self.sb, c["startup_id"]) if self.sb else {"signals": 0}, "github" in conn))
         lines += self._milestone_lines(c["startup_id"], False)
-        tasks = self.memory.open_tasks(c["startup_id"])
+        tasks = self.memory.founder_tasks(c["startup_id"])
         if tasks:
             lines.append("Open tasks:")
             lines += [f"- [{t['id'][:6]}] {t['title']} (due {t.get('due_date') or 'no date'})" for t in tasks]
@@ -323,7 +323,7 @@ class Agent:
         if tasks:
             lines.append("Open tasks (ref · startup · title · due · owner):")
             lines += [f"- [{t['id'][:6]}] {_label(t.get('startups'))} · {t['title']} · due {t.get('due_date') or 'no date'} · "
-                      f"{'you' if t.get('owner_slack_id') == ident['slack_id'] else ('startup' if not t.get('owner_slack_id') else 'another mentor')}"
+                      f"{'you' if t.get('owner_slack_id') == ident['slack_id'] else ('startup' if not t.get('owner_slack_id') else 'another person')}"
                       for t in tasks]
         facts = self.memory.recent_facts()
         if facts:
@@ -389,7 +389,8 @@ class Agent:
             return False
 
     def _visible_tasks(self, ident):
-        return self.memory.open_tasks(self._own_startup(ident))
+        own = self._own_startup(ident)
+        return self.memory.founder_tasks(own) if own else self.memory.open_tasks()
 
     def _run_tool(self, ident: dict, name: str, args: dict, out: dict) -> str:
         role, me = ident["role"], ident["slack_id"]

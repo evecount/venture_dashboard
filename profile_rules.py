@@ -39,7 +39,8 @@ def match_person(all_rows: list, scoped_rows: list, name: str, email: str, email
         r_email = norm_email(r.get("email"))
         if r_email and e and r_email != e:
             continue  # same name, different email: a different person
-        return ("duplicate", r) if r.get("slack_user_id") else ("claim", r)
+        # only Slack's own email may claim an invited record; a typed one is never proof of who you are
+        return ("duplicate", r) if r.get("slack_user_id") or not email_verified else ("claim", r)
     return "new", None
 
 

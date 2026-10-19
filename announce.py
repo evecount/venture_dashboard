@@ -41,8 +41,15 @@ def resolve_recipients(specs: list, founders: list, mentors: list, sender_slack_
         slack_id = re.sub(r"[<@>|].*$", "", spec.lstrip("<@")) if spec.startswith("<@") else spec
         matches = [p for p in pool if p["slack"] and p["slack"].lower() == slack_id.lower()] \
             or [p for p in pool if p["startup"] and p["startup"].lower() == key] \
-            or [p for p in pool if p["name"].lower() == key] \
-            or [p for p in pool if key and (key in p["name"].lower() or p["name"].lower().split()[0] == key)]
+            or [p for p in pool if p["name"].lower() == key]
+        if not matches:  # a loose match ("Mo" inside "Thomas") must point at exactly one person, or nobody gets it
+            loose = [p for p in pool if key and (key in p["name"].lower().split() or p["name"].lower().split()[0] == key)] \
+                or [p for p in pool if key and key in p["name"].lower()]
+            if len(loose) == 1:
+                matches = loose
+            elif loose:
+                unknown.append(f"{spec} (which one? {', '.join(p['name'] for p in loose[:5])})")
+                continue
         if not matches:
             unknown.append(spec)
         for p in matches:

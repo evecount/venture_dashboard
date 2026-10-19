@@ -50,6 +50,9 @@ class FakeMemory:
     def open_tasks(self, *_a, **_k):
         return []
 
+    def founder_tasks(self, *_a, **_k):
+        return []
+
     def recent_notes(self, *_a, **_k):
         return []
 

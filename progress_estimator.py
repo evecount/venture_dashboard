@@ -112,11 +112,13 @@ def card(change: dict) -> list:
     return [{"type": "section", "text": {"type": "mrkdwn", "text": text}}, {"type": "actions", "elements": elements}]
 
 
-def _monitored_work(sb, startup_id: str, since: str) -> list:
+def _monitored_work(sb, startup_id: str, since: str) -> tuple:
+    """(work from monitored repos, created_at of the last row read). The cursor lets a window made only of
+    unmonitored repos' signals be skipped instead of being re-read forever."""
     rows = (sb.table("signals").select("id,type,headline,detail,meta,created_at").eq("startup_id", startup_id)
             .in_("type", list(WORK_TYPES)).gt("created_at", since).order("created_at").limit(80).execute().data) or []
     watched = integrations.monitored_for_startup(sb, startup_id)
-    return [r for r in rows if (r.get("meta") or {}).get("repo") in watched]
+    return [r for r in rows if (r.get("meta") or {}).get("repo") in watched], (rows[-1]["created_at"] if rows else None)
 
 
 def run(sb, ai, model: str, notify=None, now: datetime | None = None) -> int:
@@ -135,8 +137,11 @@ def run(sb, ai, model: str, notify=None, now: datetime | None = None) -> int:
     for startup_id in sorted({c["startup_id"] for c in conns if c.get("startup_id")}):
         try:
             since = state.get(startup_id) or (now - timedelta(days=FIRST_LOOKBACK_DAYS)).isoformat()
-            work = _monitored_work(sb, startup_id, since)
+            work, cursor = _monitored_work(sb, startup_id, since)
             if not work:
+                if cursor:
+                    sb.table("progress_estimate_state").upsert({
+                        "startup_id": startup_id, "last_signal_at": cursor, "updated_at": now.isoformat()}).execute()
                 continue
             milestones = (sb.table("milestones").select("title,goals(id,title,done,progress,est_progress)")
                           .eq("startup_id", startup_id).eq("status", "open").execute().data) or []

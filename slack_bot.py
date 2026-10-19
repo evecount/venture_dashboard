@@ -1399,7 +1399,7 @@ def publish_home(slack_user_id: str, client=None):
                 .execute()
             )
             latest = res.data[0] if res.data else None
-        client.views_publish(user_id=slack_user_id, view=build_home_view(context, latest, memory.open_tasks(context["startup_id"]) if context else [], memory.milestones(context["startup_id"]) if context else [], integrations.github_connections(supabase, context["startup_id"]) if context else [],
+        client.views_publish(user_id=slack_user_id, view=build_home_view(context, latest, memory.founder_tasks(context["startup_id"]) if context else [], memory.milestones(context["startup_id"]) if context else [], integrations.github_connections(supabase, context["startup_id"]) if context else [],
                                                integrations.google_connections(supabase, context["startup_id"]) if context else [],
                                                meeting_lines=founder_meeting_lines(slack_user_id) if context else []))
     except Exception as e:
@@ -1867,6 +1867,8 @@ def handle_confirm_meeting(ack, body, client):
         if not (get_role(user_id) == "mentor" and m.get("requester_slack") == user_id):
             client.chat_postEphemeral(channel=channel, user=user_id, text="Only the mentor who wrote this announcement can send it.")
             return
+        if not memory.claim_meeting(row["id"]):
+            return  # a second click on the same card
         text, sent, failed = announce.format_announcement(m["requester"], m["message"]), 0, []
         for person in m["recipients"]:
             try:
@@ -1882,6 +1884,11 @@ def handle_confirm_meeting(ack, body, client):
     if not (gcal and studio):
         finish("⚠️ The studio calendar isn't connected, so I couldn't do that.")
         return
+    if m.get("kind") == "change" and not (get_role(user_id) == "mentor" or m.get("requester_slack") == user_id):
+        client.chat_postEphemeral(channel=channel, user=user_id, text="Only a mentor or the person who set this meeting up can change it.")
+        return
+    if not memory.claim_meeting(row["id"]):
+        return  # a second click on the same card
     try:
         if m.get("kind") == "change":
             if not (get_role(user_id) == "mentor" or m.get("requester_slack") == user_id):
@@ -1926,6 +1933,11 @@ def handle_confirm_meeting(ack, body, client):
 @app.action("cancel_meeting")
 def handle_cancel_meeting(ack, body, client):
     ack()
+    row = memory.get_meeting(body["actions"][0]["value"])
+    if row and row["requested_by"] != body["user"]["id"]:
+        client.chat_postEphemeral(channel=body["channel"]["id"], user=body["user"]["id"],
+                                  text="Only the person who asked for this can cancel it.")
+        return
     memory.delete_meeting(body["actions"][0]["value"])
     client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text="Meeting cancelled.",
                        blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": "Meeting cancelled. Nothing was sent."}}])

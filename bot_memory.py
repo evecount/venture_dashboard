@@ -94,6 +94,15 @@ class Memory:
             return q.order("due_date", desc=False, nullsfirst=False).limit(limit).execute().data or []
         return self._guard("open_tasks", run, [])
 
+    def founder_tasks(self, startup_id: str, limit: int = 30) -> list:
+        """Open tasks a founder may see: unowned ones and their team's own, never a mentor's private follow-ups."""
+        tasks = self.open_tasks(startup_id, limit)
+        if not any(t.get("owner_slack_id") for t in tasks):
+            return tasks
+        team = {f["slack_user_id"] for f in self._guard("team", lambda: self.sb.table("founders").select("slack_user_id")
+                .eq("startup_id", startup_id).execute().data or [], []) if f.get("slack_user_id")}
+        return [t for t in tasks if not t.get("owner_slack_id") or t["owner_slack_id"] in team]
+
     def complete_task(self, task_id: str) -> bool:
         return self._guard("complete_task", lambda: bool(self.sb.table("tasks").update({
             "status": "done", "completed_at": datetime.now(timezone.utc).isoformat()}).eq("id", task_id).execute()), False)
@@ -148,6 +157,10 @@ class Memory:
             rows = self.sb.table("pending_meetings").select("*").eq("id", meeting_id).execute().data
             return rows[0] if rows else None
         return self._guard("get_meeting", run, None)
+
+    def claim_meeting(self, meeting_id: str) -> bool:
+        """Deletes the proposal and says whether this call was the one that removed it (stops a double click acting twice)."""
+        return bool(self._guard("claim_meeting", lambda: self.sb.table("pending_meetings").delete().eq("id", meeting_id).execute().data, []))
 
     def delete_meeting(self, meeting_id: str):
         self._guard("delete_meeting", lambda: self.sb.table("pending_meetings").delete().eq("id", meeting_id).execute(), None)
