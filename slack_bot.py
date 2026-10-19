@@ -3340,7 +3340,8 @@ if BackgroundScheduler:
     if DAILY_CHECKIN:
         scheduler.add_job(run_daily_prompts, "cron", day_of_week="mon-fri", hour=DAILY_CHECKIN_HOUR, minute=0)
         scheduler.add_job(run_daily_nudges, "cron", day_of_week="mon-fri", hour=9, minute=30)
-    scheduler.start()
+    # Not started here: importing this module (tests, dry runs, scripts) must never run the live jobs.
+    # The scheduler starts in __main__, only when the bot itself is launched.
 
 
 # --- CLI SIMULATOR / ENTRY POINT ---
@@ -3385,6 +3386,8 @@ if __name__ == "__main__":
         sys.exit(0)
 
     print("Venture Studio Slack Bot starting in Socket Mode...")
+    if BackgroundScheduler:
+        scheduler.start()  # only the real bot runs the timed jobs (prompts, syncs, reminders, heartbeat...)
     if SLACK_BOT_TOKEN and SLACK_APP_TOKEN:
         threading.Thread(target=resume_channel_syncs, daemon=True).start()
         _socket_handler = SocketModeHandler(app, SLACK_APP_TOKEN)
