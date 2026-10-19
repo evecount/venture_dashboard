@@ -95,7 +95,7 @@ export function SignInGate({ children }: { children: ReactNode }) {
             />
           </svg>
         </div>
-        <h1 className="mt-5 text-xl font-semibold">Adventure Studio · SG#01</h1>
+        <h1 className="mt-5 text-xl font-semibold">Adventure Studio · MVP Program</h1>
         {state === "checking" ? (
           <p className="mt-2 text-sm text-muted-foreground">Signing you in…</p>
         ) : (

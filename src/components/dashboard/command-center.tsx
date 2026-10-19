@@ -309,7 +309,7 @@ function Dashboard({
               </svg>
             </div>
             <span className="hide-sm truncate font-semibold">Adventure Studio</span>
-            <span className="cohort-tag">SG#01</span>
+            <span className="cohort-tag">MVP</span>
           </div>
           <nav className="tab-nav" aria-label="Dashboard sections">
             {tabs.map((t) => (
@@ -345,7 +345,7 @@ function Dashboard({
       <main className="dash-main">
         {body}
         <footer className="page-footer">
-          <span>Adventure Studio · Cohort SG#01</span>
+          <span>Adventure Studio · MVP Program</span>
           <span>From founders&apos; Slack check-ins and connected tools · All times SGT</span>
         </footer>
       </main>
