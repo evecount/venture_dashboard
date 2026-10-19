@@ -1,9 +1,9 @@
 """
-Estimates goal progress from a founder's GitHub work.
+Estimates goal progress from a founder's GitHub work and from their saved check-ins.
 
 Every few minutes, for each startup with a monitored repository: take the commits, PRs and issues not assessed yet,
 show them to the AI next to the startup's open goals, and ask which goals the work moves forward and to roughly
-what percentage. Estimates are stored on the goal as "estimated from GitHub" (never as official progress), only ever
+what percentage. Estimates are stored on the goal as "estimated" (never as official progress), only ever
 go up, stop at 95%, and never mark a goal done. When an estimate moves a lot (or the work looks finished), the
 founders get a Slack card to confirm it, set their own number, or mark the goal done.
 """
@@ -29,6 +29,18 @@ SYSTEM = (
     '"looks_done": <true if the work clearly finishes the goal>}]}. Return an empty list if nothing applies.'
 )
 
+CHECKIN_SYSTEM = (
+    "You estimate how far a startup's goals have progressed, using only the founder's check-in shown (their own "
+    "words about what they did). Be conservative: credit only what the check-in clearly reports as done, not plans "
+    "or intentions. Non-code goals count here (e.g. 'emailed 3 of the 5 RCs' puts 'Contact 5 RCs' at about 60%). "
+    "Progress is the TOTAL for the goal so far (not an increment) and must not be below its current value. Reply "
+    "with JSON only: "
+    '{"updates": [{"goal": "<ref>", "progress": <0-95>, "reason": "<one short sentence quoting what was done>", '
+    '"looks_done": <true if the check-in says the goal is finished>}]}. Return an empty list if nothing applies.'
+)
+SOURCES = {"github": ("your GitHub work", SYSTEM, "NEW GITHUB WORK (oldest first):"),
+           "checkin": ("your check-in", CHECKIN_SYSTEM, "FOUNDER CHECK-IN:")}
+
 
 def goal_value(g: dict) -> tuple[int, bool]:
     """(percent, is_estimate) for display: done = 100; else the bot's estimate if any, else official progress."""
@@ -49,13 +61,13 @@ def milestone_value(goals: list, milestone: dict | None = None) -> tuple[int, bo
     return round(sum(v for v, _ in vals) / len(vals)), any(e for _, e in vals)
 
 
-def build_prompt(goals: list, work: list) -> str:
+def build_prompt(goals: list, work: list, heading: str = SOURCES["github"][2]) -> str:
     lines = ["OPEN GOALS (ref · milestone · goal · current %):"]
     for ref, g in goals:
         title = "(the milestone as a whole: it has no separate goals)" if g.get("kind") == "milestone" else g["title"]
         lines.append(f"- {ref} · {g['milestone']} · {title} · {goal_value(g)[0]}%")
     lines.append("")
-    lines.append("NEW GITHUB WORK (oldest first):")
+    lines.append(heading)
     for s in work:
         detail = f" — {s['detail']}" if s.get("detail") else ""
         lines.append(f"- {s['created_at'][:10]} · {s['headline']}{detail}")
@@ -111,7 +123,8 @@ def card(change: dict) -> list:
     g = change["goal"]
     ref = item_ref(g)
     where = "" if g.get("kind") == "milestone" else f" ({g['milestone']})"
-    text = (f"📈 *{g['title']}*{where} looks about *{change['new']}%* done from your GitHub work"
+    source = SOURCES.get(change.get("source") or "github", SOURCES["github"])[0]
+    text = (f"📈 *{g['title']}*{where} looks about *{change['new']}%* done from {source}"
             + (f": {change['reason']}" if change["reason"] else ".")
             + "\nIt shows as an estimate until you confirm it.")
     options = [{"text": {"type": "plain_text", "text": f"{p}%"}, "value": f"{ref}|{p}"} for p in range(10, 100, 10)]
@@ -145,6 +158,49 @@ def _open_milestones(sb, startup_id: str) -> list:
         return q("id,title,goals(id,title,done,progress,est_progress)")
 
 
+def _rateable(milestones: list) -> list:
+    """Open goals, plus each goal-less milestone rated as a whole (needs the milestone progress columns)."""
+    goals = [{**g, "milestone": m["title"]} for m in milestones for g in (m.get("goals") or []) if not g.get("done")]
+    goals += [{"id": m["id"], "title": m["title"], "milestone": m["title"], "kind": "milestone", "done": False,
+               "progress": m.get("progress"), "est_progress": m.get("est_progress")}
+              for m in milestones if not m.get("goals") and "est_progress" in m]
+    return goals
+
+
+def _assess(sb, ai, model: str, startup_id: str, goals: list, work: list, source: str, notify, now: datetime) -> int:
+    """Ask the AI, store the estimates that pass `decide`, and card the founders on a big move. Returns the count."""
+    _, system, heading = SOURCES[source]
+    refs = [(f"g{i + 1}", g) for i, g in enumerate(goals)]
+    reply = ai.chat.completions.create(
+        model=model, temperature=0.2,
+        messages=[{"role": "system", "content": system}, {"role": "user", "content": build_prompt(refs, work, heading)}],
+    ).choices[0].message.content
+    changes = decide(dict(refs), parse_reply(reply))
+    for c in changes:
+        c["source"] = source
+        sb.table(table_for(c["goal"])).update({"est_progress": c["new"], "est_reason": c["reason"] or None,
+                                               "est_at": now.isoformat()}).eq("id", c["goal"]["id"]).execute()
+        if notify and (c["new"] - c["old"] >= NOTIFY_JUMP or c["looks_done"]):
+            notify(startup_id, card(c), f"Progress estimate: {c['goal']['title']} ~{c['new']}%")
+    return len(changes)
+
+
+def from_checkin(sb, ai, model: str, startup_id: str, digest: str, notify=None, now: datetime | None = None) -> int:
+    """After a founder saves a check-in: credit the goals it clearly reports progress on (code or not)."""
+    if not (sb and ai and startup_id and (digest or "").strip()):
+        return 0
+    now = now or datetime.now(timezone.utc)
+    try:
+        goals = _rateable(_open_milestones(sb, startup_id))
+        if not goals:
+            return 0
+        work = [{"created_at": now.isoformat(), "headline": "Check-in", "detail": digest.strip()[:1500]}]
+        return _assess(sb, ai, model, startup_id, goals, work, "checkin", notify, now)
+    except Exception as e:  # noqa: BLE001 - an estimate must never break saving a check-in
+        print(f"[Progress Estimate Warning] check-in {startup_id}: {e}")
+        return 0
+
+
 def run(sb, ai, model: str, notify=None, now: datetime | None = None) -> int:
     """One pass over every startup with GitHub connected. `notify(startup_id, blocks, text)` sends Slack cards."""
     if not (sb and ai):
@@ -167,28 +223,10 @@ def run(sb, ai, model: str, notify=None, now: datetime | None = None) -> int:
                     sb.table("progress_estimate_state").upsert({
                         "startup_id": startup_id, "last_signal_at": cursor, "updated_at": now.isoformat()}).execute()
                 continue
-            milestones = _open_milestones(sb, startup_id)
-            goals = [{**g, "milestone": m["title"]} for m in milestones for g in (m.get("goals") or []) if not g.get("done")]
-            # A milestone with no goals is rated as a whole (needs the milestone progress columns).
-            goals += [{"id": m["id"], "title": m["title"], "milestone": m["title"], "kind": "milestone", "done": False,
-                       "progress": m.get("progress"), "est_progress": m.get("est_progress")}
-                      for m in milestones if not m.get("goals") and "est_progress" in m]
+            goals = _rateable(_open_milestones(sb, startup_id))
             if not goals:
                 continue  # leave the work unassessed: goals set later still get credit for it
-            changes = []
-            if goals:
-                refs = [(f"g{i + 1}", g) for i, g in enumerate(goals)]
-                reply = ai.chat.completions.create(
-                    model=model, temperature=0.2,
-                    messages=[{"role": "system", "content": SYSTEM}, {"role": "user", "content": build_prompt(refs, work)}],
-                ).choices[0].message.content
-                changes = decide(dict(refs), parse_reply(reply))
-            for c in changes:
-                sb.table(table_for(c["goal"])).update({"est_progress": c["new"], "est_reason": c["reason"] or None,
-                                          "est_at": now.isoformat()}).eq("id", c["goal"]["id"]).execute()
-                stored += 1
-                if notify and (c["new"] - c["old"] >= NOTIFY_JUMP or c["looks_done"]):
-                    notify(startup_id, card(c), f"Progress estimate: {c['goal']['title']} ~{c['new']}%")
+            stored += _assess(sb, ai, model, startup_id, goals, work, "github", notify, now)
             sb.table("progress_estimate_state").upsert({
                 "startup_id": startup_id, "last_signal_at": work[-1]["created_at"], "updated_at": now.isoformat()}).execute()
         except Exception as e:  # noqa: BLE001 - one startup's failure must not stop the others

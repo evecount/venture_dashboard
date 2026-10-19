@@ -19,7 +19,7 @@ class MilestoneLinesTests(unittest.TestCase):
     def test_goal_less_milestone_shows_its_estimate(self):
         lines = slack_bot._milestone_lines([{"title": "Build UI", "goals": [], "est_progress": 40}])
         self.assertIn("~40%", lines[0])
-        self.assertIn("est. from GitHub", lines[0])
+        self.assertIn("estimated", lines[0])
 
     def test_goal_counts_still_show(self):
         lines = slack_bot._milestone_lines([{"title": "Outreach", "goals": [{"title": "a", "done": True},
@@ -40,6 +40,16 @@ class GettingStartedTests(unittest.TestCase):
     def test_no_milestones_still_asks(self):
         blocks = slack_bot.getting_started_blocks("f1", {"status": "On track"}, [], [], [], github_ready=False)
         self.assertIn("Set your first milestone", blocks[0]["text"]["text"])
+
+
+class HowToTests(unittest.TestCase):
+    def test_compact_reminder_is_one_line(self):
+        blocks = slack_bot.how_to_blocks("founder", compact=True)
+        self.assertEqual(len(blocks), 2)
+        self.assertIn("help", blocks[1]["elements"][0]["text"])
+
+    def test_full_guide_by_default(self):
+        self.assertGreater(len(slack_bot.how_to_blocks("founder")), 3)
 
 
 if __name__ == "__main__":

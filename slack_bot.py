@@ -15,9 +15,16 @@ import json
 from urllib.parse import quote
 from datetime import datetime, timedelta, timezone
 from timeparse import parse_ts
+
+# Under a test runner the real .env is never loaded: tests must not reach the live database, Slack or the AI.
+# Launched as a program (the bot, or a dry run) it never counts as a test, whatever a library imported.
+UNDER_TEST = __name__ != "__main__" and ("unittest" in sys.modules or "pytest" in sys.modules)
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    if UNDER_TEST:
+        load_dotenv = None
+    else:
+        load_dotenv()
 except ImportError:
     pass
 
@@ -47,7 +54,7 @@ except ImportError:
 
 # Load environment configuration
 try:
-    if "load_dotenv" in globals() and callable(load_dotenv):
+    if not UNDER_TEST and "load_dotenv" in globals() and callable(load_dotenv):
         load_dotenv()
 except Exception:
     pass
@@ -282,7 +289,10 @@ agent = (Agent(ai_client, AI_MODEL, supabase, memory, connect_url=github_link, c
 # Initialize Slack Bolt App
 app = None
 if App:
-    app = App(token=SLACK_BOT_TOKEN) if SLACK_BOT_TOKEN else App(token="xoxb-placeholder")
+    if UNDER_TEST:  # no call to Slack's auth.test from a test run
+        app = App(token="xoxb-placeholder", token_verification_enabled=False)
+    else:
+        app = App(token=SLACK_BOT_TOKEN) if SLACK_BOT_TOKEN else App(token="xoxb-placeholder")
 else:
     class DummyApp:
         def message(self, *args, **kwargs):
@@ -1198,7 +1208,7 @@ def _goal_suffix(g: dict) -> str:
     pct, est = progress_estimator.goal_value(g)
     if g.get("done") or not pct:
         return ""
-    return f" · _~{pct}% est. from GitHub_" if est else f" · {pct}%"
+    return f" · _~{pct}% estimated_" if est else f" · {pct}%"
 
 
 friendly_date = syllabus.friendly_date
@@ -1211,7 +1221,7 @@ def _milestone_lines(items: list) -> list:
         done = sum(1 for g in goals if g.get("done"))
         due = f" · due {friendly_date(m['due_date'])}" if m.get("due_date") else ""
         pct, est = progress_estimator.milestone_value(goals, m)
-        overall = f" · {'~' if est else ''}{pct}%" + (" _est. from GitHub_" if est and not goals else "") if pct else ""
+        overall = f" · {'~' if est else ''}{pct}%" + (" _estimated_" if est and not goals else "") if pct else ""
         count = f"{done}/{len(goals)} goals" if goals else "no goals yet"
         lines.append(f"🎯 *{m['title']}*{due} · {count}{overall}")
         lines += [("      ✅ " if g.get("done") else "      ⬜ ") + g["title"] + _goal_suffix(g) for g in goals[:6]]
@@ -1278,9 +1288,13 @@ HOW_TO = {
 }
 
 
-def how_to_blocks(role: str) -> list:
-    """A short, copy-able 'how to use Venture Buddy' section, different for founders and mentors."""
+def how_to_blocks(role: str, compact: bool = False) -> list:
+    """A short, copy-able 'how to use Venture Buddy' section, different for founders and mentors. `compact` is the
+    one-line reminder for people who already know their way around."""
     nl = chr(10)
+    if compact:
+        return [{"type": "divider"}, {"type": "context", "elements": [{"type": "mrkdwn", "text":
+                "💡 Need a reminder of what I can do? Type *help* in the *Messages* tab."}]}]
     blocks = [{"type": "divider"}, {"type": "header", "text": {"type": "plain_text", "text": "How to use Venture Buddy"}},
               {"type": "context", "elements": [{"type": "mrkdwn", "text": "Message me in the *Messages* tab, or @mention me in a channel. "
                                                 "Write the way you'd talk; these are just examples. Type *help* any time to see this again."}]}]
@@ -1400,7 +1414,9 @@ def build_home_view(context: dict | None, latest: dict | None, tasks: list | Non
     blocks += build_connections_blocks(context["founder_id"], context["startup_id"], conns or [])
     blocks += build_calendar_blocks(context["founder_id"], context["startup_id"], gcal_rows or [])
     blocks += build_task_blocks(tasks or [])
-    blocks += how_to_blocks("founder")
+    # After their first week (and once they've checked in) founders know the basics: keep the Home tab short.
+    week_no = mine["week"] if mine else (int(cur["week"].split()[-1]) if cur else 1)
+    blocks += how_to_blocks("founder", compact=bool(latest) and week_no >= 2)
     return {"type": "home", "blocks": add_to_top_row(blocks, dashboard_button_element(context["founder_id"]))}
 
 
@@ -1716,6 +1732,14 @@ def commit_checkin(action_value: dict, actor: str):
         return False
 
 
+def estimate_after_checkin(action_value: dict):
+    """In the background: credit the goals this check-in reports progress on (same rules as GitHub estimates)."""
+    if ai_client and supabase and action_value.get("startup_id"):
+        threading.Thread(target=progress_estimator.from_checkin, daemon=True,
+                         args=(supabase, ai_client, AI_MODEL, action_value["startup_id"], action_value.get("digest", "")),
+                         kwargs={"notify": notify_founders}).start()
+
+
 CHECKIN_FAILED = "⚠️ I couldn't save that check-in just now, so nothing was recorded. Please try again in a minute."
 
 
@@ -1738,6 +1762,7 @@ def handle_edit_checkin_submit(ack, body, client, view):
     if not commit_checkin(action_value, body["user"]["name"]):
         client.chat_postMessage(channel=user_id, text=CHECKIN_FAILED)
         return
+    estimate_after_checkin(action_value)
     blocks = saved_checkin_blocks(action_value)
     try:
         client.chat_update(channel=where["channel"], ts=where["ts"], text="Check-in saved", blocks=blocks)
@@ -1755,6 +1780,7 @@ def handle_confirm_checkin(ack, body, client):
     if not commit_checkin(action_value, body["user"]["name"]):
         client.chat_postMessage(channel=user_id, text=CHECKIN_FAILED)
         return
+    estimate_after_checkin(action_value)
     client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text="Check-in saved",
                        blocks=saved_checkin_blocks(action_value))
     publish_home(user_id, client)

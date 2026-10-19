@@ -67,8 +67,8 @@ export function Milestones({ founder }: { founder: Founder }) {
                     {!overall.estimated
                       ? `${pct}%`
                       : m.goals.length
-                        ? `~${pct}% incl. GitHub estimates`
-                        : `~${pct}% est. from GitHub`}
+                        ? `~${pct}% incl. estimates`
+                        : `~${pct}% estimated`}
                   </>
                 )}
               </p>
@@ -97,11 +97,11 @@ export function Milestones({ founder }: { founder: Founder }) {
                             className={`goal-pct ${v.estimated ? "est" : ""}`}
                             title={
                               v.estimated
-                                ? (g.est_reason ?? "Estimated from GitHub work")
+                                ? (g.est_reason ?? "Estimated from GitHub work or a check-in")
                                 : undefined
                             }
                           >
-                            {v.estimated ? `~${v.pct}% est. from GitHub` : `${v.pct}%`}
+                            {v.estimated ? `~${v.pct}% estimated` : `${v.pct}%`}
                           </span>
                         )}
                         {v.estimated && g.est_reason && (

@@ -273,7 +273,7 @@ class Agent:
                 count = f"{done}/{len(goals)} goals done"
             else:  # no goals: the milestone carries its own progress, possibly estimated from GitHub
                 pct, est = progress_estimator.milestone_value([], m)
-                count = "no goals yet" + (f", about {pct}% (estimated from GitHub)" if est else f", {pct}% done" if pct else "")
+                count = "no goals yet" + (f", about {pct}% (estimated from GitHub work or check-ins)" if est else f", {pct}% done" if pct else "")
             lines.append(f"- [{m['id'][:6]}] {who}{m['title']} ({kind}, due {m.get('due_date') or 'no date'}) · {count}")
             lines += [f"    · [{g['id'][:6]}] {'done' if g.get('done') else 'todo'}: {g['title']}" for g in goals]
         return lines

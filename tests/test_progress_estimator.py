@@ -127,6 +127,23 @@ class RunTests(unittest.TestCase):
         self.assertEqual(pe.milestone_value([], {"status": "done"}), (100, False))
         self.assertEqual(pe.milestone_value([]), (0, False))
 
+    def test_a_check_in_credits_non_code_goals_and_says_so(self):
+        db, sent = self.db(), []
+        db.tables["milestones"] = [{"id": "m1", "title": "Outreach", "goals": [dict(G2)]}]
+        n = pe.from_checkin(db, fake_ai('{"updates": [{"goal": "g1", "progress": 60, "reason": "emailed 3 of 5"}]}'),
+                            "m", "s1", "Emailed 3 RCs today", notify=lambda sid, blocks, text: sent.append(blocks))
+        self.assertEqual(n, 1)
+        self.assertIn(("goals", "update", {"est_progress": 60, "est_reason": "emailed 3 of 5",
+                                           "est_at": unittest.mock.ANY}), db.writes)
+        self.assertIn("from your check-in", sent[0][0]["text"]["text"])
+        self.assertFalse([w for w in db.writes if w[0] == "progress_estimate_state"])  # GitHub cursor untouched
+
+    def test_an_empty_check_in_or_no_ai_does_nothing(self):
+        db = self.db()
+        self.assertEqual(pe.from_checkin(db, fake_ai("{}"), "m", "s1", "  "), 0)
+        self.assertEqual(pe.from_checkin(db, None, "m", "s1", "did stuff"), 0)
+        self.assertEqual(db.writes, [])
+
 
 import unittest.mock  # noqa: E402
 
