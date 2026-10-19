@@ -15,6 +15,7 @@ DEFAULTS = {
     "paused": False,              # reply "back shortly" to everyone except developers
     "daily_checkin": True,        # 17:00 prompts and 09:30 nudges
     "channel_context": True,      # use channel memory when answering
+    "wednesday_nudge": True,      # Wed 2 PM founder nudge (connections / check-in / sprint tomorrow)
     "ai_model": "",               # overrides AI_MODEL when set
     "extra_instructions": "",     # appended to the system prompt
 }

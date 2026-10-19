@@ -128,11 +128,15 @@ from bot_memory import Memory
 from channel_memory import ChannelMemory, NEEDED_SCOPES
 import dev_controls
 import dev_home
+import cohorts
+import founder_nudges
+import routines
 
 # Console output is also kept in bot_logs for the dashboard's Developer page.
 log_tee = dev_controls.install_log_tee() if "--simulate" not in sys.argv else None
 # Persistent memory + conversational agent (needs both an LLM and the database)
 memory = Memory(supabase)
+routine_store = routines.RoutineStore(supabase)  # standing routines mentors set up in chat
 settings = dev_controls.Settings(supabase)  # Developer page settings (pause, model, daily prompts...)
 channels = ChannelMemory(supabase)  # last 7 days of the channels switched on in the Developer page
 gh = github_app.GitHubApp.from_env()  # None until GITHUB_APP_ID + a private key are configured
@@ -271,7 +275,8 @@ def github_link(founder_id: str, startup_id: str) -> str | None:
 agent = (Agent(ai_client, AI_MODEL, supabase, memory, connect_url=github_link, calendar_link=google_link, calendar_text=my_calendar_text,
                 studio_link=lambda sid: studio_link(sid) if is_developer(sid) else None,  # dev-only
                 studio_connected=studio_connected, studio_events=studio_events_fn,
-                settings=settings, channel_context=channels.context_for)
+                settings=settings, channel_context=channels.context_for,
+                awareness=lambda ident: awareness_text(ident), routines=routine_store)
          if (ai_client and supabase) else None)
 
 # Initialize Slack Bolt App
@@ -1921,6 +1926,8 @@ def handle_syllabus_pick(ack, body, client):
 
 def build_meeting_card(m: dict) -> list:
     nl = chr(10)
+    if m.get("kind") == "routine":
+        return build_routine_card(m)
     if m.get("kind") == "syllabus":
         return build_syllabus_card(m)
     if m.get("kind") == "announce":
@@ -2009,6 +2016,13 @@ def handle_confirm_meeting(ack, body, client):
             print("[Confirm] announcement already claimed by an earlier click")
             return  # a second click on the same card
         finish(send_announcement(client, m))
+        return
+    if row["payload"].get("kind") == "routine":
+        outcome = confirm_routine(row, user_id)
+        if outcome:
+            finish(outcome)
+        else:
+            client.chat_postEphemeral(channel=channel, user=user_id, text="Only the mentor who asked for this routine can start it.")
         return
     if row["payload"].get("kind") == "syllabus":
         m = row["payload"]
@@ -2824,6 +2838,8 @@ DEV_COMMANDS = {
     "republish_homes": dev_republish,
     "daily_preview": dev_daily_preview,
     "clear_history": dev_clear_history,
+    "nudge_preview": lambda _a, _b: run_wednesday_nudge(dry_run=True),
+    "routines": lambda a, b: dev_routines(a, b),
     "voice_compare": lambda _a, _b: voice_compare.report(voice_compare.recent(supabase)),
 }
 
@@ -2836,7 +2852,8 @@ _channels_note: dict = {}  # slack_id -> result of the last "Refresh list", show
 _scope_cache = {"at": 0.0, "scopes": []}
 DEV_LABELS = {"status": "Status & scopes", "show_context": "What the bot sees", "daily_preview": "Preview daily prompts",
               "republish_homes": "Republish Home tabs", "clear_history": "Clear my chat memory",
-              "refresh_channels": "Refresh channel list", "voice_compare": "Compare voice models"}
+              "refresh_channels": "Refresh channel list", "voice_compare": "Compare voice models",
+              "nudge_preview": "Preview Wednesday nudge", "routines": "Routines & automatic messages"}
 
 
 def dev_home_state(uid: str) -> dict:
@@ -2943,7 +2960,7 @@ def handle_dev_setting_toggle(ack, body, client):
     ack()
     uid = _developer(body)
     key = body["actions"][0]["value"]
-    if uid and key in ("paused", "daily_checkin", "channel_context"):
+    if uid and key in ("paused", "daily_checkin", "channel_context", "wednesday_nudge"):
         value = not settings.get(key)
         print(f"[Dev] setting {key}={value} by {uid}: {'saved' if settings.set(key, value) else 'NOT saved'}")
         publish_dev_home(uid, client)
@@ -3031,6 +3048,219 @@ def handle_dev_cmd(ack, body, client):
     _in_background(run)
 
 
+# --- AWARENESS, WEDNESDAY FOUNDER NUDGE AND STANDING ROUTINES ---
+
+SGT_TZ = timezone(timedelta(hours=8))
+
+
+def studio_event_rows() -> list:
+    """Synced studio-calendar meetings (studio_events table, ~30 days ahead); [] when unavailable."""
+    try:
+        return supabase.table("studio_events").select("title,starts_at,location,meet_url,attendees").execute().data or []
+    except Exception:
+        return []
+
+
+def founder_connections() -> dict:
+    """{founder_id: {'github': bool, 'google': bool}}. GitHub counts if anyone on the startup connected it."""
+    rows = supabase.table("integrations").select("provider,founder_id,startup_id").execute().data or []
+    founders = supabase.table("founders").select("id,startup_id").execute().data or []
+    gh_startups = {r["startup_id"] for r in rows if r["provider"] == "github"}
+    google = {r["founder_id"] for r in rows if r["provider"] == "google"}
+    return {f["id"]: {"github": f["startup_id"] in gh_startups, "google": f["id"] in google} for f in founders}
+
+
+def awareness_text(ident: dict) -> str:
+    """Cohorts, sprint sessions, connections and the automatic messages the bot sends, for the agent's context."""
+    today = datetime.now(SGT_TZ).date()
+    own = (ident.get("context") or {}).get("startup_id") if ident["role"] == "founder" else None
+    lines = ["=== COHORTS (data) ===", *cohorts.summary_lines(cohorts.load(supabase), today, studio_event_rows(), own)]
+    lines += ["", "=== AUTOMATIC MESSAGES YOU SEND (data) ===", routines.BUILTIN_NOTE]
+    if not settings.get("wednesday_nudge"):
+        lines.append("(The Wednesday founder nudge is currently switched OFF.)")
+    if not settings.get("daily_checkin"):
+        lines.append("(The 5 PM check-in prompts are currently switched OFF.)")
+    if ident["role"] == "mentor":
+        rows = routine_store.active()
+        lines += [f"- [{r['id'][:6]}] routine by {r.get('created_by_name') or 'a mentor'}: {routines.describe(r)}" for r in rows] \
+            or ["No standing routines set up by mentors yet."]
+        try:
+            conns = founder_connections()
+            founders = supabase.table("founders").select("id,name,slack_user_id").execute().data or []
+            lines.append("Founder connections: " + "; ".join(
+                f"{f['name']}: calendar {'✓' if conns.get(f['id'], {}).get('google') else '✗'}, GitHub "
+                f"{'✓' if conns.get(f['id'], {}).get('github') else '✗'}" + ("" if f.get("slack_user_id") else " (not on Slack yet)")
+                for f in founders))
+        except Exception as e:
+            print(f"[Awareness Warning] {e}")
+    return "\n".join(lines)
+
+
+def nudge_buttons(f: dict, missing: list) -> list:
+    blocks = calendar_connect_blocks(f["id"], f["startup_id"], with_divider=True) if "google" in missing else []
+    url = github_link(f["id"], f["startup_id"]) if "github" in missing else None
+    if url:
+        blocks += [{"type": "divider"}, {"type": "actions", "elements": [
+            {"type": "button", "style": "primary", "text": {"type": "plain_text", "text": "Connect GitHub"}, "url": url, "action_id": "connect_github"},
+            {"type": "button", "text": {"type": "plain_text", "text": "My code is in an organisation"},
+             "action_id": "claim_org", "value": f"{f['id']}|{f['startup_id']}"}]}]
+    return blocks
+
+
+def last_checkin_dates() -> dict:
+    rows = (supabase.table("submissions").select("startup_id,created_at").eq("confirmed", True)
+            .order("created_at", desc=True).limit(500).execute().data or [])
+    out = {}
+    for r in rows:
+        out.setdefault(r["startup_id"], parse_ts(r["created_at"]).astimezone(SGT_TZ).date())
+    return out
+
+
+def run_wednesday_nudge(dry_run: bool = False) -> str:
+    """Wednesday 2 PM: each linked founder gets one tailored nudge; mentors hear about unscheduled sprint sessions."""
+    if not supabase:
+        return "No database."
+    from daily_checkin import linked_founders
+    today = datetime.now(SGT_TZ).date()
+    cohort_list = cohorts.load(supabase)
+    active = {sid for c in cohort_list if cohorts.week_of(c["start"], today, c["weeks"]) for sid in c["startup_ids"]}
+    in_any = {sid for c in cohort_list for sid in c["startup_ids"]}
+    founders = [f for f in linked_founders(supabase) if f["startup_id"] in active or f["startup_id"] not in in_any]
+    got = founder_nudges.plan(founders, founder_connections(), last_checkin_dates(), cohort_list, studio_event_rows(), today)
+    report = []
+    for item in got["founders"]:
+        report.append(f"→ {item['founder']['name']}" + (f" (+ connect buttons: {', '.join(item['missing'])})" if item["missing"] else "")
+                      + "\n" + item["text"])
+        if dry_run:
+            continue
+        try:
+            blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": item["text"][:3000]}}] + nudge_buttons(item["founder"], item["missing"])
+            app.client.chat_postMessage(channel=item["slack"], text=item["text"][:3000], blocks=blocks)
+            memory.log(item["slack"], "assistant", item["text"])
+        except Exception as e:
+            print(f"[Wednesday Nudge Error] {item['slack']}: {e}")
+    if got["mentors_note"]:
+        report.append("→ Mentors\n" + got["mentors_note"])
+        if not dry_run:
+            for m in supabase.table("mentors").select("slack_user_id").execute().data or []:
+                if m.get("slack_user_id"):
+                    try:
+                        app.client.chat_postMessage(channel=m["slack_user_id"], text=got["mentors_note"])
+                    except Exception as e:
+                        print(f"[Wednesday Nudge Error] mentor {m['slack_user_id']}: {e}")
+    print(f"[Wednesday Nudge] {'previewed' if dry_run else 'sent'} {len(got['founders'])} founder message(s)")
+    return "\n\n".join(report) or "No linked founders in an active cohort."
+
+
+def run_scheduled_wednesday_nudge():
+    if SLACK_BOT_TOKEN and settings.get("wednesday_nudge"):
+        run_wednesday_nudge()
+
+
+def routine_recipients(r: dict) -> list:
+    """[(slack_id, role)] for a routine's audience."""
+    from daily_checkin import linked_founders
+    founders = linked_founders(supabase)
+    if r["audience"] == "cohort":
+        ids = next((c["startup_ids"] for c in cohorts.load(supabase) if c["id"] == r.get("cohort_id")), [])
+        founders = [f for f in founders if f["startup_id"] in ids]
+    mentors_ = [m["slack_user_id"] for m in supabase.table("mentors").select("slack_user_id").execute().data or []
+                if m.get("slack_user_id")]
+    if r["audience"] == "mentors":
+        return [(m, "mentor") for m in mentors_]
+    if r["audience"] == "everyone":
+        return [(f["slack_user_id"], "founder") for f in founders] + [(m, "mentor") for m in mentors_ if m != r.get("created_by")]
+    if r["audience"] == "people":
+        return [(p, get_role(p)) for p in r.get("people") or [] if get_role(p)]
+    return [(f["slack_user_id"], "founder") for f in founders]
+
+
+def send_routine(r: dict, dry_run: bool = False) -> str:
+    sent, skipped, lines = 0, 0, []
+    conns = founder_connections()
+    for uid, role in routine_recipients(r):
+        try:
+            ident = build_identity(uid, role)
+            text = agent.compose(ident, r["instruction"], r.get("created_by_name") or "a mentor") if (r.get("tailored") and agent) else r["instruction"]
+        except Exception as e:
+            print(f"[Routine Error] compose for {uid}: {e}")
+            continue
+        if not text or text.strip().upper().startswith(routines.SKIP):
+            skipped += 1
+            lines.append(f"→ {ident.get('name', uid)}: (skipped, nothing applies)")
+            continue
+        lines.append(f"→ {ident.get('name', uid)}\n{text}")
+        if dry_run:
+            continue
+        blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text[:3000]}}]
+        if role == "founder" and re.search(r"github|calendar|connect", r["instruction"], re.IGNORECASE):
+            f = ident["context"]
+            missing = [k for k in ("google", "github") if not conns.get(f["founder_id"], {}).get(k)]
+            blocks += nudge_buttons({"id": f["founder_id"], "startup_id": f["startup_id"]}, missing)
+        try:
+            app.client.chat_postMessage(channel=uid, text=text[:3000], blocks=blocks)
+            memory.log(uid, "assistant", text)
+            sent += 1
+        except Exception as e:
+            print(f"[Routine Error] send to {uid}: {e}")
+    summary = f"Sent to {sent} people" + (f", skipped {skipped} it didn't apply to" if skipped else "") + "."
+    return summary + ("\n\n" + "\n\n".join(lines) if dry_run else "")
+
+
+def run_routines():
+    """Every minute: send any standing routine that is due (each run claimed first, so it never goes out twice)."""
+    if not (supabase and SLACK_BOT_TOKEN):
+        return
+    now = datetime.now(SGT_TZ)
+    for r in routine_store.active():
+        at = routines.due(r, now)
+        if not at or not routine_store.claim_run(r, at):
+            continue
+        summary = send_routine(r)
+        print(f"[Routine] {r['title']}: {summary}")
+        if r.get("created_by"):
+            try:
+                app.client.chat_postMessage(channel=r["created_by"], text=f"🔁 *{r['title']}* went out. {summary}")
+            except Exception as e:
+                print(f"[Routine Warning] report: {e}")
+
+
+def build_routine_card(m: dict) -> list:
+    r = m["routine"]
+    cohort_name = next((c["name"] for c in cohorts.load(supabase) if c["id"] == r.get("cohort_id")), None)
+    first = routines.first_run(r, datetime.now(SGT_TZ))
+    text = ("*New standing routine* 🔁\n" + routines.describe({**r, "cohort_name": cohort_name}) +
+            f"\nFirst run: {first.strftime('%a %d %b')}." +
+            ("\nI'll write each message for the person, and skip anyone it doesn't apply to." if r.get("tailored") else ""))
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "text": text[:3000]}},
+        {"type": "actions", "elements": [
+            {"type": "button", "style": "primary", "text": {"type": "plain_text", "text": "Start routine"},
+             "action_id": "confirm_meeting", "value": m["id"]},
+            {"type": "button", "text": {"type": "plain_text", "text": "Cancel"}, "action_id": "cancel_meeting", "value": m["id"]}]},
+    ]
+
+
+def confirm_routine(row: dict, user_id: str) -> str:
+    m = row["payload"]
+    if not (get_role(user_id) == "mentor" and m.get("requester_slack") == user_id):
+        return ""
+    if not memory.claim_meeting(row["id"]):
+        return ""
+    r = m["routine"]
+    saved = routine_store.add({**r, "anchor_date": routines.first_run(r, datetime.now(SGT_TZ)).isoformat(),
+                               "created_by": user_id, "created_by_name": m.get("requester")})
+    if not saved:
+        return "⚠️ I couldn't save the routine (the bot_routines table may not exist yet)."
+    return f"✅ Routine started: {routines.describe(saved)}\nFirst run {routines.first_run(saved, datetime.now(SGT_TZ)).strftime('%a %d %b')}. Ask me to list or stop routines any time."
+
+
+def dev_routines(_args, _by) -> str:
+    rows = routine_store.active()
+    head = "\n".join(f"[{r['id'][:6]}] {routines.describe(r)}" for r in rows) or "No standing routines yet."
+    return head + "\n\n" + routines.BUILTIN_NOTE
+
+
 def resume_channel_syncs():
     """At startup: finish channel syncs a restart interrupted (switched on but still 'Syncing…')."""
     if not supabase:
@@ -3089,6 +3319,8 @@ if BackgroundScheduler:
     scheduler.add_job(lambda: dev_controls.run_commands(supabase, DEV_COMMANDS), "interval", seconds=5, max_instances=1)
     scheduler.add_job(lambda: dev_controls.flush_logs(supabase, log_tee), "interval", seconds=10, max_instances=1)
     scheduler.add_job(prune_dev_data, "interval", minutes=60, max_instances=1)
+    scheduler.add_job(run_scheduled_wednesday_nudge, "cron", day_of_week="wed", hour=14, minute=0)
+    scheduler.add_job(run_routines, "interval", minutes=1, max_instances=1)
     scheduler.add_job(lambda: SLACK_BOT_TOKEN and channels.refresh_list(), "interval", hours=6, max_instances=1)
     if DAILY_CHECKIN:
         scheduler.add_job(run_daily_prompts, "cron", day_of_week="mon-fri", hour=DAILY_CHECKIN_HOUR, minute=0)

@@ -63,6 +63,8 @@ def build_dev_home(state: dict) -> list:
                        "dev_setting_toggle", "paused"),
                _toggle("Daily check-in prompts", "17:00 prompts and 09:30 nudges to founders.", bool(s.get("daily_checkin")),
                        "dev_setting_toggle", "daily_checkin"),
+               _toggle("Wednesday founder nudge", "Wed 2 PM: connect Calendar/GitHub until done, otherwise a progress check-in, plus tomorrow's sprint.",
+                       bool(s.get("wednesday_nudge")), "dev_setting_toggle", "wednesday_nudge"),
                _toggle("Use channel memory", "Include the last 7 days of readable channels in answers.",
                        bool(s.get("channel_context")), "dev_setting_toggle", "channel_context"),
                {"type": "section", "text": {"type": "mrkdwn", "text": (
@@ -76,6 +78,8 @@ def build_dev_home(state: dict) -> list:
                    {"type": "button", "text": {"type": "plain_text", "text": "Status & scopes"}, "action_id": "dev_cmd_status", "value": "status"},
                    {"type": "button", "text": {"type": "plain_text", "text": "What the bot sees"}, "action_id": "dev_cmd_show_context", "value": "show_context"},
                    {"type": "button", "text": {"type": "plain_text", "text": "Preview daily prompts"}, "action_id": "dev_cmd_daily_preview", "value": "daily_preview"},
+                   {"type": "button", "text": {"type": "plain_text", "text": "Preview Wednesday nudge"}, "action_id": "dev_cmd_nudge_preview", "value": "nudge_preview"},
+                   {"type": "button", "text": {"type": "plain_text", "text": "Routines"}, "action_id": "dev_cmd_routines", "value": "routines"},
                    {"type": "button", "text": {"type": "plain_text", "text": "Republish Home tabs"}, "action_id": "dev_cmd_republish_homes", "value": "republish_homes"},
                    {"type": "button", "text": {"type": "plain_text", "text": "Clear my chat memory"}, "action_id": "dev_cmd_clear_history", "value": "clear_history"},
                    {"type": "button", "text": {"type": "plain_text", "text": "Compare voice models"}, "action_id": "dev_cmd_voice_compare", "value": "voice_compare"},

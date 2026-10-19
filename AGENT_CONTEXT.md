@@ -59,6 +59,9 @@ Founder/Mentor in Slack ──► Venture Buddy (Python, Socket Mode, always on)
 | `google_calendar.py` | Google OAuth, encrypted tokens, read-only event sync into counts, live "my calendar", studio-calendar event creation. |
 | `meetings.py` | Meeting requests: time parsing, 12-hour formatting, attendee resolution, event bodies. |
 | `channel_memory.py` | Reads only the Slack channels switched on in the Developer page, keeps 7 days of their messages, builds the per-person channel context (only channels that person is a member of). |
+| `cohorts.py` | Cohorts (MVP#1, MVP#2...) from `cohorts.start_date` (Monday of week 1): week, shifted deliverable, fortnightly sprint sessions (Thursday of weeks 2, 4, 6...), matched to studio-calendar sprint meetings that invite that cohort's founders. |
+| `founder_nudges.py` | Wednesday 2 PM founder nudge: connect Calendar/GitHub until done, otherwise a check-in ask, plus tomorrow's sprint; mentors told about unscheduled sprint sessions. |
+| `routines.py` | Standing routines mentors create in chat (`create_routine`, confirm card, `bot_routines`), sent on schedule and written per recipient by the agent (can skip people it doesn't apply to). |
 | `dev_home.py` | Developer view on the Slack Home tab (Mentor view / Developer switch, developers only): channel toggles, settings, test-as-someone, tools, recent warnings. |
 | `dev_controls.py` | Developer-page settings (`bot_settings`), command queue (`bot_commands`) and console copy (`bot_logs`). |
 | `src/routes/dev.tsx`, `src/routes/api/dev/*`, `src/lib/dev-auth.ts` | Developer page (channels, test console, controls, logs). Only for `DEV_EMAILS` (default ben@evecount.com) matched against `mentors.email`; everyone else gets 404. |
