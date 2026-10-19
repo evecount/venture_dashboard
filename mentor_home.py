@@ -62,6 +62,7 @@ def summarize_startups(startups: list, founders: list, subs: list, now: datetime
             "founders": names, "latest": latest, "recent": mine[:3], "health": health, "detail": detail,
             "last_seen": relative(latest["created_at"], now) if latest else None,
             "blocked_days": blocked_days, "idle_days": idle_days,
+            "blocked_since": since[:10] if latest and latest["status"] == "Blocked" else None,
         })
     order = {"blocked": 0, "quiet": 1, "on_track": 2}
     return sorted(out, key=lambda s: (order[s["health"]], s["name"].lower()))

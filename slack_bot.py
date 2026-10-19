@@ -205,8 +205,8 @@ def studio_connected() -> bool:
     return studio_row() is not None
 
 
-def studio_events_fn(days: int):
-    """Upcoming events on the studio calendar, or None when it isn't connected."""
+def studio_events_fn(days: int, strict: bool = False):
+    """Upcoming events on the studio calendar, or None when it isn't connected. On a Google error: [] (None when strict)."""
     studio = studio_row()
     if not (gcal and studio):
         return None
@@ -215,7 +215,7 @@ def studio_events_fn(days: int):
         return gcal.events(studio["refresh_token"], now, now + timedelta(days=days), only_ours=True)
     except Exception as e:
         print(f"[Studio Events Warning] {e}")
-        return []
+        return None if strict else []
 
 
 _studio_cache = {"at": 0.0, "events": []}
@@ -475,9 +475,9 @@ def build_confirmation_card(context: dict, parsed: dict, raw_text: str) -> list:
         *checkin_summary_blocks(payload_to_store, deliverable),
         {"type": "actions", "block_id": "confirmation_actions", "elements": [
             {"type": "button", "text": {"type": "plain_text", "text": "✅ Save check-in", "emoji": True}, "style": "primary",
-             "action_id": "confirm_checkin", "value": json.dumps(payload_to_store)},
+             "action_id": "confirm_checkin", "value": json.dumps(payload_to_store, ensure_ascii=False)},
             {"type": "button", "text": {"type": "plain_text", "text": "✏️ Edit", "emoji": True},
-             "action_id": "edit_checkin", "value": json.dumps(payload_to_store)},
+             "action_id": "edit_checkin", "value": json.dumps(payload_to_store, ensure_ascii=False)},
         ]},
         {"type": "context", "elements": [{"type": "mrkdwn", "text":
             "Nothing is saved until you press *Save*. Saved check-ins are what your mentors see on the program dashboard."}]},
@@ -1496,7 +1496,7 @@ def build_rename_card(proposal: dict) -> list:
          "text": f"Rename *{proposal['old_name']}* to *{proposal['new_name']}*?"}},
         {"type": "actions", "elements": [
             {"type": "button", "style": "primary", "text": {"type": "plain_text", "text": "Rename"},
-             "action_id": "confirm_rename", "value": json.dumps(proposal)},
+             "action_id": "confirm_rename", "value": json.dumps(proposal, ensure_ascii=False)},
             {"type": "button", "text": {"type": "plain_text", "text": "Cancel"},
              "action_id": "cancel_rename", "value": "cancel"},
         ]},
@@ -1643,7 +1643,7 @@ def handle_cancel_rename(ack, body, client):
 def commit_checkin(action_value: dict, actor: str):
     """Writes a confirmed check-in to Supabase and emits the ticker signal."""
     if not supabase:
-        return
+        return False
     try:
         supabase.table("submissions").insert({
             "startup_id": action_value["startup_id"],
@@ -1665,8 +1665,13 @@ def commit_checkin(action_value: dict, actor: str):
             "stream": action_value.get("stream", "General"),
             "actor": actor,
         }).execute()
+        return True
     except Exception as e:
         print(f"[Supabase Commit Error]: {e}")
+        return False
+
+
+CHECKIN_FAILED = "⚠️ I couldn't save that check-in just now, so nothing was recorded. Please try again in a minute."
 
 
 CHECKIN_STATUSES = ["In progress", "On Track", "Blocked", "Completed"]
@@ -1684,8 +1689,10 @@ def handle_edit_checkin_submit(ack, body, client, view):
     picked = (values.get("status_input", {}).get("status_select", {}).get("selected_option") or {}).get("value")
     if picked in CHECKIN_STATUSES:
         action_value["status"] = picked
-    commit_checkin(action_value, body["user"]["name"])
     user_id = body["user"]["id"]
+    if not commit_checkin(action_value, body["user"]["name"]):
+        client.chat_postMessage(channel=user_id, text=CHECKIN_FAILED)
+        return
     blocks = saved_checkin_blocks(action_value)
     try:
         client.chat_update(channel=where["channel"], ts=where["ts"], text="Check-in saved", blocks=blocks)
@@ -1700,7 +1707,9 @@ def handle_confirm_checkin(ack, body, client):
     ack()
     action_value = json.loads(body["actions"][0]["value"])
     user_id = body["user"]["id"]
-    commit_checkin(action_value, body["user"]["name"])
+    if not commit_checkin(action_value, body["user"]["name"]):
+        client.chat_postMessage(channel=user_id, text=CHECKIN_FAILED)
+        return
     client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text="Check-in saved",
                        blocks=saved_checkin_blocks(action_value))
     publish_home(user_id, client)
@@ -1712,13 +1721,13 @@ def handle_edit_checkin(ack, body, client):
     ack()
     action_value = json.loads(body["actions"][0]["value"])
     meta = {"value": action_value, "card": {"channel": body["channel"]["id"], "ts": body["message"]["ts"]}}
-    while len(json.dumps(meta)) > 3000 and action_value.get("raw_transcript"):  # Slack's private_metadata limit
+    while len(json.dumps(meta, ensure_ascii=False)) > 3000 and action_value.get("raw_transcript"):  # Slack's private_metadata limit
         action_value["raw_transcript"] = action_value["raw_transcript"][:len(action_value["raw_transcript"]) // 2]
     status = action_value.get("status") if action_value.get("status") in CHECKIN_STATUSES else "In progress"
     option = lambda v: {"text": {"type": "plain_text", "text": f"{STATUS_EMOJI.get(v, '')} {v}".strip()}, "value": v}
     blocker = action_value.get("blocker", "")
     client.views_open(trigger_id=body["trigger_id"], view={
-        "type": "modal", "callback_id": "modal_edit_checkin", "private_metadata": json.dumps(meta),
+        "type": "modal", "callback_id": "modal_edit_checkin", "private_metadata": json.dumps(meta, ensure_ascii=False),
         "title": {"type": "plain_text", "text": "Edit check-in"},
         "submit": {"type": "plain_text", "text": "Save check-in"},
         "close": {"type": "plain_text", "text": "Cancel"},
@@ -2030,7 +2039,10 @@ def handle_confirm_goal_estimate(ack, body, client):
     ack()
     goal_id = body["actions"][0]["value"]
     rows = supabase.table("goals").select("est_progress").eq("id", goal_id).execute().data
-    pct = (rows[0].get("est_progress") if rows else None) or 0
+    pct = rows[0].get("est_progress") if rows else None
+    if pct is None:  # already confirmed or replaced: a stale or double click must not reset the goal to 0%
+        client.chat_postMessage(channel=body["user"]["id"], text="That estimate was already handled.")
+        return
     _settle_goal(body, client, goal_id, {"progress": pct}, f"✅ *{{title}}*: {pct}% confirmed.")
 
 
@@ -2900,7 +2912,7 @@ if BackgroundScheduler:
     scheduler.add_job(beat, "interval", seconds=30, max_instances=1)
     scheduler.add_job(send_meeting_reminders, "interval", minutes=5, max_instances=1)
     # Copy upcoming studio meetings into studio_events for the dashboard (only the bot's own events).
-    scheduler.add_job(lambda: studio_events.sync(supabase, studio_events_fn(studio_events.WINDOW_DAYS)),
+    scheduler.add_job(lambda: studio_events.sync(supabase, studio_events_fn(studio_events.WINDOW_DAYS, strict=True)),
                       "interval", minutes=5, max_instances=1, next_run_time=datetime.now(timezone.utc) + timedelta(seconds=20))
     scheduler.add_job(run_weekly_digest, "cron", day_of_week="mon", hour=9, minute=0)
     scheduler.add_job(run_alerts, "cron", day_of_week="mon-fri", hour=9, minute=15)

@@ -39,7 +39,7 @@ def alert_candidates(summaries: list, today: date) -> list:
         latest = s.get("latest")
         if s["health"] == "blocked" and s.get("blocked_days", 0) >= BLOCKED_ALERT_DAYS and latest:
             alerts.append({
-                "key": f"blocked:{s['id']}:{mentor_home._parse(latest['created_at']).date() - timedelta(days=s['blocked_days'])}",
+                "key": f"blocked:{s['id']}:{s.get('blocked_since') or latest['created_at'][:10]}",
                 "startup_id": s["id"],
                 "text": f"🔴 {name} has been blocked for {s['blocked_days']} days: {latest.get('blocker') or 'no detail given'}. "
                         "Worth reaching out."})
