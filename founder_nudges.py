@@ -15,7 +15,9 @@ NL = "\n"
 
 
 def first_name(name: str) -> str:
-    return (name or "there").split()[0]
+    """'Takshma Patel' -> 'Takshma'. A hyphenated given name usually means surname-first ('Leung Wai-Leng'), so keep it whole."""
+    parts = (name or "there").split()
+    return name.strip() if any("-" in p for p in parts[1:]) else parts[0]
 
 
 def founder_text(f: dict, has_github: bool, has_calendar: bool, last_checkin_days: int | None,

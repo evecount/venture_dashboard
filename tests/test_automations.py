@@ -65,6 +65,10 @@ class NudgeTest(unittest.TestCase):
         self.assertIn("11:00 AM at 111 Somerset", takshma["text"])
         self.assertIn("MVP#2 Sprint 1 session", got["mentors_note"])  # mentors are told what's unscheduled
 
+    def test_first_name(self):
+        self.assertEqual(founder_nudges.first_name("Takshma Patel"), "Takshma")
+        self.assertEqual(founder_nudges.first_name("Leung Wai-Leng"), "Leung Wai-Leng")
+
     def test_no_sprint_line_on_off_weeks(self):
         got = founder_nudges.plan(self.founders[:1], {}, {}, [MVP1, MVP2], [], date(2026, 10, 21))
         self.assertNotIn("Tomorrow", got["founders"][0]["text"])
