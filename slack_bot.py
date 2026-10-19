@@ -111,6 +111,7 @@ import transcribe
 import github_app
 import syllabus
 import syllabus_import
+import custom_schedule
 import google_calendar
 import meetings
 import time
@@ -359,7 +360,12 @@ def resolve_founder_context(slack_user_id: str) -> dict:
                         .execute()
                     )
                     active_del = del_res.data[0] if del_res.data else DEFAULT_DELIVERABLE
+                weeks = custom_schedule.fetch(supabase, startup.get("id")) if startup.get("id") else []
+                today_sgt = datetime.now(timezone(timedelta(hours=8))).date()
+                if weeks:  # a participant with an uploaded syllabus follows their own weeks
+                    active_del = custom_schedule.deliverable(weeks, today_sgt, active_del) or active_del
                 return {
+                    "schedule": custom_schedule.progress(weeks, today_sgt) if weeks else None,
                     "founder_id": founder.get("id"),
                     "name": founder.get("name"),
                     "startup_id": startup.get("id"),
@@ -1199,11 +1205,13 @@ HOW_TO = {
             "Nothing is saved until you press Save. Saved check-ins are what your mentors see"]),
         ("❓ Ask me anything", [
             "_\"What's due this week?\"_  ·  _\"What does the program look like?\"_  ·  _\"Who are the mentors?\"_",
-            "_\"Who sees my updates?\"_  ·  _\"What did I report last time?\"_  ·  _\"What's on my calendar tomorrow?\"_"]),
+            "_\"Who sees my updates?\"_  ·  _\"What did I report last time?\"_  ·  _\"What's on my calendar tomorrow?\"_",
+            "If your mentors gave you a *custom schedule*, \"this week\", your daily prompts and your Home tab all follow it instead of the standard 12 weeks"]),
         ("🎯 Milestones & to-dos", [
             "_\"Set a milestone: 10 customer interviews by Oct 30. Goals: draft script, book 10 calls\"_",
             "_\"I finished the script\"_ (I tick the goal off)  ·  _\"Remind me to send the deck on Friday\"_",
-            "Milestones set by mentors: you can tick their goals off; ask a mentor to change them"]),
+            "Milestones set by mentors: you can tick their goals off; ask a mentor to change them",
+            "A custom schedule shows up as one milestone per week. If you add your own milestone that covers one of its items, yours replaces that item"]),
         ("🙋 Stuck? Get a mentor", [
             "Tell me what's blocking you; mentors see blockers on their side",
             "_\"Set up a call with Mo tomorrow at 2 PM, virtually\"_ (name the people; I show a card before inviting anyone)",
@@ -1226,8 +1234,15 @@ HOW_TO = {
             "_\"Add a task for Auvira: send the deck by Friday\"_  ·  _\"Mark the deck task done\"_",
             "_\"Set a milestone for Auvira: Landing page live by Oct 20. Goals: copy approved, page published\"_ "
             "(add _\"by Arthur\"_ to credit another mentor; founders can only tick its goals)",
-            "_\"Assign Auvira to the GTM stream\"_  ·  _\"Rename SharedOut to Acme\"_ (I show a card first)",
-            "📄 Attach a participant's *syllabus PDF* in a DM and I'll add a milestone per week after a preview. Their own milestones always win over matching syllabus items; say _\"replace\"_ to refresh an earlier import."]),
+            "_\"Assign Auvira to the GTM stream\"_  ·  _\"Rename SharedOut to Acme\"_ (I show a card first)"]),
+        ("📄 Custom syllabus for a participant", [
+            "*1.* Attach the syllabus PDF in a DM to me. The file name or your message should say _syllabus_ or _curriculum_",
+            "*2.* I read it, work out whose it is (or ask you to pick the startup) and show a preview of what I'd add",
+            "*3.* Press *Add N milestones*: one per week, due on the week's last day, with the weekly deliverables as goals",
+            "*4.* From then on that person's Home tab, daily prompts and my answers follow their schedule (pause weeks are skipped)",
+            "Nothing already set is overwritten: if they already have a milestone that covers a syllabus item, theirs is kept and the item is left out. "
+            "A milestone you add later replaces the syllabus item it overlaps",
+            "Add _\"replace\"_ to your message to refresh an earlier import (only untouched syllabus weeks are removed, never milestones people set)"]),
         ("🗓 Meetings", [
             "_\"Set up a meet with everyone at 3 PM on Thursday at 111 Somerset\"_ or _\"...virtually\"_ (I show a card first)",
             "_\"Set up a fortnightly sprint with Takshma and Matthew, Thursdays at 3 PM\"_",
@@ -1330,7 +1345,10 @@ def build_home_view(context: dict | None, latest: dict | None, tasks: list | Non
     today = datetime.now(timezone(timedelta(hours=8))).date()
     cur = syllabus.current(today)
     bits = []
-    if cur:
+    mine = context.get("schedule")
+    if mine:
+        bits.append(f"Week {mine['week']} of {mine['total']} · {mine['phase']}" + (" · pause week" if mine["paused"] else "") + " · your custom schedule")
+    elif cur:
         bits.append(f"Week {int(cur['week'].split()[-1])} of 12 · {cur['phase']}")
     if context.get("stream") not in (None, "", "Unassigned", "General"):
         bits.append(f"{context['stream']} stream")

@@ -15,6 +15,7 @@ import meetings
 import mentor_calendars
 import syllabus
 import syllabus_import
+import custom_schedule
 from bot_memory import Memory
 from mentor_home import summarize_startups
 
@@ -49,7 +50,7 @@ You are talking to a FOUNDER. Their startup is fixed; you can only work with the
 - Founders set their own milestones and the goals inside them (add_milestone, add_goal, update_goal...). A milestone's progress is goals done out of total.
 - When an update clearly finishes a goal, tick it with update_goal in the same turn and say so. If they describe a deliverable or target with no milestone for it yet, offer to create one.
 - Many founders are new to the program. Explain things plainly, without jargon ("check-in" = a short saved update, "deliverable" = what the program asks for by the end of the week). If they seem unsure what to do, give ONE concrete next step, usually: tell me what you're working on.
-- How the program works (answer from this, never invent more): it is 12 weeks in 6 two-week sprints (see PROGRAM OUTLINE); each week has a deliverable; on program days at 5 PM you ask how their day went and the next morning you nudge once if they didn't reply; mentors review progress and can set milestones for them.
+- How the program works (answer from this, never invent more): it is normally 12 weeks in 6 two-week sprints, but a participant can have a custom schedule: always use the PROGRAM OUTLINE and Program week lines you are given for this person (see PROGRAM OUTLINE); each week has a deliverable; on program days at 5 PM you ask how their day went and the next morning you nudge once if they didn't reply; mentors review progress and can set milestones for them.
 - Who sees what: saved check-ins, milestones, tasks and connected GitHub activity are visible to the program's mentors and on the program dashboard. Nothing becomes a check-in until the founder presses Save. Calendar sharing only stores meeting counts per day, never titles or invitees. Facts you remember may be used when mentors ask you about the startup. Mentors' private notes are not shown to founders.
 - For "who are the mentors / who can help with X", name the people in MENTORS below. If they want help from a person, offer to set up a meeting with a named mentor (schedule_meeting); founders can't invite all mentors at once.
 """
@@ -284,8 +285,9 @@ class Agent:
             print(f"[Agent Warning] mentors: {e}")
             mentors = []
         lines.append("MENTORS: " + (", ".join(mentors) if mentors else "not known"))
-        lines.append("PROGRAM OUTLINE (weekly deliverables):")
-        lines += syllabus.program_outline()
+        weeks = custom_schedule.fetch(self.sb, c["startup_id"]) if self.sb else []
+        lines.append("PROGRAM OUTLINE (weekly deliverables)" + (", this participant's CUSTOM schedule:" if weeks else ":"))
+        lines += custom_schedule.outline(weeks) if weeks else syllabus.program_outline()
         facts = self.memory.facts([c["startup_id"], c["founder_id"]], audience_all_only=True)
         if facts:
             lines.append("Remembered facts:")
@@ -302,6 +304,15 @@ class Agent:
         except Exception as e:  # noqa: BLE001
             print(f"[Agent Warning] overview: {e}")
             startups, founders, subs = [], [], []
+        try:
+            names = {s["id"]: s["name"] for s in startups}
+            for sid, wk in (custom_schedule.fetch(self.sb) if self.sb else {}).items():
+                w = custom_schedule.current(wk, datetime.now(SGT).date())
+                lines.append(f"CUSTOM SCHEDULE: {names.get(sid, sid)} follows its own {wk[-1]['n']}-week schedule (not the standard 12 weeks): "
+                             + (f"now week {w['n']} of {wk[-1]['n']}, Sprint {w['sprint']}: {w['title']}" + (" (pause week)" if w["pause"] else "")
+                                if w else "not running today"))
+        except Exception as e:  # noqa: BLE001
+            print(f"[Agent Warning] custom schedules: {e}")
         lines.append("Startups (health: blocked / quiet = no check-in for 7+ days / on_track):")
         for s in summarize_startups(startups, founders, subs):
             lat = s["latest"]
@@ -336,7 +347,9 @@ class Agent:
         now = datetime.now(SGT)
         role_rules = MENTOR_RULES if ident["role"] == "mentor" else FOUNDER_RULES
         ctx = self._mentor_context(ident) if ident["role"] == "mentor" else self._founder_context(ident)
-        sched = "\n".join(syllabus.schedule_lines(now.date()))
+        weeks = (custom_schedule.fetch(self.sb, (ident.get("context") or {}).get("startup_id"))
+                 if self.sb and ident["role"] == "founder" and (ident.get("context") or {}).get("startup_id") else [])
+        sched = "\n".join(custom_schedule.agent_lines(weeks, now.date()) if weeks else syllabus.schedule_lines(now.date()))
         extra = (self.settings.get("extra_instructions") or "").strip() if self.settings else ""
         channels = ""
         if self.channel_context and (not self.settings or self.settings.get("channel_context")):

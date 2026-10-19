@@ -45,6 +45,7 @@ Founder/Mentor in Slack ──► Venture Buddy (Python, Socket Mode, always on)
 | Path | Purpose |
 |---|---|
 | `slack_bot.py` | Slack Bolt app: message routing, profile setup modals, Home tab, confirmation cards, schedulers (daily prompts, Home refresh, heartbeat, GitHub/Google pollers), CLI (`--simulate`, `--daily-dry-run`). |
+| `custom_schedule.py` | A participant's own schedule, read from their syllabus-imported milestones (`Week N (Sprint M): ...`). Founder context, Home tab, agent answers and the 5 PM prompts/nudges follow it (weekdays inside it, pause weeks skipped); everyone else follows the standard 12 weeks. Check-ins keep a valid standard deliverable id (`del-wkNN`, capped at 12). |
 | `syllabus_import.py` | Mentor uploads a participant's syllabus PDF in a DM: Gemini reads it into weeks, a preview card shows what will be added, confirm writes one milestone per week. Existing milestones/goals always win over matching syllabus items (and new ones replace overlapping syllabus goals via `supersede`); `replace` removes only untouched earlier imports. |
 | `scripts/import_syllabus.py` | Loads a participant's custom syllabus (`syllabi/<name>.json`, git-ignored) as one mentor-issued milestone per week, deliverables as goals. Preview by default, `--apply` to write; re-runnable. |
 | `bot_agent.py` | The brain: one tool-calling LLM turn per message, role-gated tools, context building, server-side validation. |

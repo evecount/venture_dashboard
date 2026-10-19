@@ -10,6 +10,7 @@ Dependencies are injected so this can be tested without Slack or a database.
 import re
 from datetime import date, datetime, timedelta, timezone
 
+import custom_schedule
 import syllabus
 
 SGT = timezone(timedelta(hours=8))
@@ -70,10 +71,11 @@ def linked_founders(sb) -> list:
 def send_daily_prompts(client, sb, memory, now: datetime | None = None, dry_run: bool = False) -> list:
     """Returns the list of (slack_user_id, text) sent (or that would be sent when dry_run)."""
     now = now or datetime.now(SGT)
-    if not syllabus.has_session(now.date()):
-        return []
+    custom = custom_schedule.fetch(sb)
     sent = []
     for f in linked_founders(sb):
+        if not _session_day(now.date(), custom.get(f["startup_id"])):
+            continue
         text = build_prompt(_first_name(f["name"]), _open_goals(memory, f["startup_id"]), now.strftime("%A"))
         sent.append((f["slack_user_id"], text))
         if dry_run:
@@ -86,10 +88,15 @@ def send_daily_prompts(client, sb, memory, now: datetime | None = None, dry_run:
     return sent
 
 
-def _previous_session_day(today: date) -> date | None:
+def _session_day(d: date, weeks: list | None) -> bool:
+    """A program day for this person: their own schedule's weekdays when they have one, else the standard program days."""
+    return custom_schedule.is_session_day(weeks, d) if weeks else syllabus.has_session(d)
+
+
+def _previous_session_day(today: date, weeks: list | None = None) -> date | None:
     d = today - timedelta(days=1)
     for _ in range(7):
-        if syllabus.has_session(d):
+        if _session_day(d, weeks):
             return d
         d -= timedelta(days=1)
     return None
@@ -98,14 +105,14 @@ def _previous_session_day(today: date) -> date | None:
 def send_nudges(client, sb, memory, now: datetime | None = None, dry_run: bool = False) -> list:
     """Nudge founders who did not message the bot since the previous program day's 17:00 prompt."""
     now = now or datetime.now(SGT)
-    if not syllabus.has_session(now.date()):
-        return []
-    prev = _previous_session_day(now.date())
-    if prev is None:
-        return []
-    since = datetime(prev.year, prev.month, prev.day, 17, 0, tzinfo=SGT).astimezone(timezone.utc).isoformat()
+    custom = custom_schedule.fetch(sb)
     sent = []
     for f in linked_founders(sb):
+        weeks = custom.get(f["startup_id"])
+        prev = _previous_session_day(now.date(), weeks) if _session_day(now.date(), weeks) else None
+        if prev is None:
+            continue
+        since = datetime(prev.year, prev.month, prev.day, 17, 0, tzinfo=SGT).astimezone(timezone.utc).isoformat()
         try:
             replied = (sb.table("bot_messages").select("id").eq("slack_user_id", f["slack_user_id"])
                        .eq("role", "user").gte("created_at", since).limit(1).execute().data)
