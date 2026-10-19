@@ -29,9 +29,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { type Founder, type DemoPerspective, isStudioRole } from "./data";
 import { attentionReason, isHandled, relativeTime } from "./roster";
 import {
+  cohortProgram,
+  cohortStartMonday,
   formatDay,
   nextSprintSession,
-  programState,
   sgtDate,
   sgtTime,
   type ProgramState,
@@ -66,7 +67,42 @@ type Props = {
   /** Startup page open from the URL (?s=), so it can be linked and the browser's back button works. */
   openStartupId?: string | undefined;
   onOpenStartup?: (id: string | undefined) => void;
+  /** Cohort tab from the URL (?c=sg-02). */
+  initialCohortId?: string | undefined;
+  onCohortChange?: (id: string) => void;
 };
+
+const COHORT_KEY = "vd_cohort";
+
+/** Only the given startups' rows. Meetings with no known startup (studio-wide) stay in every cohort. */
+function scopeSnapshot(s: DashSnapshot, ids: Set<string>): DashSnapshot {
+  const mine = <T extends { startup_id: string | null }>(rows: T[]) =>
+    rows.filter((r) => r.startup_id !== null && ids.has(r.startup_id));
+  return {
+    ...s,
+    startups: s.startups.filter((r) => ids.has(r.id)),
+    founders: s.founders.filter((r) => ids.has(r.startup_id)),
+    submissions: s.submissions.filter((r) => ids.has(r.startup_id)),
+    signals: mine(s.signals),
+    milestones: s.milestones.filter((m) => ids.has(m.startup_id)),
+    notes: mine(s.notes),
+    tasks: mine(s.tasks),
+    meetings: s.meetings.filter(
+      (m) => !m.startup_ids.length || m.startup_ids.some((id) => ids.has(id)),
+    ),
+  };
+}
+
+/** "Week 3 of 12", or when it starts / that it's finished. */
+function cohortWeekLabel(now: Date, startDate: string, totalWeeks: number | null): string {
+  const today = sgtDate(now);
+  const start = cohortStartMonday(startDate);
+  if (today < start) return `Starts ${formatDay(start)}`;
+  const p = cohortProgram(now, startDate);
+  const last = p.weeks.at(-1)?.gateDate;
+  if (last && today > last) return "Finished";
+  return `Week ${p.week} of ${totalWeeks ?? p.totalWeeks}`;
+}
 
 export function CommandCenter(props: Props = {}) {
   return (
@@ -115,6 +151,8 @@ function Dashboard({
   onPerspectiveChange,
   openStartupId,
   onOpenStartup,
+  initialCohortId,
+  onCohortChange,
 }: Props) {
   const { identity, signOut } = useAuth();
   const { roster, snapshot, handled, setHandled, handledError, lastSync, error } = useDashData();
@@ -131,9 +169,46 @@ function Dashboard({
     ? undefined
     : founderList.find((f) => f.id === perspective || f.founderIds?.includes(perspective));
   const isMember = !isMentor || memberRow !== undefined;
-  const program = useMemo(() => programState(now), [now]);
   const opened =
     isMentor && !isMember ? founderList.find((f) => f.id === openStartupId) : undefined;
+
+  // Cohort tabs: a founder (or a previewed founder) sees their own cohort; an opened startup shows its cohort;
+  // otherwise the tab the mentor picked, remembered in the URL and this browser.
+  const cohortList = useMemo(() => snapshot?.cohorts ?? [], [snapshot]);
+  const [pickedCohort, setPickedCohort] = useState<string | undefined>(() => {
+    if (initialCohortId) return initialCohortId;
+    try {
+      return localStorage.getItem(COHORT_KEY) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  });
+  const pickedValid = cohortList.some((c) => c.id === pickedCohort) ? pickedCohort : undefined;
+  const cohortId =
+    (isMember ? memberRow?.cohortId : opened?.cohortId) ?? pickedValid ?? cohortList[0]?.id;
+  const cohort = cohortList.find((c) => c.id === cohortId);
+  const cohortFounders = useMemo(
+    () =>
+      cohortList.length && cohortId
+        ? founderList.filter((f) => f.cohortId === cohortId)
+        : founderList,
+    [founderList, cohortList, cohortId],
+  );
+  const view = useMemo(
+    () => (snapshot ? scopeSnapshot(snapshot, new Set(cohortFounders.map((f) => f.id))) : null),
+    [snapshot, cohortFounders],
+  );
+  const program = useMemo(() => cohortProgram(now, cohort?.start_date), [now, cohort?.start_date]);
+
+  function pickCohort(id: string) {
+    setPickedCohort(id);
+    onCohortChange?.(id);
+    try {
+      localStorage.setItem(COHORT_KEY, id);
+    } catch {
+      /* private mode: the URL still remembers it */
+    }
+  }
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 60_000);
@@ -197,7 +272,7 @@ function Dashboard({
     setTab(t);
   };
 
-  const openItems = founderList.filter(
+  const openItems = cohortFounders.filter(
     (f) => attentionReason(f) !== null && !isHandled(f, handled[f.id]),
   );
 
@@ -221,7 +296,7 @@ function Dashboard({
       : "Loading…";
 
   let body: ReactNode;
-  if (!snapshot || !roster) {
+  if (!snapshot || !roster || !view) {
     body = <p className="empty">Loading the cohort…</p>;
   } else if (isMember && !memberRow) {
     body = <p className="empty">Your startup isn&apos;t set up yet. Ask the studio team.</p>;
@@ -258,10 +333,11 @@ function Dashboard({
   } else if (tab === "today") {
     body = (
       <TodayView
-        founders={founderList}
+        key={cohortId}
+        founders={cohortFounders}
         program={program}
         now={now}
-        snapshot={snapshot}
+        snapshot={view}
         handled={handled}
         handledError={handledError}
         onHandle={setHandled}
@@ -271,23 +347,24 @@ function Dashboard({
   } else if (tab === "cohort") {
     body = (
       <CohortView
-        founders={founderList}
+        founders={cohortFounders}
         program={program}
         now={now}
-        snapshot={snapshot}
+        snapshot={view}
         openStartup={openStartup}
         searchRef={searchRef}
       />
     );
   } else if (tab === "activity") {
-    body = <ActivityView signals={snapshot.signals} founders={founderList} now={now} />;
+    body = <ActivityView signals={view.signals} founders={cohortFounders} now={now} />;
   } else {
     body = (
       <ProgramView
+        key={cohortId}
         program={program}
         now={now}
-        founders={founderList}
-        snapshot={snapshot}
+        founders={cohortFounders}
+        snapshot={view}
         openStartup={openStartup}
       />
     );
@@ -309,7 +386,7 @@ function Dashboard({
               </svg>
             </div>
             <span className="hide-sm truncate font-semibold">Adventure Studio</span>
-            <span className="cohort-tag">MVP</span>
+            <span className="cohort-tag">{cohort?.name ?? "MVP"}</span>
           </div>
           <nav className="tab-nav" aria-label="Dashboard sections">
             {tabs.map((t) => (
@@ -341,6 +418,32 @@ function Dashboard({
           </div>
         </div>
       </header>
+
+      {isMentor && !isMember && !opened && cohortList.length > 1 && (
+        <div className="cohort-bar">
+          <div className="cohort-bar-inner" role="tablist" aria-label="Cohorts">
+            {cohortList.map((c) => {
+              const count = founderList.filter((f) => f.cohortId === c.id).length;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={c.id === cohortId}
+                  className={`cohort-tab ${c.id === cohortId ? "active" : ""}`}
+                  onClick={() => pickCohort(c.id)}
+                >
+                  <span className="cohort-tab-name">{c.name}</span>
+                  <span className="cohort-tab-meta">
+                    {cohortWeekLabel(now, c.start_date, c.total_weeks)} · {count} startup
+                    {count === 1 ? "" : "s"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <main className="dash-main">
         {body}

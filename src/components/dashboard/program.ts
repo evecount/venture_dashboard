@@ -249,3 +249,31 @@ export function sgtClock(iso: string): string {
     timeZone: "Asia/Singapore",
   }).format(new Date(iso));
 }
+
+/** The Monday of week 1 for a cohort, in Singapore time ("2026-10-18T16:00:00+00:00" -> "2026-10-19"). */
+export function cohortStartMonday(startDate: string): string {
+  const d = startDate.includes("T") ? sgtDate(new Date(startDate)) : startDate.slice(0, 10);
+  const t = Date.parse(`${d}T00:00:00Z`);
+  const back = (new Date(t).getUTCDay() + 6) % 7;
+  return new Date(t - back * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** The syllabus moved onto a cohort's own calendar (same weeks and days, starting `startMonday`). */
+export function shiftSyllabus(events: SyllabusEvent[], startMonday: string): SyllabusEvent[] {
+  if (!events.length) return events;
+  const base = cohortStartMonday(events[0]!.date);
+  const offset = Date.parse(`${startMonday}T00:00:00Z`) - Date.parse(`${base}T00:00:00Z`);
+  if (!offset) return events;
+  return events.map((e) => ({
+    ...e,
+    date: new Date(Date.parse(`${e.date}T00:00:00Z`) + offset).toISOString().slice(0, 10),
+  }));
+}
+
+/** Where a cohort is in the program today. Same rule as the bot's cohorts.py. */
+export function cohortProgram(now: Date, startDate: string | null | undefined): ProgramState {
+  return programState(
+    now,
+    startDate ? shiftSyllabus(syllabus, cohortStartMonday(startDate)) : syllabus,
+  );
+}

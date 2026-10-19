@@ -82,10 +82,12 @@ export const Route = createFileRoute("/api/dash/snapshot")({
             : Promise.resolve({ ok: true, data: [] as T });
         // Mentors share one cohort-wide query, so its cap is generous and limited to recent weeks; otherwise one busy
         // startup would push the others' signals out and their trends would read as "no activity".
-        const signalsSince = encodeURIComponent(new Date(Date.now() - 45 * 86_400_000).toISOString());
+        const signalsSince = encodeURIComponent(
+          new Date(Date.now() - 45 * 86_400_000).toISOString(),
+        );
         const [startups, founders, submissions, signals, repos, handled, milestones, notes, tasks] =
           await Promise.all([
-            admin(`startups?select=id,name,tagline,stream,lead${by("id")}`),
+            admin(`startups?select=id,name,tagline,stream,lead,cohort_id${by("id")}`),
             admin(`founders?select=id,name,startup_id,profile,target_audience${by("startup_id")}`),
             admin(
               `submissions?select=id,startup_id,founder_id,deliverable_id,status,progress,blocker,digest,raw_transcript,artifact_url,created_at` +
@@ -112,6 +114,19 @@ export const Route = createFileRoute("/api/dash/snapshot")({
             ),
           ]);
         if (!startups.ok) return json({ error: "unavailable" }, 502);
+
+        // Cohorts (MVP#1, MVP#2, ...): each runs the same 12-week syllabus from its own start Monday. A founder only
+        // gets their own cohort.
+        const myCohorts = new Set(
+          rowsOf(startups as { ok: boolean; data: { cohort_id: string | null }[] | null }).map(
+            (s) => s.cohort_id,
+          ),
+        );
+        const cohorts = rowsOf(
+          await admin<
+            { id: string; name: string; start_date: string; total_weeks: number | null }[]
+          >("cohorts?select=id,name,start_date,total_weeks&order=start_date.asc"),
+        ).filter((c) => identity.role === "mentor" || myCohorts.has(c.id));
         // Slack ids of the founder's own team: their tasks stay visible, mentors' private ones do not.
         const teamSlack =
           identity.role === "founder"
@@ -255,6 +270,7 @@ export const Route = createFileRoute("/api/dash/snapshot")({
           ),
           meetings,
           mentorBusy,
+          cohorts,
         });
       },
     },

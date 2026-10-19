@@ -49,6 +49,13 @@ export type TaskRow = {
   status: string;
   created_at: string;
 };
+/** A cohort (MVP#1, MVP#2...): same syllabus, its own start date. */
+export type CohortRow = {
+  id: string;
+  name: string;
+  start_date: string;
+  total_weeks: number | null;
+};
 /** An event on a mentor's own connected calendar (mentors only). Private events arrive as "Busy". */
 export type MentorBusyRow = {
   id: string;
@@ -104,6 +111,7 @@ export type DashSnapshot = {
   tasks: TaskRow[];
   meetings: MeetingRow[];
   mentorBusy: MentorBusyRow[];
+  cohorts: CohortRow[];
 };
 
 type DashData = {

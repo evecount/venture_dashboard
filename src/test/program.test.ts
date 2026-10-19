@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  cohortProgram,
+  cohortStartMonday,
   describeSession,
   nextSprintSession,
   programState,
@@ -134,5 +136,22 @@ describe("fortnightly sprint session", () => {
   it("finds the next one, counting today", () => {
     expect(nextSprintSession(weeks, "2026-10-15")?.date).toBe("2026-10-15");
     expect(nextSprintSession(weeks, "2026-10-16")?.date).toBe("2026-10-29");
+  });
+});
+
+describe("cohorts on their own calendars", () => {
+  const monday = new Date("2026-10-19T02:00:00Z"); // Mon 19 Oct, 10:00 SGT
+  it("finds each cohort's start Monday in Singapore time", () => {
+    expect(cohortStartMonday("2026-10-18T16:00:00+00:00")).toBe("2026-10-19");
+    expect(cohortStartMonday("2026-10-04T16:00:00+00:00")).toBe("2026-10-05");
+    expect(cohortStartMonday("2026-10-21")).toBe("2026-10-19");
+  });
+  it("puts MVP#1 in week 3 and MVP#2 in week 1 on the same day", () => {
+    const one = cohortProgram(monday, "2026-10-04T16:00:00+00:00");
+    const two = cohortProgram(monday, "2026-10-18T16:00:00+00:00");
+    expect([one.week, one.gateDate]).toEqual([3, "2026-10-23"]);
+    expect([two.week, two.gateDate]).toEqual([1, "2026-10-23"]);
+    expect(two.deliverable).toMatch(/venture thesis/);
+    expect(nextSprintSession(two.weeks, "2026-10-19")?.date).toBe("2026-10-29");
   });
 });

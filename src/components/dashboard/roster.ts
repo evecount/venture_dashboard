@@ -6,6 +6,7 @@ export type StartupRow = {
   tagline?: string | null;
   stream: string;
   lead: string;
+  cohort_id?: string | null;
 };
 export type FounderRow = {
   id: string;
@@ -82,6 +83,7 @@ export function buildRoster(
     return {
       id: st.id,
       startupId: st.id,
+      cohortId: st.cohort_id ?? null,
       founderIds: people.map((p) => p.id),
       name: people.map((p) => p.name).join(", ") || "No founder linked yet",
       startup: st.tagline ? `${st.name} · ${st.tagline}` : st.name,

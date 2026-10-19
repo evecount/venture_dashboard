@@ -1,6 +1,7 @@
 export type Founder = {
   id: string;
   startupId?: string;
+  cohortId?: string | null;
   founderIds?: string[];
   health?: "blocked" | "quiet" | "on_track";
   healthDetail?: string;

@@ -339,6 +339,18 @@ Rules:
 6. Return STRICT JSON with no markdown wrapping.
 """
 
+def cohort_deliverable(cohort_id: str | None, today) -> dict | None:
+    """This week's deliverable on the founder's own cohort calendar, as a deliverables-table record (del-wkNN)."""
+    if not (cohort_id and supabase):
+        return None
+    c = next((x for x in cohorts.load(supabase) if x["id"] == cohort_id), None)
+    d = cohorts.this_weeks_deliverable(c["start"], today) if c else None
+    if not d:
+        return None
+    return {"id": f"del-wk{d['week']:02d}", "week": f"WK {d['week']:02d}", "title": d["title"],
+            "due_date": d["due"].isoformat(), "sprint_phase": d.get("phase") or ""}
+
+
 def resolve_founder_context(slack_user_id: str) -> dict:
     """
     Maps Slack User ID to their Startup, Founder profile, and current active deliverable.
@@ -365,8 +377,11 @@ def resolve_founder_context(slack_user_id: str) -> dict:
                         .execute()
                     )
                     active_del = del_res.data[0] if del_res.data else DEFAULT_DELIVERABLE
-                weeks = custom_schedule.fetch(supabase, startup.get("id")) if startup.get("id") else []
                 today_sgt = datetime.now(timezone(timedelta(hours=8))).date()
+                cohort_del = cohort_deliverable(startup.get("cohort_id"), today_sgt)
+                if cohort_del:  # each cohort runs the syllabus from its own start Monday (MVP#2 is two weeks behind MVP#1)
+                    active_del = cohort_del
+                weeks = custom_schedule.fetch(supabase, startup.get("id")) if startup.get("id") else []
                 if weeks:  # a participant with an uploaded syllabus follows their own weeks
                     active_del = custom_schedule.deliverable(weeks, today_sgt, active_del) or active_del
                 return {
