@@ -1796,6 +1796,7 @@ def send_announcement(client, m: dict) -> str:
         except Exception as e:
             print(f"[Announcement Error] {person['slack']}: {e}")
             failed.append(person["name"])
+    print(f"[Announcement] sent to {len(sent)}, failed {len(failed)}")
     line = (f"✅ Sent to {', '.join(sent)}." if len(sent) <= 5 else f"✅ Announcement sent to {announce.people_word(len(sent))}.") if sent else ""
     if failed:
         line += f" ⚠️ Couldn't reach: {', '.join(failed)}."
@@ -1878,6 +1879,7 @@ def handle_confirm_meeting(ack, body, client):
         client.chat_update(channel=channel, ts=ts, text=text, blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text}}])
 
     row = memory.get_meeting(body["actions"][0]["value"])
+    print(f"[Confirm] {user_id} pressed confirm on {body['actions'][0]['value'][:8]}: {'found' if row else 'no pending row'}")
     if not row:
         finish("That meeting request has expired or was already handled.")
         return
@@ -1890,6 +1892,7 @@ def handle_confirm_meeting(ack, body, client):
             client.chat_postEphemeral(channel=channel, user=user_id, text="Only the mentor who wrote this announcement can send it.")
             return
         if not memory.claim_meeting(row["id"]):
+            print("[Confirm] announcement already claimed by an earlier click")
             return  # a second click on the same card
         finish(send_announcement(client, m))
         return
