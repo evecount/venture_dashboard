@@ -111,5 +111,45 @@ class RoutineTest(unittest.TestCase):
         self.assertTrue(routines.describe(self.row()).startswith("every Wednesday at 2:00 PM → all founders (written for each person)"))
 
 
+class LookupAnswerTest(unittest.TestCase):
+    """A reply that only used look-up tools gets a second pass that reasons over the results."""
+
+    def make(self, first_tool):
+        from types import SimpleNamespace as NS
+        from bot_agent import Agent
+
+        calls = []
+
+        class Completions:
+            def create(self, **kw):
+                calls.append(kw)
+                if len(calls) == 1:
+                    call = NS(id="c1", function=NS(name=first_tool, arguments="{}"))
+                    return NS(choices=[NS(message=NS(content="", tool_calls=[call]))])
+                return NS(choices=[NS(message=NS(content="MVP#2's first sprint isn't on the calendar yet.", tool_calls=None))])
+
+        class Mem:
+            def history(self, _): return []
+            def log(self, *a): pass
+
+        agent = Agent(NS(chat=NS(completions=Completions())), "m", None, memory=Mem())
+        agent._system = lambda ident: "system"
+        agent._run_tool = lambda ident, name, args, out: "RAW CALENDAR DUMP"
+        return agent, calls
+
+    def test_lookup_gets_a_reasoned_answer(self):
+        agent, calls = self.make("upcoming_meetings")
+        out = agent.respond({"role": "mentor", "slack_id": "U1", "name": "Ben"}, "any sprint gaps?")
+        self.assertEqual(out["text"], "MVP#2's first sprint isn't on the calendar yet.")
+        self.assertEqual(calls[1]["messages"][-1], {"role": "tool", "tool_call_id": "c1", "content": "RAW CALENDAR DUMP"})
+        self.assertNotIn("tools", calls[1])
+
+    def test_actions_keep_a_single_pass(self):
+        agent, calls = self.make("add_task")
+        out = agent.respond({"role": "mentor", "slack_id": "U1", "name": "Ben"}, "add a task")
+        self.assertEqual(len(calls), 1)
+        self.assertIn("RAW CALENDAR DUMP", out["text"])
+
+
 if __name__ == "__main__":
     unittest.main()
