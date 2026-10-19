@@ -7,6 +7,7 @@ import {
   gateStatus,
   goalValue,
   milestoneValue,
+  setupGaps,
   upcomingMilestones,
   weeklyProgress,
 } from "@/components/dashboard/insights";
@@ -147,5 +148,37 @@ describe("milestones without goals", () => {
     });
     expect(milestoneValue([], { status: "done" })).toEqual({ pct: 100, estimated: false });
     expect(milestoneValue([])).toEqual({ pct: 0, estimated: false });
+  });
+});
+
+describe("setup gaps", () => {
+  const founders = [
+    { id: "f1", name: "Matthew", startup_id: "s1" },
+    { id: "f2", name: "Ana", startup_id: "s1" },
+  ];
+  const row = (id: string, over = {}) => ({
+    founder_id: id,
+    startup_id: "s1",
+    slack: true,
+    github: false,
+    calendar: false,
+    ...over,
+  });
+  it("names founders who aren't on Slack and missing essentials", () => {
+    expect(setupGaps("s1", [row("f1", { slack: false }), row("f2")], founders, [])).toEqual([
+      "Matthew isn't linked to the Slack bot yet",
+      "No GitHub repo connected",
+      "No milestones yet",
+    ]);
+  });
+  it("only mentions the optional calendar once the essentials are done", () => {
+    const ms = [{ startup_id: "s1", status: "open" }];
+    expect(setupGaps("s1", [row("f1", { github: true })], founders, ms)).toEqual([
+      "Calendar not shared (optional)",
+    ]);
+    expect(setupGaps("s1", [row("f1", { github: true, calendar: true })], founders, ms)).toEqual(
+      [],
+    );
+    expect(setupGaps("s2", [row("f1")], founders, ms)).toEqual([]);
   });
 });

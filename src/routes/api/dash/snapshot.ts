@@ -97,7 +97,7 @@ export const Route = createFileRoute("/api/dash/snapshot")({
           submissions,
           signals,
           repos,
-          handled,
+          handledFull,
           ownMilestones,
           notes,
           tasks,
@@ -114,7 +114,7 @@ export const Route = createFileRoute("/api/dash/snapshot")({
           admin<Repos[]>(
             `integrations?select=startup_id,repos,selected_repos&provider=eq.github${by("startup_id")}`,
           ),
-          mentorOnly("blocker_reviews?select=startup_id,handled_at"),
+          mentorOnly("blocker_reviews?select=startup_id,handled_at,handled_by,note"),
           admin<MilestoneRow[]>(milestonePath(",progress,est_progress,est_reason")),
           // Mentor notes about a startup are for the studio team, not the founders.
           mentorOnly(
@@ -130,6 +130,10 @@ export const Route = createFileRoute("/api/dash/snapshot")({
         const milestones = ownMilestones.ok
           ? ownMilestones
           : await admin<MilestoneRow[]>(milestonePath(""));
+        // Same for who handled a blocker and their note.
+        const handled = handledFull.ok
+          ? handledFull
+          : await mentorOnly("blocker_reviews?select=startup_id,handled_at");
 
         // Cohorts (MVP#1, MVP#2, ...): each runs the same 12-week syllabus from its own start Monday. A founder only
         // gets their own cohort.
@@ -193,6 +197,38 @@ export const Route = createFileRoute("/api/dash/snapshot")({
             ...e,
             mentor: nameOf.get(slack_user_id) ?? "A mentor",
           }));
+        // Onboarding gaps per founder, for mentors to chase: on Slack, GitHub repo chosen, calendar shared. Only
+        // yes/no leaves the server (no Slack IDs, tokens or emails).
+        const [setupFounders, setupConns] = await Promise.all([
+          mentorOnly<{ id: string; startup_id: string; slack_user_id: string | null }[]>(
+            "founders?select=id,startup_id,slack_user_id",
+          ),
+          mentorOnly<
+            {
+              founder_id: string | null;
+              provider: string;
+              repos: string[] | null;
+              selected_repos: string[] | null;
+            }[]
+          >(
+            "integrations?select=founder_id,provider,repos,selected_repos&provider=in.(github,google)",
+          ),
+        ]);
+        const conns = rowsOf(setupConns);
+        const setup = rowsOf(setupFounders).map((f) => {
+          const mine = conns.filter((c) => c.founder_id === f.id);
+          return {
+            founder_id: f.id,
+            startup_id: f.startup_id,
+            slack: !!f.slack_user_id,
+            github: mine.some(
+              (c) =>
+                c.provider === "github" &&
+                ((c.selected_repos ?? []).length > 0 || (c.repos ?? []).length === 1),
+            ),
+            calendar: mine.some((c) => c.provider === "google"),
+          };
+        });
         const myEmail =
           identity.role === "founder" ? rowsOf(roster)[0]?.email?.toLowerCase() : null;
         const meetings = (events.ok ? rowsOf(events) : [])
@@ -287,6 +323,7 @@ export const Route = createFileRoute("/api/dash/snapshot")({
           meetings,
           mentorBusy,
           cohorts,
+          setup,
         });
       },
     },

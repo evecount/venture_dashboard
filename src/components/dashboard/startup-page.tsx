@@ -1,9 +1,9 @@
-import { ArrowLeft, Flag, MessageSquare, NotebookPen, Video } from "lucide-react";
+import { ArrowLeft, CircleDashed, Flag, MessageSquare, NotebookPen, Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { DashSnapshot } from "@/hooks/use-dash-data";
 import type { Founder } from "./data";
 import { formatDay, sgtDate, sgtTime, type ProgramState } from "./program";
-import { blockedDays, checkinStreak, gateStatus, weeklyProgress } from "./insights";
+import { blockedDays, checkinStreak, gateStatus, setupGaps, weeklyProgress } from "./insights";
 import {
   GatePill,
   HealthPill,
@@ -48,6 +48,9 @@ export function StartupPage({
       (m.ends_at ? Date.parse(m.ends_at) : Date.parse(m.starts_at)) >= now.getTime(),
   );
   const blocker = founder.blocker && founder.blocker !== "None" ? founder.blocker : null;
+  const gaps = isMentor
+    ? setupGaps(founder.id, snapshot.setup ?? [], snapshot.founders, snapshot.milestones)
+    : [];
 
   return (
     <div className="startup-page">
@@ -152,6 +155,22 @@ export function StartupPage({
         </div>
 
         <aside className="split-side">
+          {gaps.length > 0 && (
+            <section className="panel" aria-labelledby="setup-title">
+              <div className="panel-head">
+                <h2 id="setup-title">Still to set up</h2>
+                <span className="panel-meta">Nudge them in Slack</span>
+              </div>
+              <ul className="list">
+                {gaps.map((g) => (
+                  <li key={g}>
+                    <CircleDashed size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0">{g}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           <section className="panel">
             <Milestones founder={founder} />
           </section>

@@ -104,18 +104,36 @@ export type Milestone = {
   goals: Goal[];
 };
 
+/** A blocker or quiet startup a mentor marked handled; `handled_by` and `note` may be missing on older rows. */
+export type HandledRow = {
+  startup_id: string;
+  handled_at: string;
+  handled_by?: string | null;
+  note?: string | null;
+};
+
+/** Mentors only: which onboarding steps each founder has done (yes/no only). */
+export type SetupRow = {
+  founder_id: string;
+  startup_id: string;
+  slack: boolean;
+  github: boolean;
+  calendar: boolean;
+};
+
 export type DashSnapshot = {
   startups: StartupRow[];
   founders: FounderRow[];
   submissions: SubmissionRow[];
   signals: SignalRow[];
-  handled: Array<{ startup_id: string; handled_at: string }>;
+  handled: HandledRow[];
   milestones: Milestone[];
   notes: NoteRow[];
   tasks: TaskRow[];
   meetings: MeetingRow[];
   mentorBusy: MentorBusyRow[];
   cohorts: CohortRow[];
+  setup?: SetupRow[];
 };
 
 type DashData = {
@@ -125,7 +143,7 @@ type DashData = {
   lastSync: Date | null;
   error: boolean;
   handledError: boolean;
-  setHandled: (startupId: string, value: boolean) => Promise<void>;
+  setHandled: (startupId: string, value: boolean, note?: string) => Promise<void>;
 };
 
 const POLL_MS = 20_000;
@@ -204,14 +222,14 @@ export function DashDataProvider({ children }: { children: ReactNode }) {
   );
 
   const setHandled = useCallback(
-    async (startupId: string, value: boolean) => {
+    async (startupId: string, value: boolean, note?: string) => {
       setHandledError(false);
       setOverrides((o) => ({ ...o, [startupId]: value ? new Date().toISOString() : null }));
       try {
         const res = await fetch("/api/dash/handled", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ startup_id: startupId, handled: value }),
+          body: JSON.stringify({ startup_id: startupId, handled: value, note }),
         });
         if (!res.ok) throw new Error(String(res.status));
         void load();

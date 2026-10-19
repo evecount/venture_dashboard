@@ -229,3 +229,34 @@ export function milestoneValue(
     estimated: vals.some((v) => v.estimated),
   };
 }
+
+type SetupLike = {
+  founder_id: string;
+  startup_id: string;
+  slack: boolean;
+  github: boolean;
+  calendar: boolean;
+};
+
+/**
+ * What a startup still hasn't set up, in plain words for mentors to chase. Calendar sharing is optional, so it
+ * only shows once the essentials are done. Empty when everything is in place (or nothing is known).
+ */
+export function setupGaps(
+  startupId: string,
+  setup: SetupLike[],
+  founders: { id: string; name: string; startup_id: string }[],
+  milestones: { startup_id: string; status: string }[],
+): string[] {
+  const mine = setup.filter((s) => s.startup_id === startupId);
+  if (!mine.length) return [];
+  const nameOf = new Map(founders.map((f) => [f.id, f.name]));
+  const gaps = mine
+    .filter((s) => !s.slack)
+    .map((s) => `${nameOf.get(s.founder_id) ?? "A founder"} isn't linked to the Slack bot yet`);
+  if (!mine.some((s) => s.github)) gaps.push("No GitHub repo connected");
+  if (!milestones.some((m) => m.startup_id === startupId && m.status !== "dropped"))
+    gaps.push("No milestones yet");
+  if (!gaps.length && !mine.some((s) => s.calendar)) gaps.push("Calendar not shared (optional)");
+  return gaps;
+}

@@ -12,6 +12,7 @@ import {
   Activity,
   Check,
   ChevronDown,
+  CircleDashed,
   CircleAlert,
   Flag,
   GitPullRequest,
@@ -37,7 +38,7 @@ import {
   sgtTime,
   type ProgramState,
 } from "./program";
-import { gateStatus, upcomingMilestones, weeklyProgress } from "./insights";
+import { gateStatus, setupGaps, upcomingMilestones, weeklyProgress } from "./insights";
 import { setByLabel } from "./milestones";
 import { GateBoard } from "./gates";
 import { ProgramView } from "./program-view";
@@ -102,6 +103,34 @@ function cohortWeekLabel(now: Date, startDate: string, totalWeeks: number | null
   const last = p.weeks.at(-1)?.gateDate;
   if (last && today > last) return "Finished";
   return `Week ${p.week} of ${totalWeeks ?? p.totalWeeks}`;
+}
+
+/** One line per cohort for the cohort bar: how many startups need a mentor and how many are at risk for the gate. */
+function cohortHealth(
+  now: Date,
+  startDate: string,
+  founders: Founder[],
+  snapshot: DashSnapshot,
+  handled: Record<string, string>,
+): { text: string; tone: "warning" | "success" | "" } {
+  if (!founders.length) return { text: "No startups yet", tone: "" };
+  const p = cohortProgram(now, startDate);
+  const w = p.weeks.find((x) => x.week === p.week);
+  const needs = founders.filter(
+    (f) => attentionReason(f) !== null && !isHandled(f, handled[f.id]),
+  ).length;
+  const atRisk = w
+    ? founders.filter((f) => {
+        const s = gateStatus(f.id, w, snapshot.submissions, snapshot.signals, now).state;
+        return s === "behind" || s === "blocked" || s === "no_update";
+      }).length
+    : 0;
+  const bits = [
+    needs && `${needs} need${needs === 1 ? "s" : ""} you`,
+    atRisk && `${atRisk} at risk`,
+  ];
+  const text = bits.filter(Boolean).join(" · ");
+  return text ? { text, tone: "warning" } : { text: "All on track", tone: "success" };
 }
 
 export function CommandCenter(props: Props = {}) {
@@ -419,11 +448,13 @@ function Dashboard({
         </div>
       </header>
 
-      {isMentor && !isMember && !opened && cohortList.length > 1 && (
+      {isMentor && !isMember && !opened && snapshot && cohortList.length > 1 && (
         <div className="cohort-bar">
           <div className="cohort-bar-inner" role="tablist" aria-label="Cohorts">
             {cohortList.map((c) => {
-              const count = founderList.filter((f) => f.cohortId === c.id).length;
+              const members = founderList.filter((f) => f.cohortId === c.id);
+              const count = members.length;
+              const health = cohortHealth(now, c.start_date, members, snapshot, handled);
               return (
                 <button
                   key={c.id}
@@ -438,6 +469,7 @@ function Dashboard({
                     {cohortWeekLabel(now, c.start_date, c.total_weeks)} · {count} startup
                     {count === 1 ? "" : "s"}
                   </span>
+                  <span className={`cohort-tab-status ${health.tone}`}>{health.text}</span>
                 </button>
               );
             })}
@@ -503,9 +535,18 @@ function TodayView({
   snapshot: DashSnapshot;
   handled: Record<string, string>;
   handledError: boolean;
-  onHandle: (startupId: string, value: boolean) => void;
+  onHandle: (startupId: string, value: boolean, note?: string) => void;
   openStartup: (id: string) => void;
 }) {
+  // "Mark handled" asks for an optional note for the other mentors before saving.
+  const [noting, setNoting] = useState<string | null>(null);
+  const [note, setNote] = useState("");
+  const handledInfo = new Map(snapshot.handled.map((r) => [r.startup_id, r]));
+  const saveHandled = (id: string) => {
+    onHandle(id, true, note.trim() || undefined);
+    setNoting(null);
+    setNote("");
+  };
   const n = founders.length;
   const quiet = founders.filter((f) => f.health === "quiet").length;
   const blocked = founders.filter(
@@ -588,7 +629,11 @@ function TodayView({
               <div className="empty">
                 <Check size={18} className="text-success" />
                 <p className="font-medium text-foreground">All clear</p>
-                <p>No startup is blocked or quiet right now.</p>
+                <p>
+                  {done.length
+                    ? `Nothing new. ${done.length} handled by the studio, below.`
+                    : "No startup is blocked or quiet right now."}
+                </p>
               </div>
             ) : (
               <ul className="rows">
@@ -604,38 +649,81 @@ function TodayView({
                       </span>
                       <HealthPill founder={f} />
                     </button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="row-action"
-                      aria-label={`Mark ${startupName(f)} handled`}
-                      onClick={() => onHandle(f.id, true)}
-                    >
-                      <Check size={14} /> <span className="hide-sm">Mark handled</span>
-                    </Button>
+                    {noting !== f.id && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="row-action"
+                        aria-label={`Mark ${startupName(f)} handled`}
+                        onClick={() => {
+                          setNoting(f.id);
+                          setNote("");
+                        }}
+                      >
+                        <Check size={14} /> <span className="hide-sm">Mark handled</span>
+                      </Button>
+                    )}
+                    {noting === f.id && (
+                      <form
+                        className="handle-form"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          saveHandled(f.id);
+                        }}
+                      >
+                        <input
+                          className="handle-note"
+                          autoFocus
+                          maxLength={300}
+                          value={note}
+                          onChange={(e) => setNote(e.target.value)}
+                          onKeyDown={(e) => e.key === "Escape" && setNoting(null)}
+                          placeholder="What was done? (optional, mentors see this)"
+                          aria-label={`Note on how ${startupName(f)} was handled`}
+                        />
+                        <Button type="submit" size="sm">
+                          <Check size={14} /> Mark handled
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="quiet"
+                          size="sm"
+                          onClick={() => setNoting(null)}
+                        >
+                          Cancel
+                        </Button>
+                      </form>
+                    )}
                   </li>
                 ))}
               </ul>
             )}
             {done.length > 0 && (
-              <details className="handled">
+              <details className="handled" open={open.length === 0}>
                 <summary>Handled · {done.length}</summary>
                 <ul className="rows">
-                  {done.map((f) => (
-                    <li key={f.id} className="row muted">
-                      <span className="avatar">{initials(startupName(f))}</span>
-                      <span className="min-w-0 flex-1">
-                        <span className="row-title">{startupName(f)}</span>
-                        <span className="row-reason">
-                          Handled {relativeTime(handled[f.id] ?? "", now)} · reopens on the next
-                          check-in
+                  {done.map((f) => {
+                    const info = handledInfo.get(f.id);
+                    return (
+                      <li key={f.id} className="row muted">
+                        <span className="avatar">{initials(startupName(f))}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="row-title">{startupName(f)}</span>
+                          <span className="row-reason">{attentionReason(f)}</span>
+                          <span className="row-reason">
+                            Handled{info?.handled_by ? ` by ${info.handled_by}` : ""}{" "}
+                            {relativeTime(handled[f.id] ?? "", now)} · reopens on the next check-in
+                          </span>
+                          {info?.note && (
+                            <span className="row-note">&ldquo;{info.note}&rdquo;</span>
+                          )}
                         </span>
-                      </span>
-                      <Button variant="quiet" size="sm" onClick={() => onHandle(f.id, false)}>
-                        <Undo2 size={14} /> Undo
-                      </Button>
-                    </li>
-                  ))}
+                        <Button variant="quiet" size="sm" onClick={() => onHandle(f.id, false)}>
+                          <Undo2 size={14} /> Undo
+                        </Button>
+                      </li>
+                    );
+                  })}
                 </ul>
               </details>
             )}
@@ -673,9 +761,15 @@ function CohortView({
   const streams = Array.from(
     new Set(founders.map((f) => f.stream).filter((s) => s && s !== "Unassigned")),
   ).sort();
+  // Essential setup still missing (the optional calendar doesn't count here).
+  const gapsOf = (f: Founder) =>
+    setupGaps(f.id, snapshot.setup ?? [], snapshot.founders, snapshot.milestones).filter(
+      (g) => !g.endsWith("(optional)"),
+    );
   const matches: Record<string, (f: Founder) => boolean> = {
     All: () => true,
     "Needs attention": (f) => attentionReason(f) !== null,
+    ...(snapshot.setup?.length ? { "Setup incomplete": (f: Founder) => gapsOf(f).length > 0 } : {}),
     ...Object.fromEntries(streams.map((s) => [s, (f: Founder) => f.stream === s])),
   };
   const w = program.weeks.find((x) => x.week === program.week);
@@ -751,6 +845,12 @@ function CohortView({
                   <HealthPill founder={f} />
                 </span>
                 <span className="card-digest">{f.digest}</span>
+                {gapsOf(f).length > 0 && (
+                  <span className="card-setup" title={gapsOf(f).join(" · ")}>
+                    <CircleDashed size={13} /> {gapsOf(f)[0]}
+                    {gapsOf(f).length > 1 && ` +${gapsOf(f).length - 1} more`}
+                  </span>
+                )}
                 <span className="card-trend">
                   <WeekBars
                     series={weeklyProgress(f.id, snapshot.submissions, program.weeks)}
