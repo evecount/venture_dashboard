@@ -14,6 +14,7 @@ if hasattr(sys.stdout, "reconfigure"):
 import json
 from urllib.parse import quote
 from datetime import datetime, timedelta, timezone
+from timeparse import parse_ts
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -1806,8 +1807,8 @@ def build_meeting_card(m: dict) -> list:
                  "action_id": "confirm_meeting", "value": m["id"]},
                 {"type": "button", "text": {"type": "plain_text", "text": no}, "action_id": "cancel_meeting", "value": m["id"]}]},
         ]
-    begin = datetime.fromisoformat(m["begin"])
-    end = datetime.fromisoformat(m["end"])
+    begin = parse_ts(m["begin"])
+    end = parse_ts(m["end"])
     if m.get("calendar_only"):
         where = "Online" if meetings.is_virtual(m["where"]) else m["where"]
         lines = [f"*{m['title']}*", f"🗓 {meetings.format_when(begin, end)}", f"📍 {where}"]
@@ -1888,7 +1889,7 @@ def handle_confirm_meeting(ack, body, client):
             memory.delete_meeting(row["id"])
             _studio_cache["at"] = 0.0
             return
-        begin, end = datetime.fromisoformat(m["begin"]), datetime.fromisoformat(m["end"])
+        begin, end = parse_ts(m["begin"]), parse_ts(m["end"])
         description = (f"Requested by {m['requester']} through VentureOS. Join with the Google account this invitation was sent to.")
         only = bool(m.get("calendar_only"))
         open_link = gcal.create_open_meet(studio["refresh_token"]) if meetings.is_virtual(m["where"]) and not only else None
@@ -2377,7 +2378,7 @@ def poll_new_connections():
     now = datetime.now(timezone.utc)
     for row in rows:
         row = refresh_repos(row)
-        age = (now - datetime.fromisoformat(row["created_at"].replace("Z", "+00:00"))).total_seconds()
+        age = (now - parse_ts(row["created_at"])).total_seconds()
         if not row.get("repos") and not gh and age < 60:
             continue  # GitHub's repo list usually lands within seconds; give it a moment
         try:

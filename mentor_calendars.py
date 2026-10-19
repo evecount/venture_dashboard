@@ -13,6 +13,7 @@ from urllib.parse import urlencode
 
 import google_calendar
 import integrations
+from timeparse import parse_ts
 
 SGT = timezone(timedelta(hours=8))
 SYNC_DAYS = 14
@@ -124,7 +125,7 @@ def sync_all(sb, gcal) -> int:
 # ---------- availability ----------
 
 def _dt(stamp: str) -> datetime:
-    return datetime.fromisoformat(stamp.replace("Z", "+00:00")).astimezone(SGT)
+    return parse_ts(stamp).astimezone(SGT)
 
 
 def busy_blocks(sb, slack_ids: list, begin: datetime, end: datetime) -> list:

@@ -9,6 +9,7 @@ Times are Singapore time and are always shown in 12-hour AM/PM format.
 import re
 import secrets
 from datetime import date, datetime, timedelta, timezone
+from timeparse import parse_ts
 
 SGT = timezone(timedelta(hours=8))
 GROUPS = {"everyone", "everybody", "all", "cohort", "mentors", "founders"}
@@ -113,9 +114,9 @@ def describe_event(ev: dict, show_attendees: bool) -> str:
     start = ev.get("start", {})
     stamp = start.get("dateTime")
     if stamp:
-        begin = datetime.fromisoformat(stamp.replace("Z", "+00:00")).astimezone(SGT)
+        begin = parse_ts(stamp).astimezone(SGT)
         end_stamp = (ev.get("end") or {}).get("dateTime")
-        end = datetime.fromisoformat(end_stamp.replace("Z", "+00:00")).astimezone(SGT) if end_stamp else None
+        end = parse_ts(end_stamp).astimezone(SGT) if end_stamp else None
         when = f"{begin.strftime('%a %b')} {begin.day}, {time_12h(begin)}" + (f"–{time_12h(end)}" if end else "")
     else:
         when = start.get("date", "")
@@ -149,9 +150,9 @@ def upcoming_item(ev: dict, today: date) -> tuple | None:
     stamp = (ev.get("start") or {}).get("dateTime")
     if not stamp:
         return None
-    begin = datetime.fromisoformat(stamp.replace("Z", "+00:00")).astimezone(SGT)
+    begin = parse_ts(stamp).astimezone(SGT)
     end_stamp = (ev.get("end") or {}).get("dateTime")
-    end = datetime.fromisoformat(end_stamp.replace("Z", "+00:00")).astimezone(SGT) if end_stamp else None
+    end = parse_ts(end_stamp).astimezone(SGT) if end_stamp else None
     where = "Google Meet" if "meet.google.com" in (ev.get("location") or "") else (ev.get("location") or ("Google Meet" if ev.get("hangoutLink") else ""))
     span = time_12h(begin) + (f"–{time_12h(end)}" if end else "")
     line = f"👥 {day_label(begin.date(), today)}, {span}: *{ev.get('summary', 'Meeting')}*" + (f" · {where}" if where else "")
@@ -164,8 +165,8 @@ def event_times(ev: dict) -> tuple | None:
     s_, e_ = (ev.get("start") or {}).get("dateTime"), (ev.get("end") or {}).get("dateTime")
     if not s_:
         return None
-    begin = datetime.fromisoformat(s_.replace("Z", "+00:00")).astimezone(SGT)
-    end = datetime.fromisoformat(e_.replace("Z", "+00:00")).astimezone(SGT) if e_ else begin + timedelta(hours=1)
+    begin = parse_ts(s_).astimezone(SGT)
+    end = parse_ts(e_).astimezone(SGT) if e_ else begin + timedelta(hours=1)
     return begin, end
 
 

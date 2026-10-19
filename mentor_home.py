@@ -11,13 +11,14 @@ Health rules (kept deliberately simple and explainable):
 from datetime import date, datetime, timedelta, timezone
 
 import syllabus
+from timeparse import parse_ts
 
 QUIET_DAYS = 7
 NL = chr(10)
 
 
 def _parse(ts: str) -> datetime:
-    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    return parse_ts(ts)
 
 
 def relative(ts: str, now: datetime) -> str:

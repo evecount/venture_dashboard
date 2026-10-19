@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 import jwt  # PyJWT, RS256 via cryptography
 
 from integrations import monitored_repos
+from timeparse import parse_ts
 
 API = "https://api.github.com"
 BACKFILL_DAYS = 14
@@ -64,7 +65,7 @@ class GitHubApp:
             return cached[0]
         data = self.http("POST", f"{API}/app/installations/{installation_id}/access_tokens",
                          self._headers(app_jwt(self.app_id, self.key)))
-        expires = datetime.fromisoformat(data["expires_at"].replace("Z", "+00:00")).timestamp()
+        expires = parse_ts(data["expires_at"]).timestamp()
         self._tokens[installation_id] = (data["token"], expires)
         return data["token"]
 
@@ -101,7 +102,7 @@ class GitHubApp:
         token = self.installation_token(installation_id)
         prs = self.http("GET", f"{API}/repos/{repo}/pulls", self._headers(token),
                         {"state": "closed", "sort": "updated", "direction": "desc", "per_page": 50})
-        return [p for p in prs if p.get("merged_at") and datetime.fromisoformat(p["merged_at"].replace("Z", "+00:00")) >= since]
+        return [p for p in prs if p.get("merged_at") and parse_ts(p["merged_at"]) >= since]
 
 
 def backfill_signals(gh: GitHubApp, sb, integration: dict, now: datetime | None = None) -> int:
@@ -111,7 +112,7 @@ def backfill_signals(gh: GitHubApp, sb, integration: dict, now: datetime | None 
     Re-running replaces earlier backfill rows instead of duplicating them. Returns signals written.
     """
     now = now or datetime.now(timezone.utc)
-    connected_at = datetime.fromisoformat(integration["created_at"].replace("Z", "+00:00"))
+    connected_at = parse_ts(integration["created_at"])
     since = now - timedelta(days=BACKFILL_DAYS)
     repos = monitored_repos(integration)  # same rule as live webhooks: only what the founder chose
     startup_id, installation_id = integration["startup_id"], integration["external_id"]
