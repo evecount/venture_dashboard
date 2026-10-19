@@ -97,6 +97,10 @@ export type Milestone = {
   due_date: string | null;
   status: "open" | "done" | "dropped";
   set_by?: SetBy;
+  /** Only used when the milestone has no goals: its own official progress and the bot's estimate. */
+  progress?: number | null;
+  est_progress?: number | null;
+  est_reason?: string | null;
   goals: Goal[];
 };
 

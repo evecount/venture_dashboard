@@ -34,6 +34,9 @@ type MilestoneRow = {
   status: string;
   created_by: string | null;
   created_by_role: string | null;
+  progress?: number | null;
+  est_progress?: number | null;
+  est_reason?: string | null;
   goals: Array<{
     id: string;
     title: string;
@@ -85,35 +88,48 @@ export const Route = createFileRoute("/api/dash/snapshot")({
         const signalsSince = encodeURIComponent(
           new Date(Date.now() - 45 * 86_400_000).toISOString(),
         );
-        const [startups, founders, submissions, signals, repos, handled, milestones, notes, tasks] =
-          await Promise.all([
-            admin(`startups?select=id,name,tagline,stream,lead,cohort_id${by("id")}`),
-            admin(`founders?select=id,name,startup_id,profile,target_audience${by("startup_id")}`),
-            admin(
-              `submissions?select=id,startup_id,founder_id,deliverable_id,status,progress,blocker,digest,raw_transcript,artifact_url,created_at` +
-                `&confirmed=eq.true&order=created_at.desc&limit=${only ? 300 : 800}${by("startup_id")}`,
-            ),
-            admin<SignalRow[]>(
-              `signals?select=id,startup_id,type,headline,detail,stream,meta,created_at&created_at=gte.${signalsSince}&order=created_at.desc&limit=${only ? 300 : 1500}${by("startup_id")}`,
-            ),
-            admin<Repos[]>(
-              `integrations?select=startup_id,repos,selected_repos&provider=eq.github${by("startup_id")}`,
-            ),
-            mentorOnly("blocker_reviews?select=startup_id,handled_at"),
-            admin<MilestoneRow[]>(
-              `milestones?select=id,startup_id,title,due_date,status,created_by,created_by_role,goals(id,title,done,created_by,progress,est_progress,est_reason)&status=neq.dropped` +
-                `&order=due_date.asc.nullslast${by("startup_id")}`,
-            ),
-            // Mentor notes about a startup are for the studio team, not the founders.
-            mentorOnly(
-              "notes?select=id,startup_id,author_name,body,created_at&order=created_at.desc&limit=200",
-            ),
-            admin<{ owner_slack_id: string | null }[]>(
-              `tasks?select=id,startup_id,owner_slack_id,title,due_date,status,created_at&status=eq.open` +
-                `&order=due_date.asc.nullslast&limit=200${by("startup_id")}`,
-            ),
-          ]);
+        const milestonePath = (own: string) =>
+          `milestones?select=id,startup_id,title,due_date,status,created_by,created_by_role${own},goals(id,title,done,created_by,progress,est_progress,est_reason)&status=neq.dropped` +
+          `&order=due_date.asc.nullslast${by("startup_id")}`;
+        const [
+          startups,
+          founders,
+          submissions,
+          signals,
+          repos,
+          handled,
+          ownMilestones,
+          notes,
+          tasks,
+        ] = await Promise.all([
+          admin(`startups?select=id,name,tagline,stream,lead,cohort_id${by("id")}`),
+          admin(`founders?select=id,name,startup_id,profile,target_audience${by("startup_id")}`),
+          admin(
+            `submissions?select=id,startup_id,founder_id,deliverable_id,status,progress,blocker,digest,raw_transcript,artifact_url,created_at` +
+              `&confirmed=eq.true&order=created_at.desc&limit=${only ? 300 : 800}${by("startup_id")}`,
+          ),
+          admin<SignalRow[]>(
+            `signals?select=id,startup_id,type,headline,detail,stream,meta,created_at&created_at=gte.${signalsSince}&order=created_at.desc&limit=${only ? 300 : 1500}${by("startup_id")}`,
+          ),
+          admin<Repos[]>(
+            `integrations?select=startup_id,repos,selected_repos&provider=eq.github${by("startup_id")}`,
+          ),
+          mentorOnly("blocker_reviews?select=startup_id,handled_at"),
+          admin<MilestoneRow[]>(milestonePath(",progress,est_progress,est_reason")),
+          // Mentor notes about a startup are for the studio team, not the founders.
+          mentorOnly(
+            "notes?select=id,startup_id,author_name,body,created_at&order=created_at.desc&limit=200",
+          ),
+          admin<{ owner_slack_id: string | null }[]>(
+            `tasks?select=id,startup_id,owner_slack_id,title,due_date,status,created_at&status=eq.open` +
+              `&order=due_date.asc.nullslast&limit=200${by("startup_id")}`,
+          ),
+        ]);
         if (!startups.ok) return json({ error: "unavailable" }, 502);
+        // Before the milestone-progress migration runs, those columns don't exist: fall back to goals only.
+        const milestones = ownMilestones.ok
+          ? ownMilestones
+          : await admin<MilestoneRow[]>(milestonePath(""));
 
         // Cohorts (MVP#1, MVP#2, ...): each runs the same 12-week syllabus from its own start Monday. A founder only
         // gets their own cohort.

@@ -39,9 +39,12 @@ def goal_value(g: dict) -> tuple[int, bool]:
     return int(g.get("progress") or 0), False
 
 
-def milestone_value(goals: list) -> tuple[int, bool]:
+def milestone_value(goals: list, milestone: dict | None = None) -> tuple[int, bool]:
+    """Average of the goals. A milestone with no goals carries its own progress (and estimate) instead."""
     if not goals:
-        return 0, False
+        if not milestone:
+            return 0, False
+        return goal_value({**milestone, "done": milestone.get("status") == "done"})
     vals = [goal_value(g) for g in goals]
     return round(sum(v for v, _ in vals) / len(vals)), any(e for _, e in vals)
 
@@ -49,7 +52,8 @@ def milestone_value(goals: list) -> tuple[int, bool]:
 def build_prompt(goals: list, work: list) -> str:
     lines = ["OPEN GOALS (ref · milestone · goal · current %):"]
     for ref, g in goals:
-        lines.append(f"- {ref} · {g['milestone']} · {g['title']} · {goal_value(g)[0]}%")
+        title = "(the milestone as a whole: it has no separate goals)" if g.get("kind") == "milestone" else g["title"]
+        lines.append(f"- {ref} · {g['milestone']} · {title} · {goal_value(g)[0]}%")
     lines.append("")
     lines.append("NEW GITHUB WORK (oldest first):")
     for s in work:
@@ -93,22 +97,33 @@ def decide(goals_by_ref: dict, updates: list) -> list:
     return out
 
 
+def item_ref(g: dict) -> str:
+    """Button value for a goal ("<id>") or a goal-less milestone ("m:<id>")."""
+    return f"m:{g['id']}" if g.get("kind") == "milestone" else g["id"]
+
+
+def table_for(g: dict) -> str:
+    return "milestones" if g.get("kind") == "milestone" else "goals"
+
+
 def card(change: dict) -> list:
     """Slack card for one estimate: confirm it, set your own number, or (if it looks finished) mark the goal done."""
     g = change["goal"]
-    text = (f"📈 *{g['title']}* ({g['milestone']}) looks about *{change['new']}%* done from your GitHub work"
+    ref = item_ref(g)
+    where = "" if g.get("kind") == "milestone" else f" ({g['milestone']})"
+    text = (f"📈 *{g['title']}*{where} looks about *{change['new']}%* done from your GitHub work"
             + (f": {change['reason']}" if change["reason"] else ".")
             + "\nIt shows as an estimate until you confirm it.")
-    options = [{"text": {"type": "plain_text", "text": f"{p}%"}, "value": f"{g['id']}|{p}"} for p in range(10, 100, 10)]
+    options = [{"text": {"type": "plain_text", "text": f"{p}%"}, "value": f"{ref}|{p}"} for p in range(10, 100, 10)]
     elements = [
         {"type": "button", "style": "primary", "text": {"type": "plain_text", "text": f"Confirm {change['new']}%"},
-         "action_id": "confirm_goal_estimate", "value": g["id"]},
+         "action_id": "confirm_goal_estimate", "value": ref},
         {"type": "static_select", "action_id": "set_goal_progress", "options": options,
          "placeholder": {"type": "plain_text", "text": "Set it myself"}},
     ]
     if change["looks_done"]:
         elements.append({"type": "button", "text": {"type": "plain_text", "text": "It's done"},
-                         "action_id": "mark_goal_done", "value": g["id"]})
+                         "action_id": "mark_goal_done", "value": ref})
     return [{"type": "section", "text": {"type": "mrkdwn", "text": text}}, {"type": "actions", "elements": elements}]
 
 
@@ -119,6 +134,15 @@ def _monitored_work(sb, startup_id: str, since: str) -> tuple:
             .in_("type", list(WORK_TYPES)).gt("created_at", since).order("created_at").limit(80).execute().data) or []
     watched = integrations.monitored_for_startup(sb, startup_id)
     return [r for r in rows if (r.get("meta") or {}).get("repo") in watched], (rows[-1]["created_at"] if rows else None)
+
+
+def _open_milestones(sb, startup_id: str) -> list:
+    q = lambda cols: (sb.table("milestones").select(cols).eq("startup_id", startup_id).eq("status", "open")
+                      .execute().data) or []
+    try:
+        return q("id,title,progress,est_progress,goals(id,title,done,progress,est_progress)")
+    except Exception:  # noqa: BLE001 - milestone progress migration not run yet: goals only
+        return q("id,title,goals(id,title,done,progress,est_progress)")
 
 
 def run(sb, ai, model: str, notify=None, now: datetime | None = None) -> int:
@@ -143,9 +167,12 @@ def run(sb, ai, model: str, notify=None, now: datetime | None = None) -> int:
                     sb.table("progress_estimate_state").upsert({
                         "startup_id": startup_id, "last_signal_at": cursor, "updated_at": now.isoformat()}).execute()
                 continue
-            milestones = (sb.table("milestones").select("title,goals(id,title,done,progress,est_progress)")
-                          .eq("startup_id", startup_id).eq("status", "open").execute().data) or []
+            milestones = _open_milestones(sb, startup_id)
             goals = [{**g, "milestone": m["title"]} for m in milestones for g in (m.get("goals") or []) if not g.get("done")]
+            # A milestone with no goals is rated as a whole (needs the milestone progress columns).
+            goals += [{"id": m["id"], "title": m["title"], "milestone": m["title"], "kind": "milestone", "done": False,
+                       "progress": m.get("progress"), "est_progress": m.get("est_progress")}
+                      for m in milestones if not m.get("goals") and "est_progress" in m]
             if not goals:
                 continue  # leave the work unassessed: goals set later still get credit for it
             changes = []
@@ -157,7 +184,7 @@ def run(sb, ai, model: str, notify=None, now: datetime | None = None) -> int:
                 ).choices[0].message.content
                 changes = decide(dict(refs), parse_reply(reply))
             for c in changes:
-                sb.table("goals").update({"est_progress": c["new"], "est_reason": c["reason"] or None,
+                sb.table(table_for(c["goal"])).update({"est_progress": c["new"], "est_reason": c["reason"] or None,
                                           "est_at": now.isoformat()}).eq("id", c["goal"]["id"]).execute()
                 stored += 1
                 if notify and (c["new"] - c["old"] >= NOTIFY_JUMP or c["looks_done"]):

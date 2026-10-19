@@ -110,6 +110,23 @@ class RunTests(unittest.TestCase):
         pe.run(db, fake_ai("{}"), "m")
         self.assertEqual(db.writes, [])
 
+    def test_a_milestone_without_goals_is_rated_as_a_whole(self):
+        db, sent = self.db(), []
+        db.tables["milestones"] = [{"id": "m1", "title": "Build UI/UX for app", "progress": None,
+                                    "est_progress": None, "goals": []}]
+        n = pe.run(db, fake_ai('{"updates": [{"goal": "g1", "progress": 30, "reason": "signup form"}]}'), "m",
+                   notify=lambda sid, blocks, text: sent.append(blocks))
+        self.assertEqual(n, 1)
+        self.assertIn(("milestones", "update", {"est_progress": 30, "est_reason": "signup form",
+                                                "est_at": unittest.mock.ANY}), db.writes)
+        values = [e.get("value") for b in sent[0] for e in b.get("elements", [])]
+        self.assertIn("m:m1", values)  # the card's buttons point at the milestone, not a goal
+
+    def test_milestone_value_falls_back_to_the_milestone_itself(self):
+        self.assertEqual(pe.milestone_value([], {"est_progress": 40}), (40, True))
+        self.assertEqual(pe.milestone_value([], {"status": "done"}), (100, False))
+        self.assertEqual(pe.milestone_value([]), (0, False))
+
 
 import unittest.mock  # noqa: E402
 

@@ -2,7 +2,7 @@
 
 import json
 import os
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 _PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src", "data", "syllabus.json")
 
@@ -113,3 +113,12 @@ def current_deliverable(today: date, start: date | None = None) -> dict | None:
 
 def long_date(d: date) -> str:
     return f"{d.strftime('%A, %b')} {d.day}"
+
+
+def friendly_date(value) -> str:
+    """"2026-10-23" (or an ISO timestamp) -> "Friday, Oct 23"; anything unparseable is returned as it was."""
+    text = str(value or "")[:10]
+    try:
+        return long_date(datetime.strptime(text, "%Y-%m-%d").date())
+    except ValueError:
+        return text

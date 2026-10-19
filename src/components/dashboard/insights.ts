@@ -216,8 +216,13 @@ export function goalValue(g: GoalLike): { pct: number; estimated: boolean } {
   return { pct: g.progress ?? 0, estimated: false };
 }
 
-export function milestoneValue(goals: GoalLike[]): { pct: number; estimated: boolean } {
-  if (!goals.length) return { pct: 0, estimated: false };
+/** Average of the goals. A milestone with no goals carries its own progress and estimate instead (same as the bot). */
+export function milestoneValue(
+  goals: GoalLike[],
+  own?: { status?: string; progress?: number | null; est_progress?: number | null },
+): { pct: number; estimated: boolean } {
+  if (!goals.length)
+    return own ? goalValue({ ...own, done: own.status === "done" }) : { pct: 0, estimated: false };
   const vals = goals.map(goalValue);
   return {
     pct: Math.round(vals.reduce((n, v) => n + v.pct, 0) / vals.length),

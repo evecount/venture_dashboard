@@ -150,7 +150,7 @@ def build_mentor_blocks(summaries: list, today: date | None = None, tasks: list 
 
     if tasks:
         lines = [f"• {t['title']} · {(t.get('startups') or {}).get('name', 'startup')}"
-                 + (f" · due {t['due_date']}" if t.get("due_date") else "") for t in tasks[:6]]
+                 + (f" · due {syllabus.friendly_date(t['due_date'])}" if t.get("due_date") else "") for t in tasks[:6]]
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Your follow-ups*" + NL + NL.join(lines)}})
 
     blocks.append({"type": "divider"})

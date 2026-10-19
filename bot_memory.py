@@ -118,12 +118,19 @@ class Memory:
 
     def milestones(self, startup_id: str | None = None, limit: int = 40) -> list:
         """Open milestones with their goals nested (id, title, done)."""
-        def run():
+        def query(cols):
             q = self.sb.table("milestones").select(
-                "id,startup_id,title,due_date,status,created_by_role,startups(name),goals(id,title,done,progress,est_progress)").eq("status", "open")
+                "id,startup_id,title,due_date,status,created_by_role,startups(name),goals(id,title,done,progress,est_progress)"
+                + cols).eq("status", "open")
             if startup_id:
                 q = q.eq("startup_id", startup_id)
             return q.order("due_date", desc=False, nullsfirst=False).limit(limit).execute().data or []
+
+        def run():
+            try:  # goal-less milestones carry their own progress (2026-10-milestone-progress.sql)
+                return query(",progress,est_progress")
+            except Exception:  # noqa: BLE001 - migration not run yet
+                return query("")
         return self._guard("milestones", run, [])
 
     def update_milestone(self, milestone_id: str, patch: dict) -> bool:

@@ -1201,15 +1201,19 @@ def _goal_suffix(g: dict) -> str:
     return f" · _~{pct}% est. from GitHub_" if est else f" · {pct}%"
 
 
+friendly_date = syllabus.friendly_date
+
+
 def _milestone_lines(items: list) -> list:
     lines = []
     for m in items[:4]:
         goals = m.get("goals") or []
         done = sum(1 for g in goals if g.get("done"))
-        due = f" · due {m['due_date']}" if m.get("due_date") else ""
-        pct, est = progress_estimator.milestone_value(goals)
-        overall = f" · {'~' if est else ''}{pct}%" if pct else ""
-        lines.append(f"🎯 *{m['title']}*{due} · {done}/{len(goals)} goals{overall}")
+        due = f" · due {friendly_date(m['due_date'])}" if m.get("due_date") else ""
+        pct, est = progress_estimator.milestone_value(goals, m)
+        overall = f" · {'~' if est else ''}{pct}%" + (" _est. from GitHub_" if est and not goals else "") if pct else ""
+        count = f"{done}/{len(goals)} goals" if goals else "no goals yet"
+        lines.append(f"🎯 *{m['title']}*{due} · {count}{overall}")
         lines += [("      ✅ " if g.get("done") else "      ⬜ ") + g["title"] + _goal_suffix(g) for g in goals[:6]]
     return lines
 
@@ -1307,7 +1311,7 @@ def build_task_blocks(tasks: list) -> list:
     if not tasks:
         return []
     nl = chr(10)
-    lines = [f"• {t['title']}" + (f" (due {t['due_date']})" if t.get("due_date") else "") for t in tasks[:8]]
+    lines = [f"• {t['title']}" + (f" (due {friendly_date(t['due_date'])})" if t.get("due_date") else "") for t in tasks[:8]]
     return [{"type": "section", "text": {"type": "mrkdwn", "text": "*Follow-ups*" + nl + nl.join(lines)}}]
 
 
@@ -1320,7 +1324,7 @@ def getting_started_blocks(founder_id: str, latest: dict | None, milestones: lis
     if github_ready:
         steps.append(("Connect GitHub and pick your repository", any(integrations.monitored_repos(r) for r in mine),
                       "buttons further down" if not mine else "pick the repository further down"))
-    steps.append(("Set your first milestone", any(m.get("created_by_role") != "mentor" for m in milestones),
+    steps.append(("Set your first milestone", bool(milestones),
                   "e.g. _\"Set a milestone: 10 customer interviews by Oct 30\"_"))
     done = sum(1 for _, ok, _ in steps if ok)
     if done == len(steps):
@@ -1375,11 +1379,7 @@ def build_home_view(context: dict | None, latest: dict | None, tasks: list | Non
                                      github_ready=bool(github_link(context["founder_id"], context["startup_id"])))
 
     d = context["deliverable"]
-    due = str(d.get("due_date", ""))[:10]
-    try:
-        due_text = syllabus.long_date(datetime.strptime(due, "%Y-%m-%d").date())
-    except ValueError:
-        due_text = due
+    due_text = friendly_date(d.get("due_date", ""))
     blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": (
         f"*Due this week*{nl}{d['title']}" + (f"{nl}📅 Due {due_text}" if due_text else ""))}})
 
@@ -2195,16 +2195,27 @@ def run_progress_estimates():
         progress_estimator.run(supabase, ai_client, AI_MODEL, notify=notify_founders)
 
 
+def _estimate_target(ref: str) -> tuple:
+    """A card's button value -> (table, id): "<goal id>" or "m:<milestone id>" for a milestone with no goals."""
+    return ("milestones", ref[2:]) if ref.startswith("m:") else ("goals", ref)
+
+
 def _goal_for(user_id: str, goal_id: str) -> dict | None:
-    """The goal, if this person may update it: a founder of its startup, or any mentor."""
-    rows = supabase.table("goals").select("id,title,est_progress,milestone_id,milestones(startup_id)").eq("id", goal_id).execute().data
+    """The goal (or goal-less milestone), if this person may update it: a founder of its startup, or any mentor."""
+    table, item_id = _estimate_target(goal_id)
+    if table == "milestones":
+        rows = supabase.table("milestones").select("id,title,est_progress,startup_id").eq("id", item_id).execute().data
+        startup = rows[0].get("startup_id") if rows else None
+    else:
+        rows = supabase.table("goals").select("id,title,est_progress,milestone_id,milestones(startup_id)").eq("id", item_id).execute().data
+        startup = (rows[0].get("milestones") or {}).get("startup_id") if rows else None
     if not rows:
         return None
     g = rows[0]
     if get_role(user_id) == "mentor":
         return g
     me = supabase.table("founders").select("startup_id").eq("slack_user_id", user_id).execute().data
-    return g if me and me[0]["startup_id"] == (g.get("milestones") or {}).get("startup_id") else None
+    return g if me and me[0]["startup_id"] == startup else None
 
 
 def _settle_goal(body, client, goal_id: str, patch: dict, said: str):
@@ -2213,7 +2224,10 @@ def _settle_goal(body, client, goal_id: str, patch: dict, said: str):
     if not g:
         client.chat_postMessage(channel=user_id, text="⚠️ I couldn't update that goal (it may have been removed).")
         return
-    supabase.table("goals").update({**patch, "est_progress": None, "est_reason": None, "est_at": None}).eq("id", goal_id).execute()
+    table, item_id = _estimate_target(goal_id)
+    if table == "milestones" and "done" in patch:  # a goal-less milestone is finished as a whole
+        patch = {"status": "done", "progress": 100, "updated_at": patch.get("done_at")}
+    supabase.table(table).update({**patch, "est_progress": None, "est_reason": None, "est_at": None}).eq("id", item_id).execute()
     if "done" in patch and g.get("milestone_id"):
         memory.sync_milestone(g["milestone_id"])
     try:
@@ -2228,7 +2242,8 @@ def _settle_goal(body, client, goal_id: str, patch: dict, said: str):
 def handle_confirm_goal_estimate(ack, body, client):
     ack()
     goal_id = body["actions"][0]["value"]
-    rows = supabase.table("goals").select("est_progress").eq("id", goal_id).execute().data
+    table, item_id = _estimate_target(goal_id)
+    rows = supabase.table(table).select("est_progress").eq("id", item_id).execute().data
     pct = rows[0].get("est_progress") if rows else None
     if pct is None:  # already confirmed or replaced: a stale or double click must not reset the goal to 0%
         client.chat_postMessage(channel=body["user"]["id"], text="That estimate was already handled.")

@@ -138,3 +138,14 @@ describe("goal progress with GitHub estimates", () => {
     });
   });
 });
+
+describe("milestones without goals", () => {
+  it("use their own progress and estimate", () => {
+    expect(milestoneValue([], { status: "open", est_progress: 40 })).toEqual({
+      pct: 40,
+      estimated: true,
+    });
+    expect(milestoneValue([], { status: "done" })).toEqual({ pct: 100, estimated: false });
+    expect(milestoneValue([])).toEqual({ pct: 0, estimated: false });
+  });
+});

@@ -75,11 +75,11 @@ class GettingStartedTests(unittest.TestCase):
             blocks = b.getting_started_blocks("f1", {"status": "On Track"}, [{"created_by_role": "founder"}], conns, [])
         self.assertEqual(blocks, [])
 
-    def test_mentor_milestones_do_not_tick_the_founders_own_step(self):
-        t = b.blocks_to_text(b.getting_started_blocks("f1", {"status": "On Track"}, [{"created_by_role": "mentor"}], [], [],
-                                                      github_ready=False))
-        self.assertIn("2 of 3 done", t)
-        self.assertIn("Set your first milestone", t)
+    def test_mentor_milestones_tick_the_milestone_step(self):
+        # A founder whose mentors already set milestones has something to work toward: no "set your first" nag.
+        blocks = b.getting_started_blocks("f1", {"status": "On Track"}, [{"created_by_role": "mentor"}], [], [],
+                                          github_ready=False)
+        self.assertEqual(blocks, [])
 
     def test_home_no_longer_shows_an_advisor(self):
         with mock.patch.object(b, "github_link", return_value=None), mock.patch.object(b, "google_link", return_value=None):

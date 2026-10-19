@@ -28,9 +28,7 @@ export function Milestones({ founder }: { founder: Founder }) {
       <div className="drawer-history">
         {items?.map((m) => {
           const done = m.goals.filter((g) => g.done).length;
-          const overall = m.goals.length
-            ? milestoneValue(m.goals)
-            : { pct: m.status === "done" ? 100 : 0, estimated: false };
+          const overall = milestoneValue(m.goals, m);
           const pct = overall.pct;
           const by = setByLabel(m.set_by);
           return (
@@ -62,14 +60,21 @@ export function Milestones({ founder }: { founder: Founder }) {
                 />
               </div>
               <p className="mt-1.5 text-xs text-muted-foreground">
-                {done}/{m.goals.length} goals done
+                {m.goals.length ? `${done}/${m.goals.length} goals done` : "No goals yet"}
                 {pct > 0 && (
                   <>
                     {" · "}
-                    {overall.estimated ? `~${pct}% incl. GitHub estimates` : `${pct}%`}
+                    {!overall.estimated
+                      ? `${pct}%`
+                      : m.goals.length
+                        ? `~${pct}% incl. GitHub estimates`
+                        : `~${pct}% est. from GitHub`}
                   </>
                 )}
               </p>
+              {!m.goals.length && overall.estimated && m.est_reason && (
+                <p className="mt-1 text-xs text-muted-foreground">{m.est_reason}</p>
+              )}
               <ul className="mt-2 space-y-1.5">
                 {m.goals.map((g) => {
                   // Only call out who added a goal when it differs from whoever set the milestone.
