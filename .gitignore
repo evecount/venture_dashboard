@@ -44,3 +44,6 @@ dist-ssr
 # Python / local tooling
 __pycache__/
 .claude/
+
+# Participants' custom syllabi (real venture details); imported with scripts/import_syllabus.py
+syllabi/
