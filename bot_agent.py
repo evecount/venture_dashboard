@@ -14,6 +14,7 @@ import integrations
 import meetings
 import mentor_calendars
 import syllabus
+import syllabus_import
 from bot_memory import Memory
 from mentor_home import summarize_startups
 
@@ -518,6 +519,17 @@ class Agent:
                 found += [{**g, "milestone": m} for g in (m.get("goals") or []) if g["id"].lower().startswith(ref)]
         return found[0] if len(found) == 1 else None
 
+    def _supersede(self, startup_id, keep_id: str, texts: list) -> str:
+        """New milestones and goals replace the syllabus items they overlap; says so in the reply."""
+        if not (self.sb and startup_id):
+            return ""
+        try:
+            gone = syllabus_import.supersede(self.sb, startup_id, keep_id, texts)
+        except Exception as e:  # noqa: BLE001 - never block adding a milestone
+            print(f"[Syllabus Supersede Warning] {e}")
+            return ""
+        return f" It replaces {len(gone)} overlapping syllabus item{'s' if len(gone) != 1 else ''}." if gone else ""
+
     def _milestone_tool(self, ident: dict, name: str, args: dict, startup_id) -> str:
         role, me = ident["role"], ident["slack_id"]
         mem = self.memory
@@ -543,8 +555,9 @@ class Agent:
             goals = [str(g).strip() for g in (args.get("goals") or []) if str(g).strip()][:12]
             for g in goals:
                 mem.add_goal(mid, g, author)
+            swapped = self._supersede(startup_id, mid, [title] + goals)
             return (f"🎯 Milestone added: {title}" + (f" (due {due})" if due else "")
-                    + (f" with {len(goals)} goal{'s' if len(goals) != 1 else ''}" if goals else "") + credit + ".")
+                    + (f" with {len(goals)} goal{'s' if len(goals) != 1 else ''}" if goals else "") + credit + "." + swapped)
         locked = "🔒 That milestone was set by your mentor, so only they can change it. You can still tick its goals off as you finish them."
         if name in ("update_milestone", "add_goal"):
             m = self._find(ident, args.get("milestone_ref"), "m")
@@ -554,7 +567,9 @@ class Agent:
                 return locked
             if name == "add_goal":
                 title = str(args.get("title", "")).strip()
-                return f"➕ Goal added to {m['title']}: {title}" if title and mem.add_goal(m["id"], title, me) else "⚠️ I couldn't add that goal."
+                if not (title and mem.add_goal(m["id"], title, me)):
+                    return "⚠️ I couldn't add that goal."
+                return f"➕ Goal added to {m['title']}: {title}" + self._supersede(m.get("startup_id"), m["id"], [title])
             patch = {}
             if args.get("title"):
                 patch["title"] = str(args["title"])[:200]

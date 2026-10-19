@@ -110,6 +110,7 @@ import digest
 import transcribe
 import github_app
 import syllabus
+import syllabus_import
 import google_calendar
 import meetings
 import time
@@ -1225,7 +1226,8 @@ HOW_TO = {
             "_\"Add a task for Auvira: send the deck by Friday\"_  ·  _\"Mark the deck task done\"_",
             "_\"Set a milestone for Auvira: Landing page live by Oct 20. Goals: copy approved, page published\"_ "
             "(add _\"by Arthur\"_ to credit another mentor; founders can only tick its goals)",
-            "_\"Assign Auvira to the GTM stream\"_  ·  _\"Rename SharedOut to Acme\"_ (I show a card first)"]),
+            "_\"Assign Auvira to the GTM stream\"_  ·  _\"Rename SharedOut to Acme\"_ (I show a card first)",
+            "📄 Attach a participant's *syllabus PDF* in a DM and I'll add a milestone per week after a preview. Their own milestones always win over matching syllabus items; say _\"replace\"_ to refresh an earlier import."]),
         ("🗓 Meetings", [
             "_\"Set up a meet with everyone at 3 PM on Thursday at 111 Somerset\"_ or _\"...virtually\"_ (I show a card first)",
             "_\"Set up a fortnightly sprint with Takshma and Matthew, Thursdays at 3 PM\"_",
@@ -1572,6 +1574,12 @@ def process_inbound_message(user_id: str, text: str, files: list, say):
             text = (text + chr(10) + heard).strip()
         elif not text.strip():
             return  # nothing intelligible and nothing typed: I already said so
+    # A mentor attaching a participant's syllabus: turn it into milestones (after a preview card)
+    if role == "mentor":
+        docs = [f for f in files or [] if syllabus_import.looks_like_syllabus(f, text)]
+        if docs:
+            handle_syllabus_upload(user_id, docs[0], text, say)
+            return
     # Other attached files (documents, exports): just note their names
     for f in files or []:
         if f not in audio:
@@ -1807,8 +1815,96 @@ def send_announcement(client, m: dict) -> str:
     return line.strip() or "⚠️ Nobody could be reached."
 
 
+def syllabus_plan(m: dict):
+    """(existing milestones, plan, ids replaceable) for a pending syllabus, computed fresh from the database."""
+    existing = syllabus_import.load_existing(supabase, m["startup_id"])
+    gone = [x["id"] for x in syllabus_import.removable(existing)] if m.get("replace") else []
+    keep = [x for x in existing if x["id"] not in gone]  # replaced weeks must not block re-adding themselves
+    return existing, syllabus_import.plan_import(m["weeks"], keep), gone
+
+
+def handle_syllabus_upload(user_id: str, f: dict, text: str, say):
+    if not (GEMINI_API_KEY and SLACK_BOT_TOKEN and supabase):
+        say("I can't read syllabi yet (the AI key or database isn't set up).")
+        return
+    say(f"📄 Reading *{f.get('name', 'the syllabus')}*… this takes a few seconds.")
+    try:
+        data = transcribe.download(f, SLACK_BOT_TOKEN)
+        spec = syllabus_import.extract(data, f, GEMINI_API_KEY, AI_MODEL, datetime.now(meetings.SGT).date(), transcribe._default_http)
+    except ValueError as e:
+        say(f"⚠️ {e}. Is it a week-by-week syllabus?")
+        return
+    except Exception as e:
+        print(f"[Syllabus Error] {e}")
+        say("⚠️ I couldn't read that file. Try again, or send it as a PDF.")
+        return
+    founders = supabase.table("founders").select("name,startup_id").execute().data or []
+    startups = supabase.table("startups").select("id,name").execute().data or []
+    found = syllabus_import.match_startups(spec, text, founders, startups)
+    me = build_identity(user_id, "mentor")
+    payload = {"kind": "syllabus", "requester_slack": user_id, "requester": me["name"], "participant": spec["participant"],
+               "weeks": spec["weeks"], "replace": syllabus_import.wants_replace(text),
+               "startup_id": found[0] if len(found) == 1 else None, "candidates": found or [s["id"] for s in startups],
+               "startup_names": {s["id"]: s["name"] for s in startups}}
+    meeting_id = memory.save_meeting(user_id, payload)
+    if not meeting_id:
+        say("⚠️ I couldn't prepare that (is the pending_meetings table created?).")
+        return
+    say(blocks=build_meeting_card({"id": meeting_id, **payload}), text="Confirm syllabus import")
+
+
+def build_syllabus_card(m: dict) -> list:
+    nl = chr(10)
+    first, last = m["weeks"][0]["start"], m["weeks"][-1]["end"]
+    who = m["participant"] or "this participant"
+    if not m.get("startup_id"):
+        options = [{"text": {"type": "plain_text", "text": m["startup_names"].get(i, i)[:75]}, "value": f"{m['id']}|{i}"}
+                   for i in m["candidates"][:100]]
+        return [
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"I read *{who}'s* syllabus ({len(m['weeks'])} weeks, {first} to {last}). *Which startup is it for?*"},
+             "accessory": {"type": "static_select", "action_id": "syllabus_pick", "placeholder": {"type": "plain_text", "text": "Choose a startup"}, "options": options}},
+            {"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": "Cancel"}, "action_id": "cancel_meeting", "value": m["id"]}]},
+        ]
+    existing, plan, gone = syllabus_plan(m)
+    goals = sum(len(a["goals"]) for a in plan["add"])
+    lines = [f"*Syllabus for {who}* ({m['startup_names'].get(m['startup_id'], m['startup_id'])}) · {len(m['weeks'])} weeks, {first} to {last}"]
+    if plan["add"]:
+        lines.append(f"➕ I'll add *{len(plan['add'])} milestones* ({goals} goals), one per week, each due on the week's last day.")
+    else:
+        lines.append("Nothing new to add: everything in this syllabus is already on their milestones.")
+    if plan["covered"]:
+        shown = [f"• {c['item']} ← _{c['by']}_" for c in plan["covered"][:5]]
+        more = f"{nl}…and {len(plan['covered']) - 5} more" if len(plan["covered"]) > 5 else ""
+        lines.append(f"🔁 Their own milestones already cover these, so I'll keep theirs and leave these out:{nl}" + nl.join(shown) + more)
+    if plan["have"]:
+        lines.append(f"✔️ {len(plan['have'])} weeks are already imported.")
+    if gone:
+        lines.append(f"♻️ First I'll remove {len(gone)} earlier syllabus milestones that have no finished goals.")
+    lines.append("Milestones people set themselves are never changed or removed.")
+    buttons = ([{"type": "button", "style": "primary", "text": {"type": "plain_text", "text": f"Add {len(plan['add'])} milestones"},
+                 "action_id": "confirm_meeting", "value": m["id"]}] if plan["add"] else [])
+    buttons.append({"type": "button", "text": {"type": "plain_text", "text": "Cancel" if plan["add"] else "Close"},
+                    "action_id": "cancel_meeting", "value": m["id"]})
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": nl.join(lines)}}, {"type": "actions", "elements": buttons}]
+
+
+@app.action("syllabus_pick")
+def handle_syllabus_pick(ack, body, client):
+    ack()
+    meeting_id, startup_id = body["actions"][0]["selected_option"]["value"].split("|", 1)
+    row = memory.get_meeting(meeting_id)
+    if not row or row["requested_by"] != body["user"]["id"]:
+        return
+    payload = {**row["payload"], "startup_id": startup_id}
+    memory.set_meeting_payload(meeting_id, payload)
+    client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text="Confirm syllabus import",
+                       blocks=build_meeting_card({"id": meeting_id, **payload}))
+
+
 def build_meeting_card(m: dict) -> list:
     nl = chr(10)
+    if m.get("kind") == "syllabus":
+        return build_syllabus_card(m)
     if m.get("kind") == "announce":
         names = ", ".join(p["name"] for p in m["recipients"][:15]) + (f" and {len(m['recipients']) - 15} more" if len(m["recipients"]) > 15 else "")
         quoted = nl.join("> " + line for line in m["message"].splitlines() if line.strip())
@@ -1896,6 +1992,22 @@ def handle_confirm_meeting(ack, body, client):
             return  # a second click on the same card
         finish(send_announcement(client, m))
         return
+    if row["payload"].get("kind") == "syllabus":
+        m = row["payload"]
+        if not (get_role(user_id) == "mentor" and m.get("requester_slack") == user_id and m.get("startup_id")):
+            client.chat_postEphemeral(channel=channel, user=user_id, text="Only the mentor who uploaded this syllabus can confirm it.")
+            return
+        if not memory.claim_meeting(row["id"]):
+            return  # a second click on the same card
+        try:
+            _, plan, gone = syllabus_plan(m)
+            added = syllabus_import.apply_import(supabase, m["startup_id"], user_id, plan["add"], gone)
+            finish(f"✅ Added *{added} milestones* for {m['startup_names'].get(m['startup_id'], 'the startup')} from the syllabus."
+                   + (f" Replaced {len(gone)} earlier syllabus milestones." if gone else "") + " Their own milestones were left as they were.")
+        except Exception as e:
+            print(f"[Syllabus Import Error] {e}")
+            finish("⚠️ I couldn't save the syllabus milestones. Please try again.")
+        return
     m, studio = row["payload"], studio_row()
     if not (gcal and studio):
         finish("⚠️ The studio calendar isn't connected, so I couldn't do that.")
@@ -1955,8 +2067,12 @@ def handle_cancel_meeting(ack, body, client):
                                   text="Only the person who asked for this can cancel it.")
         return
     memory.delete_meeting(body["actions"][0]["value"])
-    client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text="Meeting cancelled.",
-                       blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": "Meeting cancelled. Nothing was sent."}}])
+    if row and (row.get("payload") or {}).get("kind") == "syllabus":
+        note = "Syllabus import cancelled. Nothing was changed."
+    else:
+        note = "Meeting cancelled. Nothing was sent."
+    client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note,
+                       blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": note}}])
 
 
 def studio_connect_blocks(slack_id: str) -> list:
@@ -2912,7 +3028,8 @@ def resume_channel_syncs():
 @app.event("message")
 def handle_other_message_events(event, say):
     """Registered last: catches messages no listener above took (a file shared with no text)."""
-    if event.get("channel_type") == "im" and event.get("user") and any(transcribe.is_audio(f) for f in event.get("files") or []):
+    if event.get("channel_type") == "im" and event.get("user") and any(
+            transcribe.is_audio(f) or syllabus_import.looks_like_syllabus(f, "") for f in event.get("files") or []):
         process_inbound_message(event["user"], (event.get("text") or "").strip(), event.get("files") or [], say)  # a voice note on its own
         return
     if event.get("channel_type") in ("channel", "group") and not (event.get("subtype") or "").startswith("message_"):

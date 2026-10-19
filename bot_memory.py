@@ -158,6 +158,10 @@ class Memory:
             return rows[0] if rows else None
         return self._guard("get_meeting", run, None)
 
+    def set_meeting_payload(self, meeting_id: str, payload: dict) -> bool:
+        return self._guard("set_meeting_payload", lambda: bool(
+            self.sb.table("pending_meetings").update({"payload": payload}).eq("id", meeting_id).execute().data), False)
+
     def claim_meeting(self, meeting_id: str) -> bool:
         """Deletes the proposal and says whether this call was the one that removed it (stops a double click acting twice)."""
         failed = object()
