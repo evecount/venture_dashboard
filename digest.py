@@ -9,6 +9,7 @@ Signal rule (kept simple and explainable)
 
 from datetime import date, datetime, timedelta, timezone
 
+import cohorts
 import mentor_home
 import syllabus
 
@@ -79,18 +80,19 @@ def _startup_section(s: dict) -> str:
 
 
 def build_digest_blocks(summaries: list, today: date, meetings: list | None = None, tasks: list | None = None,
-                        footer: list | None = None) -> list:
+                        footer: list | None = None, cohort_list: list | None = None) -> list:
     cur = syllabus.current(today)
     counts = {k: sum(1 for s in summaries if s["health"] == k) for k in ("blocked", "quiet", "on_track")}
     gaps = sum(1 for s in summaries if s.get("gap"))
     blocks = [{"type": "header", "text": {"type": "plain_text", "text": f"Weekly digest · {syllabus.fmt_date(today)}"}}]
-    week = f"Week {int(cur['week'].split()[-1])} of 12 · " if cur else ""
+    weeks = cohorts.week_labels(cohort_list or [], today)  # "MVP#1 week 3 · MVP#2 week 1"
+    week = f"{weeks} · " if weeks else (f"Week {int(cur['week'].split()[-1])} of 12 · " if cur else "")
     glance = (f"{week}{counts['on_track']} on track · {counts['blocked']} blocked · {counts['quiet']} quiet"
               + (f" · {gaps} checking in without code activity" if gaps else ""))
     blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": glance}]})
     for s in summaries:  # already ordered blocked, quiet, on track
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": _startup_section(s)}})
-    lines = mentor_home.coming_up(today, meetings)
+    lines = mentor_home.coming_up(today, meetings, cohort_list=cohort_list)
     if lines:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Coming up this week*" + NL + NL.join(lines)}})
     due = [t for t in (tasks or []) if t.get("due_date") and str(t["due_date"]) <= (today + timedelta(days=7)).isoformat()]

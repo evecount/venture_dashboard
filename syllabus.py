@@ -29,21 +29,35 @@ def _load() -> list:
 
 
 EVENTS = _load()
+# Every cohort runs this same schedule from its own start Monday (cohorts.start_date). The helpers below take an
+# optional `start` (that Monday); without it they use the dates in the file, which are MVP#1's.
+BASE_MONDAY = (EVENTS[0]["date"] - timedelta(days=EVENTS[0]["date"].weekday())) if EVENTS else None
+_SHIFTED: dict = {}
 
 
-def current(today: date) -> dict | None:
+def events_for(start: date | None = None) -> list:
+    """The schedule on a cohort's own calendar (same weeks and days, beginning on `start`)."""
+    if not start or not BASE_MONDAY or start == BASE_MONDAY:
+        return EVENTS
+    if start not in _SHIFTED:
+        offset = start - BASE_MONDAY
+        _SHIFTED[start] = [{**e, "date": e["date"] + offset} for e in EVENTS]
+    return _SHIFTED[start]
+
+
+def current(today: date, start: date | None = None) -> dict | None:
     """The schedule row for today, or the most recent one before it (weekends). None before the program starts."""
-    past = [e for e in EVENTS if e["date"] <= today]
+    past = [e for e in events_for(start) if e["date"] <= today]
     return past[-1] if past else None
 
 
-def week_deliverable(week: str) -> dict | None:
-    return next((e for e in EVENTS if e["week"] == week and e["deliverable"]), None)
+def week_deliverable(week: str, start: date | None = None) -> dict | None:
+    return next((e for e in events_for(start) if e["week"] == week and e["deliverable"]), None)
 
 
-def upcoming(today: date, days: int = 7) -> list:
+def upcoming(today: date, days: int = 7, start: date | None = None) -> list:
     end = today + timedelta(days=days)
-    return [e for e in EVENTS if today <= e["date"] <= end]
+    return [e for e in events_for(start) if today <= e["date"] <= end]
 
 
 def fmt_date(d: date) -> str:
@@ -56,39 +70,40 @@ def describe(e: dict) -> str:
     return f"{fmt_date(e['date'])}: {e['focus']} ({e['owner']})"
 
 
-def schedule_lines(today: date) -> list:
-    """Plain-text schedule facts for the agent's context."""
-    cur = current(today)
+def schedule_lines(today: date, start: date | None = None) -> list:
+    """Plain-text schedule facts for the agent's context (on a cohort's own calendar when `start` is given)."""
+    cur = current(today, start)
     if not cur:
         return ["The program has not started yet."]
     lines = [f"Program week: {cur['week']} of 12 · {cur['phase']}"]
-    due = week_deliverable(cur["week"])
+    due = week_deliverable(cur["week"], start)
     if due:
         lines.append(f"This week's deliverable (due {fmt_date(due['date'])}): {due['deliverable']}")
     lines.append("Schedule for the next 7 days:")
-    lines += [f"- {describe(e)}" for e in upcoming(today)]
+    lines += [f"- {describe(e)}" for e in upcoming(today, start=start)]
     return lines
 
 
-def program_outline() -> list:
+def program_outline(start: date | None = None) -> list:
     """One line per week: 'Week 3 (Sprint 2: ...): deliverable, due Fri Oct 16'. The shape of the whole program for newcomers."""
     lines, seen = [], set()
-    for e in EVENTS:
+    for e in events_for(start):
         if e["deliverable"] and e["week"] not in seen:
             seen.add(e["week"])
             lines.append(f"- Week {int(str(e['week']).split()[-1])} ({e['phase']}): {e['deliverable']}, due {fmt_date(e['date'])}")
     return lines
 
 
-def has_session(d: date) -> bool:
+def has_session(d: date, start: date | None = None) -> bool:
     """True if the program schedule has anything on this date (so weekends and off days are skipped)."""
-    return any(e["date"] == d for e in EVENTS)
+    return any(e["date"] == d for e in events_for(start))
 
 
-def current_deliverable(today: date) -> dict | None:
+def current_deliverable(today: date, start: date | None = None) -> dict | None:
     """This week's deliverable straight from the schedule (id matches the deliverables table: del-wkNN)."""
-    cur = current(today) or (EVENTS[0] if EVENTS else None)
-    due = week_deliverable(cur["week"]) if cur else None
+    ev = events_for(start)
+    cur = current(today, start) or (ev[0] if ev else None)
+    due = week_deliverable(cur["week"], start) if cur else None
     if not due:
         return None
     n = int(cur["week"].split()[-1])

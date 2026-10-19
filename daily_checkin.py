@@ -10,6 +10,7 @@ Dependencies are injected so this can be tested without Slack or a database.
 import re
 from datetime import date, datetime, timedelta, timezone
 
+import cohorts
 import custom_schedule
 import syllabus
 
@@ -72,9 +73,10 @@ def send_daily_prompts(client, sb, memory, now: datetime | None = None, dry_run:
     """Returns the list of (slack_user_id, text) sent (or that would be sent when dry_run)."""
     now = now or datetime.now(SGT)
     custom = custom_schedule.fetch(sb)
+    starts = _cohort_starts(sb)
     sent = []
     for f in linked_founders(sb):
-        if not _session_day(now.date(), custom.get(f["startup_id"])):
+        if not _session_day(now.date(), custom.get(f["startup_id"]), starts.get(f["startup_id"])):
             continue
         text = build_prompt(_first_name(f["name"]), _open_goals(memory, f["startup_id"]), now.strftime("%A"))
         sent.append((f["slack_user_id"], text))
@@ -88,15 +90,20 @@ def send_daily_prompts(client, sb, memory, now: datetime | None = None, dry_run:
     return sent
 
 
-def _session_day(d: date, weeks: list | None) -> bool:
-    """A program day for this person: their own schedule's weekdays when they have one, else the standard program days."""
-    return custom_schedule.is_session_day(weeks, d) if weeks else syllabus.has_session(d)
+def _cohort_starts(sb) -> dict:
+    """startup_id -> its cohort's start Monday (each cohort runs the program days on its own calendar)."""
+    return {sid: c["start"] for c in cohorts.load(sb) for sid in c["startup_ids"]}
 
 
-def _previous_session_day(today: date, weeks: list | None = None) -> date | None:
+def _session_day(d: date, weeks: list | None, start: date | None = None) -> bool:
+    """A program day for this person: their own schedule's weekdays when they have one, else their cohort's program days."""
+    return custom_schedule.is_session_day(weeks, d) if weeks else syllabus.has_session(d, start)
+
+
+def _previous_session_day(today: date, weeks: list | None = None, start: date | None = None) -> date | None:
     d = today - timedelta(days=1)
     for _ in range(7):
-        if _session_day(d, weeks):
+        if _session_day(d, weeks, start):
             return d
         d -= timedelta(days=1)
     return None
@@ -106,10 +113,11 @@ def send_nudges(client, sb, memory, now: datetime | None = None, dry_run: bool =
     """Nudge founders who did not message the bot since the previous program day's 17:00 prompt."""
     now = now or datetime.now(SGT)
     custom = custom_schedule.fetch(sb)
+    starts = _cohort_starts(sb)
     sent = []
     for f in linked_founders(sb):
-        weeks = custom.get(f["startup_id"])
-        prev = _previous_session_day(now.date(), weeks) if _session_day(now.date(), weeks) else None
+        weeks, start = custom.get(f["startup_id"]), starts.get(f["startup_id"])
+        prev = _previous_session_day(now.date(), weeks, start) if _session_day(now.date(), weeks, start) else None
         if prev is None:
             continue
         since = datetime(prev.year, prev.month, prev.day, 17, 0, tzinfo=SGT).astimezone(timezone.utc).isoformat()

@@ -99,7 +99,7 @@ def load(sb) -> list:
     for r in rows:
         try:
             start = start_monday(r["start_date"])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, KeyError):  # a malformed row is skipped, never fatal
             continue
         ids = [s["id"] for s in startups if s.get("cohort_id") == r["id"]]
         out.append({"id": r["id"], "name": r["name"], "start": start, "weeks": r.get("total_weeks") or WEEKS, "startup_ids": ids,
@@ -124,3 +124,17 @@ def summary_lines(cohort_list: list, today: date, events: list, only_startup: st
         if s:
             lines.append("    · next " + describe_session(s, calendar_match(s["date"], events, c.get("emails"))))
     return lines
+
+
+def week_labels(cohort_list: list, today: date) -> str:
+    """'MVP#1 week 3 · MVP#2 week 1' for running cohorts (mentor views cover every cohort)."""
+    bits = []
+    for c in cohort_list:
+        w = week_of(c["start"], today, c["weeks"])
+        if w:
+            bits.append(f"{c['name']} week {w}")
+    return " · ".join(bits)
+
+
+def for_startup(cohort_list: list, startup_id: str | None) -> dict | None:
+    return next((c for c in cohort_list if startup_id and startup_id in c["startup_ids"]), None)

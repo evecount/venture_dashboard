@@ -10,6 +10,7 @@ import json
 from datetime import date, datetime, timedelta, timezone
 
 import announce
+import cohorts
 import integrations
 import meetings
 import routines
@@ -367,13 +368,27 @@ class Agent:
             lines += [f"- ({f['subject_id']}) {f['fact']}" for f in facts]
         return "\n".join(lines)
 
+    def _schedule_lines(self, ident: dict, today) -> list:
+        """The program schedule on the right calendar: a founder's own cohort; for mentors, every running cohort."""
+        if ident["role"] == "founder":
+            start = ((ident.get("context") or {}).get("cohort") or {}).get("start")
+            return syllabus.schedule_lines(today, start)
+        running = [c for c in (cohorts.load(self.sb) if self.sb else []) if cohorts.week_of(c["start"], today, c["weeks"])]
+        if not running:
+            return syllabus.schedule_lines(today)
+        lines = []
+        for c in running:
+            lines.append(f"[{c['name']}]")
+            lines += syllabus.schedule_lines(today, c["start"])
+        return lines
+
     def _system(self, ident: dict) -> str:
         now = datetime.now(SGT)
         role_rules = MENTOR_RULES if ident["role"] == "mentor" else FOUNDER_RULES
         ctx = self._mentor_context(ident) if ident["role"] == "mentor" else self._founder_context(ident)
         weeks = (custom_schedule.fetch(self.sb, (ident.get("context") or {}).get("startup_id"))
                  if self.sb and ident["role"] == "founder" and (ident.get("context") or {}).get("startup_id") else [])
-        sched = "\n".join(custom_schedule.agent_lines(weeks, now.date()) if weeks else syllabus.schedule_lines(now.date()))
+        sched = "\n".join(custom_schedule.agent_lines(weeks, now.date()) if weeks else self._schedule_lines(ident, now.date()))
         extra = (self.settings.get("extra_instructions") or "").strip() if self.settings else ""
         channels = ""
         if self.channel_context and (not self.settings or self.settings.get("channel_context")):

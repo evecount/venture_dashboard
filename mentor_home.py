@@ -10,6 +10,7 @@ Health rules (kept deliberately simple and explainable):
 
 from datetime import date, datetime, timedelta, timezone
 
+import cohorts
 import syllabus
 from timeparse import parse_ts
 
@@ -81,27 +82,37 @@ def _label(d: date, today: date) -> str:
     return "Today" if d == today else "Tomorrow" if d == today + timedelta(days=1) else syllabus.fmt_date(d)
 
 
-def coming_up(today: date, meetings: list | None = None, limit: int = 6) -> list:
-    """Program schedule items (office hours, deliverables) merged with real meetings, in date and time order."""
-    items = []
-    for e in syllabus.upcoming(today):
-        if e["deliverable"]:
-            items.append(((e["date"], -1), f"📦 {_label(e['date'], today)}: *Deliverable due*, {e['deliverable']}"))
-        elif "Office Hours" in (e["focus"] or ""):
-            items.append(((e["date"], -1), f"🗓 {_label(e['date'], today)}: {e['focus']}"))
+def coming_up(today: date, meetings: list | None = None, limit: int = 6, cohort_list: list | None = None) -> list:
+    """
+    Program schedule items (office hours, deliverables) merged with real meetings, in date and time order. With
+    `cohort_list`, each running cohort's own calendar is used and deliverables are labelled with the cohort.
+    """
+    running = [c for c in cohort_list or [] if cohorts.week_of(c["start"], today, c["weeks"])]
+    calendars = [(c["name"], c["start"]) for c in running] or [(None, None)]
+    items, seen = [], set()
+    for name, start in calendars:
+        for e in syllabus.upcoming(today, start=start):
+            if e["deliverable"]:
+                who = f"{name} deliverable due" if name and len(calendars) > 1 else "Deliverable due"
+                items.append(((e["date"], -1), f"📦 {_label(e['date'], today)}: *{who}*, {e['deliverable']}"))
+            elif "Office Hours" in (e["focus"] or "") and (e["date"], e["focus"]) not in seen:
+                seen.add((e["date"], e["focus"]))
+                items.append(((e["date"], -1), f"🗓 {_label(e['date'], today)}: {e['focus']}"))
     items += list(meetings or [])
     return [line for _, line in sorted(items, key=lambda it: it[0])[:limit]]
 
 
 def build_mentor_blocks(summaries: list, today: date | None = None, tasks: list | None = None,
-                        title: str = "Cohort pulse", footer: list | None = None, meetings: list | None = None) -> list:
+                        title: str = "Cohort pulse", footer: list | None = None, meetings: list | None = None,
+                        cohort_list: list | None = None) -> list:
     today = today or date.today()
     cur = syllabus.current(today)
     attention = [s for s in summaries if s["health"] != "on_track"]
     healthy = [s for s in summaries if s["health"] == "on_track"]
 
     blocks = [{"type": "header", "text": {"type": "plain_text", "text": title}}]
-    week = f"Week {cur['week'].split()[-1].lstrip('0')} of 12 · " if cur else ""
+    weeks = cohorts.week_labels(cohort_list or [], today)  # mentors cover every cohort: "MVP#1 week 3 · MVP#2 week 1"
+    week = f"{weeks} · " if weeks else (f"Week {cur['week'].split()[-1].lstrip('0')} of 12 · " if cur else "")
     glance = (f"{week}{len(summaries)} startup{'s' if len(summaries) != 1 else ''} · "
               f"{len(attention)} need{'s' if len(attention) == 1 else ''} your attention · {len(healthy)} on track")
     blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": glance}]})
@@ -133,7 +144,7 @@ def build_mentor_blocks(summaries: list, today: date | None = None, tasks: list 
                          + (f"{NL}> ⚠️ Checking in but no code activity this week" if s.get("gap") else ""))
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*On track*" + NL + (NL * 2).join(lines)}})
 
-    lines = coming_up(today, meetings)
+    lines = coming_up(today, meetings, cohort_list=cohort_list)
     if lines:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Coming up*" + NL + NL.join(lines)}})
 

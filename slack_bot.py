@@ -339,16 +339,11 @@ Rules:
 6. Return STRICT JSON with no markdown wrapping.
 """
 
-def cohort_deliverable(cohort_id: str | None, today) -> dict | None:
-    """This week's deliverable on the founder's own cohort calendar, as a deliverables-table record (del-wkNN)."""
-    if not (cohort_id and supabase):
+def startup_cohort(startup_id: str | None) -> dict | None:
+    """{id, name, start, ...} of the startup's cohort (cohorts.py), or None."""
+    if not (startup_id and supabase):
         return None
-    c = next((x for x in cohorts.load(supabase) if x["id"] == cohort_id), None)
-    d = cohorts.this_weeks_deliverable(c["start"], today) if c else None
-    if not d:
-        return None
-    return {"id": f"del-wk{d['week']:02d}", "week": f"WK {d['week']:02d}", "title": d["title"],
-            "due_date": d["due"].isoformat(), "sprint_phase": d.get("phase") or ""}
+    return cohorts.for_startup(cohorts.load(supabase), startup_id)
 
 
 def resolve_founder_context(slack_user_id: str) -> dict:
@@ -378,9 +373,9 @@ def resolve_founder_context(slack_user_id: str) -> dict:
                     )
                     active_del = del_res.data[0] if del_res.data else DEFAULT_DELIVERABLE
                 today_sgt = datetime.now(timezone(timedelta(hours=8))).date()
-                cohort_del = cohort_deliverable(startup.get("cohort_id"), today_sgt)
-                if cohort_del:  # each cohort runs the syllabus from its own start Monday (MVP#2 is two weeks behind MVP#1)
-                    active_del = cohort_del
+                cohort = startup_cohort(startup.get("id"))
+                if cohort:  # each cohort runs the syllabus from its own start Monday (MVP#2 is two weeks behind MVP#1)
+                    active_del = syllabus.current_deliverable(today_sgt, cohort["start"]) or active_del
                 weeks = custom_schedule.fetch(supabase, startup.get("id")) if startup.get("id") else []
                 if weeks:  # a participant with an uploaded syllabus follows their own weeks
                     active_del = custom_schedule.deliverable(weeks, today_sgt, active_del) or active_del
@@ -393,6 +388,7 @@ def resolve_founder_context(slack_user_id: str) -> dict:
                     "stream": startup.get("stream", "General"),
                     "lead": startup.get("lead", "Studio Lead"),
                     "deliverable": active_del,
+                    "cohort": {"id": cohort["id"], "name": cohort["name"], "start": cohort["start"]} if cohort else None,
                 }
         except Exception as e:
             print(f"[Lookup Warning] Supabase lookup failed: {e}. Falling back to roster.")
@@ -610,7 +606,7 @@ def build_mentor_blocks(summaries: list, title: str = "Cohort pulse", tasks: lis
                         slack_user_id: str | None = None, footer_button: bool = True) -> list:
     # Pass slack_user_id only where the blocks go to that mentor alone (Home tab, DM): it makes a personal sign-in link.
     return mentor_blocks(summaries, tasks=tasks, title=title, footer=dashboard_button_blocks(slack_user_id=slack_user_id) if footer_button else [],
-                         meetings=upcoming_meeting_items())
+                         meetings=upcoming_meeting_items(), cohort_list=cohorts.load(supabase) if supabase else [])
 
 
 def link_mentor_by_email(slack_user_id: str, email: str):
@@ -794,20 +790,20 @@ def link_by_email(slack_user_id: str, email: str):
         return None
 
 
-def where_we_are_text(today=None) -> str:
+def where_we_are_text(today=None, start=None) -> str:
     """'Week 3 of 12 · this week's deliverable ... due Fri Oct 16', or '' outside the program."""
     today = today or datetime.now(timezone(timedelta(hours=8))).date()
-    cur = syllabus.current(today)
+    cur = syllabus.current(today, start)
     if not cur:
         return ""
-    due = syllabus.week_deliverable(cur["week"])
+    due = syllabus.week_deliverable(cur["week"], start)
     text = f"We're in *week {int(cur['week'].split()[-1])} of 12* ({cur['phase']})."
     if due:
         text += f" This week's deliverable is *{due['deliverable']}*, due {syllabus.fmt_date(due['date'])}."
     return text
 
 
-def founder_welcome_text(name: str, startup_name: str, intro: str | None = None) -> str:
+def founder_welcome_text(name: str, startup_name: str, intro: str | None = None, start=None) -> str:
     nl = chr(10)
     first = (name or "there").split()[0]
     lines = [intro or f"👋 Welcome, {first}! You're set up with *{startup_name}*.", "",
@@ -817,7 +813,7 @@ def founder_welcome_text(name: str, startup_name: str, intro: str | None = None)
              "• *On program days at 5 PM* I'll ask how your day went.",
              "• *Your mentors see* the check-ins you save, your milestones and, if you connect it, your GitHub activity.",
              "• *Ask me anything* about the program: what's due, who the mentors are, or to set up a meeting."]
-    where = where_we_are_text()
+    where = where_we_are_text(start=start)
     if where:
         lines += ["", where]
     lines += ["", "*Try it now:* tell me what you're working on this week.",
@@ -826,7 +822,8 @@ def founder_welcome_text(name: str, startup_name: str, intro: str | None = None)
 
 
 def founder_welcome_blocks(name: str, startup_name: str, founder_id: str, startup_id: str, intro: str | None = None) -> list:
-    text = founder_welcome_text(name, startup_name, intro)
+    cohort = startup_cohort(startup_id)
+    text = founder_welcome_text(name, startup_name, intro, start=cohort["start"] if cohort else None)
     return [{"type": "section", "text": {"type": "mrkdwn", "text": text}}, *connect_blocks(founder_id, startup_id)]
 
 
@@ -1363,7 +1360,7 @@ def build_home_view(context: dict | None, latest: dict | None, tasks: list | Non
     blocks = [{"type": "header", "text": {"type": "plain_text", "text": f"Your sprint radar – {context['startup_name']}"[:150]}}]
 
     today = datetime.now(timezone(timedelta(hours=8))).date()
-    cur = syllabus.current(today)
+    cur = syllabus.current(today, (context.get("cohort") or {}).get("start"))
     bits = []
     mine = context.get("schedule")
     if mine:
@@ -2430,7 +2427,8 @@ def send_weekly_digest(dry_run: bool = False):
     if not (supabase and syllabus.has_session(today)):
         return []
     summaries = safe_snapshot()
-    blocks = digest.build_digest_blocks(summaries, today, upcoming_meeting_items(), memory.open_tasks())
+    blocks = digest.build_digest_blocks(summaries, today, upcoming_meeting_items(), memory.open_tasks(),
+                                        cohort_list=cohorts.load(supabase))
     if dry_run:
         return blocks
     sent = []
