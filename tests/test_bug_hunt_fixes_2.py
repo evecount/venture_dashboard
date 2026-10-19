@@ -77,3 +77,26 @@ class MeetingCardTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DirectAnnounceTests(unittest.TestCase):
+    def test_few_named_people_are_sent_directly_but_groups_keep_the_card(self):
+        two = [{"name": "A"}, {"name": "B"}]
+        self.assertTrue(announce.is_direct(["Wai-Leng"], two[:1]))
+        self.assertTrue(announce.is_direct(["Ann", "Bo"], two))
+        self.assertFalse(announce.is_direct(["everyone"], two))
+        self.assertFalse(announce.is_direct(["Founders"], two))
+        self.assertFalse(announce.is_direct(["Ann"], [{"name": str(i)} for i in range(6)]))
+        self.assertFalse(announce.is_direct(["Ann"], []))
+
+    def test_send_announcement_reports_the_outcome(self):
+        client = mock.MagicMock()
+        m = {"requester": "Ben", "message": "hi", "recipients": [{"name": "Wai-Leng", "slack": "U1"}], "unreachable": [], "unknown": []}
+        self.assertEqual(b.send_announcement(client, m), "✅ Sent to Wai-Leng.")
+        client.chat_postMessage.side_effect = RuntimeError("nope")
+        self.assertIn("Couldn't reach: Wai-Leng", b.send_announcement(client, m))
+
+    def test_claim_survives_a_database_error(self):
+        sb = mock.MagicMock()
+        sb.table.return_value.delete.return_value.eq.return_value.execute.side_effect = RuntimeError("disconnected")
+        self.assertTrue(Memory(sb).claim_meeting("m1"))

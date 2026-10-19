@@ -92,7 +92,7 @@ class AnnounceAgentTests(unittest.TestCase):
         m = {"id": "x", "kind": "announce", "message": "Office hours moved to 4 PM", "recipients": [{"name": "Ann", "slack": "U1"}],
              "unreachable": ["Cy Pending"], "unknown": []}
         text = b.blocks_to_text(b.build_meeting_card(m))
-        self.assertIn("1 people", text.replace("*", ""))
+        self.assertIn("1 person", text.replace("*", ""))
         self.assertIn("Office hours moved to 4 PM", text)
         self.assertIn("Cy Pending", text)
 

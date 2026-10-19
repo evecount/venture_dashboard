@@ -8,6 +8,7 @@ import re
 SLACK_ID = re.compile(r"[UW][A-Z0-9]{8,}")
 MAX_MESSAGE = 1500
 MAX_RECIPIENTS = 60
+DIRECT_MAX = 5  # a message to this many named people or fewer goes out at once, with no confirm card
 GROUPS = {"everyone", "everybody", "all", "cohort", "founders", "mentors"}
 
 
@@ -55,6 +56,16 @@ def resolve_recipients(specs: list, founders: list, mentors: list, sender_slack_
         for p in matches:
             add(p)
     return {"people": list(chosen.values()), "unreachable": sorted(set(unreachable)), "unknown": unknown}
+
+
+def is_direct(specs: list, people: list) -> bool:
+    """A reminder to a few named people is sent straight away; anything addressed to a group keeps the preview card."""
+    named_only = not any(str(s).strip().lower().strip("<>@ ") in GROUPS for s in specs or [])
+    return named_only and 0 < len(people) <= DIRECT_MAX
+
+
+def people_word(n: int) -> str:
+    return "1 person" if n == 1 else f"{n} people"
 
 
 def format_announcement(sender_name: str, message: str) -> str:

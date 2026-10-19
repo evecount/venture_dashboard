@@ -160,7 +160,9 @@ class Memory:
 
     def claim_meeting(self, meeting_id: str) -> bool:
         """Deletes the proposal and says whether this call was the one that removed it (stops a double click acting twice)."""
-        return bool(self._guard("claim_meeting", lambda: self.sb.table("pending_meetings").delete().eq("id", meeting_id).execute().data, []))
+        failed = object()
+        got = self._guard("claim_meeting", lambda: self.sb.table("pending_meetings").delete().eq("id", meeting_id).execute().data, failed)
+        return True if got is failed else bool(got)  # a database hiccup must not leave the button doing nothing
 
     def delete_meeting(self, meeting_id: str):
         self._guard("delete_meeting", lambda: self.sb.table("pending_meetings").delete().eq("id", meeting_id).execute(), None)

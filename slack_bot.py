@@ -1586,6 +1586,8 @@ def process_inbound_message(user_id: str, text: str, files: list, say):
             ident = build_identity(user_id, role)
             result = agent.respond(ident, text)
             say(result["text"])
+            if result.get("announce_now"):
+                say(send_announcement(app.client, result["announce_now"]))
             if result["checkin"]:
                 say(blocks=build_confirmation_card(ident["context"], result["checkin"], text),
                     text="Please confirm your dashboard update.")
@@ -1784,12 +1786,32 @@ def audit_deadlines_and_blockers(dry_run: bool = False) -> list:
 
 # --- SCHEDULING MEETINGS ---
 
+def send_announcement(client, m: dict) -> str:
+    """DMs an announcement to its recipients and returns the outcome line for the sender."""
+    text, sent, failed = announce.format_announcement(m["requester"], m["message"]), [], []
+    for person in m["recipients"]:
+        try:
+            client.chat_postMessage(channel=person["slack"], text=text)
+            sent.append(person["name"])
+        except Exception as e:
+            print(f"[Announcement Error] {person['slack']}: {e}")
+            failed.append(person["name"])
+    line = (f"✅ Sent to {', '.join(sent)}." if len(sent) <= 5 else f"✅ Announcement sent to {announce.people_word(len(sent))}.") if sent else ""
+    if failed:
+        line += f" ⚠️ Couldn't reach: {', '.join(failed)}."
+    if m.get("unreachable"):
+        line += f" ⚠️ Not on Slack yet: {', '.join(m['unreachable'])}."
+    if m.get("unknown"):
+        line += f" ⚠️ No match for: {', '.join(m['unknown'])}."
+    return line.strip() or "⚠️ Nobody could be reached."
+
+
 def build_meeting_card(m: dict) -> list:
     nl = chr(10)
     if m.get("kind") == "announce":
         names = ", ".join(p["name"] for p in m["recipients"][:15]) + (f" and {len(m['recipients']) - 15} more" if len(m["recipients"]) > 15 else "")
         quoted = nl.join("> " + line for line in m["message"].splitlines() if line.strip())
-        lines = [f"I'll send this as a direct message to *{len(m['recipients'])} people*: {names}", quoted]
+        lines = [f"I'll send this as a direct message to *{announce.people_word(len(m['recipients']))}*: {names}", quoted]
         if m.get("unreachable"):
             lines.append("⚠️ Not on Slack yet, so they won't get it: " + ", ".join(m["unreachable"]))
         if m.get("unknown"):
@@ -1797,7 +1819,7 @@ def build_meeting_card(m: dict) -> list:
         return [
             {"type": "section", "text": {"type": "mrkdwn", "text": "*Announcement preview*" + nl + nl.join(lines)}},
             {"type": "actions", "elements": [
-                {"type": "button", "style": "primary", "text": {"type": "plain_text", "text": f"Send to {len(m['recipients'])} people"},
+                {"type": "button", "style": "primary", "text": {"type": "plain_text", "text": f"Send to {announce.people_word(len(m['recipients']))}"},
                  "action_id": "confirm_meeting", "value": m["id"]},
                 {"type": "button", "text": {"type": "plain_text", "text": "Don't send"}, "action_id": "cancel_meeting", "value": m["id"]}]},
         ]
@@ -1869,16 +1891,7 @@ def handle_confirm_meeting(ack, body, client):
             return
         if not memory.claim_meeting(row["id"]):
             return  # a second click on the same card
-        text, sent, failed = announce.format_announcement(m["requester"], m["message"]), 0, []
-        for person in m["recipients"]:
-            try:
-                client.chat_postMessage(channel=person["slack"], text=text)
-                sent += 1
-            except Exception as e:
-                print(f"[Announcement Error] {person['slack']}: {e}")
-                failed.append(person["name"])
-        memory.delete_meeting(row["id"])
-        finish(f"✅ Announcement sent to {sent} {'person' if sent == 1 else 'people'}." + (f" ⚠️ Couldn't reach: {', '.join(failed)}." if failed else ""))
+        finish(send_announcement(client, m))
         return
     m, studio = row["payload"], studio_row()
     if not (gcal and studio):
@@ -2620,6 +2633,8 @@ def dev_ask(args, by) -> str:
         return "The agent is off, or that Slack id isn't a mentor or founder."
     result = agent.respond(build_identity(who, role), str(args.get("text") or "")[:4000])
     cards = [k for k in ("checkin", "rename", "meeting") if result.get(k)]
+    if result.get("announce_now"):
+        result["text"] += "\n\n(In Slack this would also send the announcement straight away.)"
     return result["text"] + (f"\n\n(In Slack this would also show a {', '.join(cards)} card to confirm.)" if cards else "")
 
 
