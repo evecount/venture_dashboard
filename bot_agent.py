@@ -700,7 +700,8 @@ class Agent:
                 mem.add_goal(mid, g, author)
             swapped = self._supersede(startup_id, mid, [title] + goals)
             return (f"🎯 Milestone added: {title}" + (f" (due {due})" if due else "")
-                    + (f" with {len(goals)} goal{'s' if len(goals) != 1 else ''}" if goals else "") + credit + "." + swapped)
+                    + (f" with {len(goals)} goal{'s' if len(goals) != 1 else ''}" if goals else "") + credit + "." + swapped
+                    + (" I'll let the founders know in a minute." if role == "mentor" else ""))
         locked = "🔒 That milestone was set by your mentor, so only they can change it. You can still tick its goals off as you finish them."
         if name in ("update_milestone", "add_goal"):
             m = self._find(ident, args.get("milestone_ref"), "m")

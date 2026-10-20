@@ -123,6 +123,7 @@ import google_calendar
 import meetings
 import time
 import voice_compare
+import milestone_notify
 import studio_events
 import mentor_calendars
 import progress_estimator
@@ -2524,6 +2525,20 @@ def run_mentor_alerts(dry_run: bool = False) -> list:
     return fresh
 
 
+MILESTONE_NOTIFY = os.environ.get("MILESTONE_NOTIFY", "on").lower() != "off"
+_mail = milestone_notify.smtp_sender()
+
+
+def notify_new_milestones():
+    """Every minute: DM and email founders about milestones a mentor just set for their startup."""
+    if not (MILESTONE_NOTIFY and supabase and SLACK_BOT_TOKEN):
+        return
+    sent = milestone_notify.run(supabase, app.client, alert_seen, alert_mark, send_email=_mail, log=memory.log,
+                                dashboard_url=DASHBOARD_URL or "")
+    if sent:
+        print(f"[Milestones] told founders: {sent}")
+
+
 def run_weekly_digest():
     if WEEKLY_DIGEST and SLACK_BOT_TOKEN:
         print(f"[Digest] sent to {len(send_weekly_digest())} mentor(s)")
@@ -3432,6 +3447,7 @@ if BackgroundScheduler:
     scheduler.add_job(reconcile_github, "interval", minutes=10, max_instances=1)
     scheduler.add_job(beat, "interval", seconds=30, max_instances=1)
     scheduler.add_job(send_meeting_reminders, "interval", minutes=5, max_instances=1)
+    scheduler.add_job(notify_new_milestones, "interval", minutes=1, max_instances=1)
     # Copy upcoming studio meetings into studio_events for the dashboard (only the bot's own events).
     scheduler.add_job(lambda: studio_events.sync(supabase, studio_events_fn(studio_events.WINDOW_DAYS, strict=True)),
                       "interval", minutes=5, max_instances=1, next_run_time=datetime.now(timezone.utc) + timedelta(seconds=20))
