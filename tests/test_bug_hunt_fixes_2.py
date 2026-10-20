@@ -312,3 +312,30 @@ class FirstNameTests(unittest.TestCase):
             self.assertEqual(first_name(name), want)
             self.assertEqual(daily_checkin._first_name(name), want)
             self.assertEqual(founder_nudges.first_name(name), want)
+
+
+class PercentParityTests(unittest.TestCase):
+    def test_halves_round_up_like_the_dashboard(self):
+        import progress_estimator as pe
+        self.assertEqual(pe.milestone_value([{"done": False, "progress": 50}, {"done": False, "progress": 51}])[0], 51)  # 50.5
+        self.assertEqual(pe.milestone_value([{"done": False, "progress": 0}, {"done": False, "progress": 1}])[0], 1)     # 0.5
+        self.assertEqual(pe.half_up(2.5), 3)
+        self.assertEqual(pe.half_up(3.5), 4)
+
+
+class ImportRobustnessTests(unittest.TestCase):
+    def test_week_numbers_written_as_text_are_read(self):
+        import syllabus_import as si
+        spec = si.clean({"weeks": [{"week": "Week 3", "sprint": "2", "title": "Pricing", "end": "2026-11-06", "milestones": ["a"]},
+                                   {"week": None, "title": "Next", "end": "2026-11-13"}]})
+        self.assertEqual([w["week"] for w in spec["weeks"]], [3, 2])
+
+    def test_a_zip_bomb_is_refused(self):
+        import io, zipfile, attachments
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("word/document.xml", "<w:t>x</w:t>" * 10)
+        self.assertIn("x", attachments.office_text(buf.getvalue(), "docx"))
+        with mock.patch.object(attachments, "MAX_UNZIPPED", 5):
+            with self.assertRaises(ValueError):
+                attachments.office_text(buf.getvalue(), "docx")

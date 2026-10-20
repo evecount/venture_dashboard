@@ -97,7 +97,8 @@ def clean(spec: dict) -> dict:
         if not (end and title):
             continue
         notes = str(w.get("notes") or "").strip()
-        weeks.append({"week": int(w.get("week") or i), "sprint": int(w["sprint"]) if str(w.get("sprint") or "").isdigit() else None,
+        number = re.search(r"\d+", str(w.get("week") or ""))  # 3, "3" or "Week 3"
+        weeks.append({"week": int(number.group()) if number else i, "sprint": int(str(w["sprint"])) if str(w.get("sprint") or "").isdigit() else None,
                       "title": title, "start": start.isoformat(), "end": end.isoformat(),
                       "notes": notes[:90], "milestones": items})
         if len(weeks) >= MAX_WEEKS:

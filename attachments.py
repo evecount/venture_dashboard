@@ -15,6 +15,7 @@ import zipfile
 from transcribe import GEMINI_URL, _default_http, download
 
 MAX_FILES = 3
+MAX_UNZIPPED = 60 * 1024 * 1024
 MAX_CHARS = 12000  # per file, after extraction: enough for a 20-slide deck
 IMAGE_MIMES = {"image/png", "image/jpeg", "image/gif", "image/webp", "image/heic", "image/heif"}
 TEXT_MIMES = {"text/plain", "text/csv", "text/markdown", "text/html", "application/json"}
@@ -59,6 +60,8 @@ def _xml_text(xml: str, tag: str) -> str:
 def office_text(data: bytes, kind: str) -> str:
     """Text of a .docx (paragraphs), .pptx (slide by slide, with speaker notes) or .xlsx (rows, first sheets)."""
     z = zipfile.ZipFile(io.BytesIO(data))
+    if sum(i.file_size for i in z.infolist()) > MAX_UNZIPPED:  # a zip bomb: tiny file, gigabytes inside
+        raise ValueError("that file is too large once unpacked")
     names = z.namelist()
     num = lambda n: int(re.search(r"(\d+)\.xml$", n).group(1)) if re.search(r"(\d+)\.xml$", n) else 0  # noqa: E731
     if kind == "docx":

@@ -9,6 +9,7 @@ founders get a Slack card to confirm it, set their own number, or mark the goal 
 """
 
 import json
+import math
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -44,6 +45,12 @@ SOURCES = {"github": ("your GitHub work", SYSTEM, "NEW GITHUB WORK (oldest first
            "checkin": ("your check-in", CHECKIN_SYSTEM, "FOUNDER CHECK-IN:")}
 
 
+def half_up(x: float) -> int:
+    """Round halves upwards like JavaScript's Math.round (Python's round() goes to the even number), so the bot and the
+    dashboard print the same percentage."""
+    return int(math.floor(x + 0.5))
+
+
 def goal_value(g: dict) -> tuple[int, bool]:
     """(percent, is_estimate) for display: done = 100; else the bot's estimate if any, else official progress."""
     if g.get("done"):
@@ -60,7 +67,7 @@ def milestone_value(goals: list, milestone: dict | None = None) -> tuple[int, bo
             return 0, False
         return goal_value({**milestone, "done": milestone.get("status") == "done"})
     vals = [goal_value(g) for g in goals]
-    return round(sum(v for v, _ in vals) / len(vals)), any(e for _, e in vals)
+    return half_up(sum(v for v, _ in vals) / len(vals)), any(e for _, e in vals)
 
 
 HORIZON_DAYS = 7   # milestones due within the next week are in play
@@ -79,7 +86,7 @@ def milestone_expected(due, today) -> int:
     if due <= today:
         return 100
     into = (today - (due - timedelta(days=6))).days
-    return 0 if into <= 0 else round(into / 6 * 100)
+    return 0 if into <= 0 else half_up(into / 6 * 100)
 
 
 def load_milestones(sb) -> list:
@@ -116,7 +123,7 @@ def milestone_progress(milestones: list, today) -> dict | None:
     if not play:
         return {"pct": 100, "expected": 100, "counted": 0, "complete": 0, "overdue": 0} if mine and all(is_complete(m) for m in mine) else None
     vals = [100 if is_complete(m) else milestone_value(m.get("goals") or [], m)[0] for m, _ in play]
-    return {"pct": round(sum(vals) / len(vals)), "expected": round(sum(milestone_expected(d, today) for _, d in play) / len(play)),
+    return {"pct": half_up(sum(vals) / len(vals)), "expected": half_up(sum(milestone_expected(d, today) for _, d in play) / len(play)),
             "counted": len(play), "complete": sum(1 for m, _ in play if is_complete(m)),
             "overdue": sum(1 for m, d in play if not is_complete(m) and d and d < today)}
 
