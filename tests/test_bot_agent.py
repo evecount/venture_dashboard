@@ -94,7 +94,7 @@ class FakeMemory:
         self.updates.append(("g", gid, patch))
         return True
 
-    def sync_milestone(self, mid):
+    def sync_milestone(self, mid, reopen=True):
         return None
 
     def remove_goal(self, gid):

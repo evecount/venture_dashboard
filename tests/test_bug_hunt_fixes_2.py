@@ -221,3 +221,38 @@ class HuntRoundThreeTests(unittest.TestCase):
             b.handle_confirm_checkin(lambda: None, self._body("U1"), client)
         self.assertEqual(commit.call_count, 2)
         b.release_press("C9", "9.9")
+
+
+class RoundAgentTests(unittest.TestCase):
+    def test_percent_reads_what_models_send(self):
+        import bot_agent as ba
+        self.assertEqual([ba._percent(v) for v in (60, "60", "60%", 60.6, None, "lots", 250, -5)], [60, 60, 60, 61, 50, 50, 100, 0])
+
+    def test_ticking_a_goal_never_reopens_a_done_milestone_but_unticking_does(self):
+        def mem(status, goals):
+            sb = mock.MagicMock()
+            sb.table.return_value.select.return_value.eq.return_value.execute.return_value.data = [
+                {"status": status, "goals": [{"done": d} for d in goals]}]
+            return Memory(sb)
+        self.assertIsNone(mem("done", [True, False]).sync_milestone("m", reopen=False))
+        self.assertEqual(mem("done", [True, False]).sync_milestone("m", reopen=True), "open")
+        self.assertEqual(mem("open", [True, True]).sync_milestone("m", reopen=False), "done")
+
+    def test_series_changes_say_they_are_one_date(self):
+        card = b.build_meeting_card({"kind": "change", "action": "cancel", "title": "Sprint", "old": "Thu", "attendee_count": 3,
+                                      "series": True, "id": "x"})
+        self.assertIn("other dates stay", card[0]["text"]["text"])
+        move = b.build_meeting_card({"kind": "change", "action": "reschedule", "title": "Sprint", "old": "Thu", "new": "Fri",
+                                      "attendee_count": 3, "series": True, "id": "x"})
+        self.assertIn("other dates stay", move[0]["text"]["text"])
+
+
+class UnresolvedWarningTests(unittest.TestCase):
+    def test_a_failure_the_model_does_not_fix_is_not_hidden_by_a_cheerful_reply(self):
+        from test_agent_loop import Script, agent_with, call
+        from test_bot_agent import MENTOR
+        s = Script(("", [call("add_goal", {"milestone_ref": "zzzz", "title": "x"})]), ("All done, goal added!", []))
+        a, mem = agent_with(s)
+        out = a.respond(MENTOR, "add a goal")
+        self.assertIn("All done", out["text"])
+        self.assertIn("couldn't find that milestone", out["text"])

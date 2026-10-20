@@ -2642,6 +2642,8 @@ def build_meeting_card(m: dict) -> list:
             body = (f"I'll *move* {m['title']}{nl}From: {m['old']}{nl}To: *{m['new']}*{nl}"
                     f"The {m['attendee_count']} people invited get an updated invitation.")
             yes, no = "Reschedule & notify", "Keep as is"
+        if m.get("series"):
+            body += nl + "_This is one date of a repeating meeting: the other dates stay as they are._"
         return [
             {"type": "section", "text": {"type": "mrkdwn", "text": body}},
             {"type": "actions", "elements": [
@@ -2745,12 +2747,12 @@ def handle_confirm_meeting(ack, body, client):
                 return
             if m["action"] == "cancel":
                 gcal.delete_event(studio["refresh_token"], m["event_id"])
-                finish(f"🗑 *{m['title']}* ({m['old']}) is cancelled. Everyone invited was told.")
+                finish(f"🗑 *{m['title']}* ({m['old']}) is cancelled" + (" (this date only)" if m.get("series") else "") + ". Everyone invited was told.")
             else:
                 gcal.update_event(studio["refresh_token"], m["event_id"], {
                     "start": {"dateTime": m["new_begin"], "timeZone": "Asia/Singapore"},
                     "end": {"dateTime": m["new_end"], "timeZone": "Asia/Singapore"}})
-                finish(f"✅ *{m['title']}* moved to *{m['new']}*. Everyone invited got an updated invitation.")
+                finish(f"✅ *{m['title']}* moved to *{m['new']}*" + (" (this date only)" if m.get("series") else "") + ". Everyone invited got an updated invitation.")
             memory.delete_meeting(row["id"])
             _studio_cache["at"] = 0.0
             return
@@ -2934,7 +2936,7 @@ def _settle_goal(body, client, goal_id: str, patch: dict, said: str):
         patch = {"status": "done", "progress": 100, "updated_at": patch.get("done_at")}
     supabase.table(table).update({**patch, "est_progress": None, "est_reason": None, "est_at": None}).eq("id", item_id).execute()
     if "done" in patch and g.get("milestone_id"):
-        memory.sync_milestone(g["milestone_id"])
+        memory.sync_milestone(g["milestone_id"], reopen=False)
     try:
         client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=said,
                            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": said.replace("{title}", g["title"])}}])

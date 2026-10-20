@@ -149,16 +149,16 @@ class Memory:
         return self._guard("update_goal", lambda: bool(
             self.sb.table("goals").update(patch).eq("id", goal_id).execute()), False)
 
-    def sync_milestone(self, milestone_id: str) -> str | None:
-        """Keeps a milestone's status in step with its goals: all done -> done; a goal added or unticked -> open again.
-        Returns the new status when it changed."""
+    def sync_milestone(self, milestone_id: str, reopen: bool = True) -> str | None:
+        """Keeps a milestone's status in step with its goals: all done -> done; a goal added or unticked -> open again
+        (`reopen`; ticking a goal never reopens a milestone a mentor already marked done). Returns the new status when it changed."""
         def run():
             rows = self.sb.table("milestones").select("status,goals(done)").eq("id", milestone_id).execute().data
             if not rows or rows[0]["status"] not in ("open", "done"):
                 return None  # dropped milestones stay dropped
             goals = rows[0].get("goals") or []
             want = "done" if goals and all(g.get("done") for g in goals) else "open"
-            if want == rows[0]["status"]:
+            if want == rows[0]["status"] or (want == "open" and not reopen):
                 return None
             self.sb.table("milestones").update({"status": want, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", milestone_id).execute()
             return want

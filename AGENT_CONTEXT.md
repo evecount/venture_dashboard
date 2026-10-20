@@ -153,3 +153,14 @@ sign-in (`src/lib/dash-auth.ts`: signed Slack "Open dashboard" links and Sign in
 Open:
 - Move the heavy Slack Home queries into one Supabase RPC. Not needed yet (a handful of startups, Home publishes in well under a second);
   revisit when the cohort grows past a few dozen people. Any RPC must stay service-role only (no public execute).
+
+### Bug-hunt behaviour changes (Oct 2026)
+
+- Cards: check-in Save/Edit only by the owning founder and only the first press; announcement/meeting/routine cards are claimed once (`Memory.claim_meeting`); only the requester can cancel a card.
+- Announcements to 5 or fewer named people (not a group word) are sent at once, no card (owner's request); groups keep the preview card.
+- Meetings: mentors can invite outside guests by email (in the attendee list, or a name matching an email written in the last few messages). Founders cannot.
+- Milestones auto-complete when their last goal is ticked (`Memory.sync_milestone`); a new or unticked goal reopens them; ticking never reopens a milestone a mentor marked done. The dashboard also treats all-goals-done as complete.
+- Tool loop: a ⚠️ failure the model did not fix in a later round is shown even if its reply sounds successful. `propose_checkin` progress accepts "60%".
+- Changing one date of a repeating meeting says so (card and result); the event id is the single occurrence.
+- Dashboard: founders never receive mentor-owned tasks or any owner Slack id; a GitHub installation already linked to another startup is never re-pointed by the connect callback; mentor snapshot reads 45 days of signals (cap 1500) and 800 check-ins.
+- Developer access (DEV_EMAILS) cannot be claimed with a typed, unverified email at mentor sign-up.

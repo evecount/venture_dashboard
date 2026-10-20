@@ -631,6 +631,7 @@ class Agent:
         timing = {"context_ms": _ms(started), "llm_ms": 0, "tools_ms": 0, "rounds": 0, "model": model}
 
         reply, receipts, warnings, lookups, seen = "", [], [], [], set()
+        unresolved: list = []  # warnings from the last round of tools: if the model then just answers, they still stand
         for rnd in range(MAX_ROUNDS):
             final = rnd == MAX_ROUNDS - 1  # the last round has no tools, so it must answer
             kwargs = {} if final else {"tools": self._tools(ident["role"], loaded), "tool_choice": "auto"}
@@ -659,6 +660,7 @@ class Agent:
                             "content": (by_index[i] or "(done)") if i in by_index else "(already done earlier in this turn; not repeated)"}
                            for i, c in enumerate(every)]]
             more = False
+            unresolved = []
             for c, r in zip(calls, results):
                 if c.function.name in READ_TOOLS:
                     more = True
@@ -667,13 +669,15 @@ class Agent:
                 elif r.startswith("⚠️"):
                     more = True  # let the model put it right (look up the ref, or ask)
                     warnings.append(r)
+                    unresolved.append(r)
                 elif r:
                     receipts.append(r)
             if not more:  # plain actions: their receipts are the answer, no second call needed
                 break
 
         # The model's words, then what really happened. Raw look-ups and warnings show only if it said nothing.
-        parts = [reply, *receipts] if reply else [*warnings, *receipts, *lookups]
+        # A failure the model did not fix in a later round is shown even when it wrote a cheerful reply.
+        parts = [reply, *receipts, *[w for w in unresolved if w not in reply]] if reply else [*warnings, *receipts, *lookups]
         default = ("Here's what I captured. Confirm below to sync it to the dashboard." if out["checkin"]
                    else "Please confirm the rename below." if out["rename"] else "Got it.")
         out["text"] = "\n".join(p for p in parts if p) or default
@@ -748,7 +752,7 @@ class Agent:
             if name == "propose_checkin" and role == "founder":
                 status = args.get("status") if args.get("status") in ("In progress", "Blocked", "On Track", "Completed") else "In progress"
                 out["checkin"] = {
-                    "status": status, "progress": max(0, min(100, int(args.get("progress", 50)))),
+                    "status": status, "progress": _percent(args.get("progress"), 50),
                     "stream": ident["context"].get("stream", "General"),
                     "blocker": str(args.get("blocker") or "None")[:300], "digest": str(args.get("digest") or "Progress recorded.")[:400],
                 }
@@ -1049,7 +1053,7 @@ class Agent:
         ok = mem.update_goal(g["id"], patch)
         if not ok:
             return "⚠️ I couldn't update that goal."
-        finished = mem.sync_milestone(g["milestone"]["id"]) if "done" in patch else None
+        finished = mem.sync_milestone(g["milestone"]["id"], reopen=patch.get("done") is False) if "done" in patch else None
         if patch.get("done") is True:
             return f"✅ Goal done: {g['title']}" + (f" That completes the milestone *{g['milestone']['title']}* 🎉" if finished == "done" else "")
         return "✏️ Goal updated."
@@ -1179,7 +1183,8 @@ class Agent:
         old_begin, old_end = meetings.event_times(ev)
         payload = {"kind": "change", "action": args.get("action"), "event_id": ev["id"], "title": ev.get("summary", "Meeting"),
                    "old": meetings.format_when(old_begin, old_end), "requester": ident["name"], "requester_slack": me,
-                   "mentor": role == "mentor", "attendee_count": max(0, len(ev.get("attendees") or []) - 1)}
+                   "mentor": role == "mentor", "attendee_count": max(0, len(ev.get("attendees") or []) - 1),
+                   "series": bool(ev.get("recurringEventId"))}  # a change to one occurrence of a repeating meeting
         if args.get("action") == "reschedule":
             minutes = int(args.get("duration_minutes") or (old_end - old_begin).total_seconds() / 60)
             when = meetings.parse_when(args.get("new_date"), args.get("new_start_time"), minutes)
@@ -1488,6 +1493,14 @@ class Agent:
 _WORD = re.compile(r"[a-z0-9][a-z0-9'-]{2,}")
 _STOP = {"the", "and", "for", "with", "what", "when", "who", "did", "does", "about", "they", "them", "that", "this", "from",
          "have", "has", "any", "anyone", "mention", "mentioned", "say", "said", "ever", "was", "were", "are"}
+
+
+def _percent(value, default: int = 50) -> int:
+    """0-100 from what the model sent: 60, "60", "60%" or 60.5; anything unreadable gives the default."""
+    try:
+        return max(0, min(100, int(round(float(str(value).strip().rstrip("%").strip())))))
+    except (TypeError, ValueError):
+        return default
 
 
 def _clamp(value, low: int, high: int, default: int) -> int:
