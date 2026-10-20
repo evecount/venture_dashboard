@@ -174,3 +174,50 @@ class HomeOpenLinkTests(unittest.TestCase):
             b.handle_app_home_opened({"user": "UX", "tab": "home"}, mock.MagicMock())
         onboard.assert_not_called()
         publish.assert_called_once()
+
+
+class HuntRoundThreeTests(unittest.TestCase):
+    def test_short_voice_note_mentioning_a_call_is_not_a_meeting_recording(self):
+        import meeting_capture as mc
+        note = {"subtype": "slack_audio", "mimetype": "audio/webm", "duration_ms": 25000, "size": 90000}
+        self.assertFalse(mc.is_recording(note, "just had a call with a customer, quick update"))
+        self.assertTrue(mc.is_recording(note, "recording of our call"))
+        self.assertTrue(mc.is_recording({**note, "duration_ms": 10 * 60000}, "call"))
+
+    def test_double_click_saves_a_checkin_once(self):
+        self.assertTrue(b.first_press("C1", "100.1"))
+        self.assertFalse(b.first_press("C1", "100.1"))
+        b.release_press("C1", "100.1")
+        self.assertTrue(b.first_press("C1", "100.1"))
+        b.release_press("C1", "100.1")
+
+    def _body(self, user):
+        import json as _j
+        value = _j.dumps({"startup_id": "s", "deliverable_id": "d", "founder_id": "f1", "status": "On Track", "progress": 5,
+                          "blocker": "None", "digest": "x"})
+        return {"actions": [{"value": value}], "user": {"id": user, "name": "n"}, "channel": {"id": "C9"}, "message": {"ts": "9.9"}}
+
+    def test_someone_else_cannot_save_a_founders_checkin(self):
+        client = mock.MagicMock()
+        with mock.patch.object(b, "owns_checkin", return_value=False), mock.patch.object(b, "commit_checkin") as commit:
+            b.handle_confirm_checkin(lambda: None, self._body("UOTHER"), client)
+        commit.assert_not_called()
+        client.chat_postEphemeral.assert_called_once()
+
+    def test_two_clicks_commit_once(self):
+        client = mock.MagicMock()
+        with mock.patch.object(b, "owns_checkin", return_value=True), mock.patch.object(b, "commit_checkin", return_value=True) as commit, \
+                mock.patch.object(b, "estimate_after_checkin"), mock.patch.object(b, "publish_home"):
+            b.handle_confirm_checkin(lambda: None, self._body("U1"), client)
+            b.handle_confirm_checkin(lambda: None, self._body("U1"), client)
+        self.assertEqual(commit.call_count, 1)
+        b.release_press("C9", "9.9")
+
+    def test_a_failed_save_can_be_retried(self):
+        client = mock.MagicMock()
+        with mock.patch.object(b, "owns_checkin", return_value=True), mock.patch.object(b, "commit_checkin", side_effect=[False, True]) as commit, \
+                mock.patch.object(b, "estimate_after_checkin"), mock.patch.object(b, "publish_home"):
+            b.handle_confirm_checkin(lambda: None, self._body("U1"), client)
+            b.handle_confirm_checkin(lambda: None, self._body("U1"), client)
+        self.assertEqual(commit.call_count, 2)
+        b.release_press("C9", "9.9")

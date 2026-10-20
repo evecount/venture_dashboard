@@ -21,7 +21,9 @@ INLINE_MAX = 18 * 1024 * 1024
 MAX_BYTES = 500 * 1024 * 1024        # Slack allows bigger, but 500 MB of audio is many hours
 LONG_BYTES = int(2.5 * 1024 * 1024)  # a quick voice note is smaller than this
 LONG_MS = 3 * 60 * 1000              # ...and shorter than this
+SHORT_MS = 60 * 1000                 # a clip this short is a voice note even if it mentions a "call"
 VIDEO_EXT = {"mp4", "mov", "m4v", "webm"}
+STRONG_WORDS = re.compile(r"\b(recording|recorded|transcri\w*|minutes)\b", re.I)  # still count on a short clip; "call" or "session" alone do not
 MEETING_WORDS = re.compile(r"\b(meeting|recording|recorded|call|interview|session|sync|standup|minutes|transcri\w*)\b", re.I)
 
 TRANSCRIBE = (
@@ -62,8 +64,9 @@ def is_recording(f: dict, text: str = "", expecting: bool = False) -> bool:
     """A meeting recording rather than a quick voice note: long, big, a video file, said to be one, or asked for."""
     if not is_media(f):
         return False
+    short_clip = 0 < (f.get("duration_ms") or 0) < SHORT_MS
     return bool(expecting or (f.get("duration_ms") or 0) >= LONG_MS or (f.get("size") or 0) >= LONG_BYTES
-                or _ext(f) in VIDEO_EXT or MEETING_WORDS.search(text or ""))
+                or _ext(f) in VIDEO_EXT or (STRONG_WORDS if short_clip else MEETING_WORDS).search(text or ""))
 
 
 def audio_mime(f: dict) -> str:

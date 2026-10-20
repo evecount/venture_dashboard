@@ -1143,6 +1143,8 @@ def handle_mentor_submit(ack, body, client, view):
         errors["email_input"] = email_err
     if not code_matches(_val(values, "mentor_code_input", "mentor_code_text"), MENTOR_CODE):
         errors["mentor_code_input"] = "That mentor code isn't right."
+    if not verified and email.lower() in DEV_EMAILS:  # a typed address must never be able to claim developer access
+        errors["email_input"] = "That address can only be used through Slack's own verified email. Ask the developer to add you."
     if errors:
         ack(response_action="errors", errors=errors)
         return
@@ -2344,6 +2346,37 @@ CHECKIN_FAILED = "⚠️ I couldn't save that check-in just now, so nothing was 
 
 CHECKIN_STATUSES = ["In progress", "On Track", "Blocked", "Completed"]
 
+_saved_cards: dict = {}  # (channel, card ts) -> when it was first pressed
+_saved_lock = threading.Lock()
+
+
+def first_press(channel: str, ts: str) -> bool:
+    """True only for the first press on a card, so a double click can't save a check-in twice."""
+    now = time.time()
+    with _saved_lock:
+        for key in [k for k, t in _saved_cards.items() if now - t > 3600]:
+            del _saved_cards[key]
+        if (channel, ts) in _saved_cards:
+            return False
+        _saved_cards[(channel, ts)] = now
+        return True
+
+
+def release_press(channel: str, ts: str):
+    with _saved_lock:
+        _saved_cards.pop((channel, ts), None)
+
+
+def owns_checkin(user_id: str, action_value: dict) -> bool:
+    """A check-in card can only be saved or edited by the founder it belongs to (cards in channels are visible to others)."""
+    if not supabase:
+        return True
+    try:
+        return bool(supabase.table("founders").select("id").eq("id", action_value.get("founder_id")).eq("slack_user_id", user_id).execute().data)
+    except Exception as e:
+        print(f"[Check-in Owner Warning] {e}")
+        return False
+
 
 @app.view("modal_edit_checkin")
 def handle_edit_checkin_submit(ack, body, client, view):
@@ -2358,7 +2391,15 @@ def handle_edit_checkin_submit(ack, body, client, view):
     if picked in CHECKIN_STATUSES:
         action_value["status"] = picked
     user_id = body["user"]["id"]
+    card = where or {}
+    if not owns_checkin(user_id, action_value):
+        client.chat_postMessage(channel=user_id, text="Only the founder this check-in belongs to can save it.")
+        return
+    if card.get("ts") and not first_press(card["channel"], card["ts"]):
+        return  # the card was already saved (or is being saved)
     if not commit_checkin(action_value, body["user"]["name"]):
+        if card.get("ts"):
+            release_press(card["channel"], card["ts"])
         client.chat_postMessage(channel=user_id, text=CHECKIN_FAILED)
         return
     estimate_after_checkin(action_value)
@@ -2376,7 +2417,14 @@ def handle_confirm_checkin(ack, body, client):
     ack()
     action_value = json.loads(body["actions"][0]["value"])
     user_id = body["user"]["id"]
+    channel, ts = body["channel"]["id"], body["message"]["ts"]
+    if not owns_checkin(user_id, action_value):
+        client.chat_postEphemeral(channel=channel, user=user_id, text="Only the founder this check-in belongs to can save it.")
+        return
+    if not first_press(channel, ts):
+        return  # second click on the same card
     if not commit_checkin(action_value, body["user"]["name"]):
+        release_press(channel, ts)
         client.chat_postMessage(channel=user_id, text=CHECKIN_FAILED)
         return
     estimate_after_checkin(action_value)
@@ -2390,6 +2438,10 @@ def handle_edit_checkin(ack, body, client):
     """Founder pressed Edit: change the summary, status or blocker before saving."""
     ack()
     action_value = json.loads(body["actions"][0]["value"])
+    if not owns_checkin(body["user"]["id"], action_value):
+        client.chat_postEphemeral(channel=body["channel"]["id"], user=body["user"]["id"],
+                                  text="Only the founder this check-in belongs to can edit it.")
+        return
     meta = {"value": action_value, "card": {"channel": body["channel"]["id"], "ts": body["message"]["ts"]}}
     while len(json.dumps(meta, ensure_ascii=False)) > 3000 and action_value.get("raw_transcript"):  # Slack's private_metadata limit
         action_value["raw_transcript"] = action_value["raw_transcript"][:len(action_value["raw_transcript"]) // 2]

@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -167,16 +168,26 @@ export function DashDataProvider({ children }: { children: ReactNode }) {
   const [overrides, setOverrides] = useState<Record<string, string | null>>({});
   const [handledError, setHandledError] = useState(false);
 
+  const latestRequest = useRef(0);
   const load = useCallback(async () => {
+    const mine = ++latestRequest.current;
     try {
       const res = await fetch("/api/dash/snapshot", { cache: "no-store" });
+      if (mine !== latestRequest.current) return; // a newer refresh already started: this answer may be older than what's shown
       if (res.status === 401) {
         window.location.reload(); // session ended: back to the sign-in screen
         return;
       }
       if (!res.ok) throw new Error(String(res.status));
-      setSnapshot((await res.json()) as DashSnapshot);
-      setOverrides({});
+      const next = (await res.json()) as DashSnapshot;
+      if (mine !== latestRequest.current) return;
+      setSnapshot(next);
+      // Keep an optimistic "handled" mark until the data itself agrees with it, so a refresh that was already in flight
+      // when the button was pressed can't flip it back.
+      const marked = new Set((next.handled ?? []).map((r) => r.startup_id));
+      setOverrides((o) =>
+        Object.fromEntries(Object.entries(o).filter(([id, at]) => (at ? !marked.has(id) : marked.has(id)))),
+      );
       setLastSync(new Date());
       setError(false);
     } catch {

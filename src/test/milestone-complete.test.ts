@@ -36,3 +36,13 @@ describe("timeline progress label", () => {
     expect(progressScope(entry("del-wk03"), week3)).toBe("on current deliverable");
   });
 });
+
+describe("timeline progress label for a later cohort", () => {
+  const entry = (id: string) => mergeTimeline(
+    [{ id: "1", status: "On Track", progress: 60, blocker: null, digest: "d", created_at: "2026-10-16T03:00:00Z", deliverable_id: id }], [])[0]!;
+  const now = new Date("2026-10-19T02:00:00Z");
+  it("uses the cohort's own week, not the default syllabus dates", () => {
+    expect(progressScope(entry("del-wk01"), now, "2026-10-26")).toBe("on current deliverable");
+    expect(progressScope(entry("del-wk01"), now)).toBe("on week 1's deliverable (last check-in)");
+  });
+});

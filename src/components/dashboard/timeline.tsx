@@ -22,7 +22,8 @@ import { useMilestones } from "@/hooks/use-milestones";
 import { milestoneProgress } from "./insights";
 import { sgtDate } from "./program";
 import { deliverableId } from "./insights";
-import { programState } from "./program";
+import { cohortProgram } from "./program";
+import { useDashData } from "@/hooks/use-dash-data";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -49,8 +50,8 @@ function progressDelta(entries: TimelineEntry[], index: number): number | null {
 }
 
 /** "on current deliverable" only when the check-in is for this program week; otherwise name its week. */
-export function progressScope(e: TimelineEntry, now = new Date()): string {
-  const current = deliverableId(programState(now).week);
+export function progressScope(e: TimelineEntry, now = new Date(), cohortStart?: string | null): string {
+  const current = deliverableId(cohortProgram(now, cohortStart).week); // each cohort runs the syllabus from its own start
   if (!e.deliverableId || e.deliverableId === current) return "on current deliverable";
   const week = Number(e.deliverableId.replace(/\D/g, ""));
   return week ? `on week ${week}'s deliverable (last check-in)` : "on an earlier deliverable";
@@ -75,6 +76,7 @@ const FILTERS: { id: "all" | TimelineGroup; label: string }[] = [
 
 export function Timeline({ founder, refreshKey }: { founder: Founder; refreshKey: string }) {
   const { entries, loading } = useTimeline(founder.startupId, refreshKey);
+  const cohortStart = useDashData().snapshot?.cohorts?.find((c) => c.id === founder.cohortId)?.start_date;
   const milestones = useMilestones(founder.startupId);
   const mp =
     founder.startupId && milestones
@@ -111,7 +113,7 @@ export function Timeline({ founder, refreshKey }: { founder: Founder; refreshKey
           ) : (
             latest && (
               <span className="pill pill-neutral">
-                <TrendingUp size={10} /> {latest.progress}% {progressScope(latest)}
+                <TrendingUp size={10} /> {latest.progress}% {progressScope(latest, new Date(), cohortStart)}
               </span>
             )
           )}
