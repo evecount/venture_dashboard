@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canLinkInstallation, visibleTasks } from "@/lib/dash-scope";
+import { canLinkInstallation, parkedInstallFields, visibleTasks } from "@/lib/dash-scope";
 
 const tasks = [
   { id: "1", owner_slack_id: null },
@@ -28,5 +28,17 @@ describe("canLinkInstallation", () => {
   });
   it("refuses an installation that belongs to another startup", () => {
     expect(canLinkInstallation({ startup_id: "s2" }, "s1")).toBe(false);
+  });
+});
+
+describe("parkedInstallFields", () => {
+  const parked = { account: "WAILENGL", repos: ["WAILENGL/Scripting-Destiny-Bazi-Engine"] };
+  it("fills in a brand-new link from what GitHub reported at install time", () => {
+    expect(parkedInstallFields(parked, false)).toEqual(parked);
+    expect(parkedInstallFields({ account: "a", repos: null }, false)).toEqual({ account: "a", repos: [] });
+  });
+  it("never rolls back the repos of an installation that is already linked", () => {
+    expect(parkedInstallFields(parked, true)).toEqual({});
+    expect(parkedInstallFields(null, false)).toEqual({});
   });
 });

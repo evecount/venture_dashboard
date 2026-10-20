@@ -24,3 +24,16 @@ export function canLinkInstallation(
 ): boolean {
   return !existing || existing.startup_id === startupId;
 }
+
+/**
+ * What the GitHub callback may copy from the parked install record (written by the webhook before the founder's browser
+ * returns). Only a brand-new link uses it: once an installation is linked, its live repo list is kept current by the
+ * webhook and the bot, and the parked copy goes stale (a reconnect must not roll the repos back to the first install).
+ */
+export function parkedInstallFields(
+  parked: { account: string | null; repos: string[] | null } | null | undefined,
+  alreadyLinked: boolean,
+): { account?: string | null; repos?: string[] } {
+  if (!parked || alreadyLinked) return {};
+  return { account: parked.account, repos: parked.repos ?? [] };
+}

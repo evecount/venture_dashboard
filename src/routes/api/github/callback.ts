@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { admin } from "@/lib/supabase-admin";
 import { verifyState } from "@/lib/integrations";
-import { canLinkInstallation } from "@/lib/dash-scope";
+import { canLinkInstallation, parkedInstallFields } from "@/lib/dash-scope";
 
 const page = (title: string, body: string, status = 200) =>
   new Response(
@@ -48,11 +48,13 @@ export const Route = createFileRoute("/api/github/callback")({
           prefer: "resolution=merge-duplicates,return=minimal",
           body: {
             startup_id: state.s, founder_id: state.f, provider: "github", external_id: installationId,
-            ...(known ? { account: known.account, repos: known.repos ?? [] } : {}),
+            ...parkedInstallFields(known, Boolean(current.data?.[0])),
             notified_at: null, // (re)send the Slack confirmation and repo picker
           },
         });
         if (!res.ok) return page("Something went wrong", "I couldn't save the connection. Please try again from Slack.", 500);
+        // The parked record has done its job; left behind it goes stale and could mislead a later reconnect.
+        if (known) await admin(`github_installations?installation_id=eq.${installationId}`, { method: "DELETE" });
         return page("GitHub connected", "Head back to Slack: the bot is sending you a confirmation and lets you choose which repositories to monitor. You can close this tab.");
       },
     },
