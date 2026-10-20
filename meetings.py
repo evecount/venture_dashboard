@@ -13,6 +13,7 @@ from timeparse import parse_ts
 
 SGT = timezone(timedelta(hours=8))
 GROUPS = {"everyone", "everybody", "all", "cohort", "mentors", "founders"}
+EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
 RECURRENCE = {"weekly": "RRULE:FREQ=WEEKLY", "fortnightly": "RRULE:FREQ=WEEKLY;INTERVAL=2", "monthly": "RRULE:FREQ=MONTHLY"}
 
 
@@ -36,12 +37,23 @@ def format_when(begin: datetime, end: datetime) -> str:
     return f"{begin.strftime('%A, %b')} {begin.day} · {time_12h(begin)}–{time_12h(end)} (SGT)"
 
 
-def resolve_attendees(specs: list, founders: list, mentors: list, requester_slack_id: str, requester_role: str) -> dict:
+def emails_in(text: str) -> list:
+    """Email addresses written in a message, including Slack's <mailto:a@b.com|a@b.com> form, without repeats."""
+    seen: dict = {}
+    for e in EMAIL_RE.findall(text or ""):
+        seen.setdefault(e.lower(), e)
+    return list(seen.values())
+
+
+def resolve_attendees(specs: list, founders: list, mentors: list, requester_slack_id: str, requester_role: str,
+                      known_emails: list | None = None) -> dict:
     """
     specs: strings from the model: a group ('everyone', 'mentors', 'founders'), a Slack id/mention ('U123ABC', '<@U123ABC>'),
     or a person's name. founders/mentors: rows with name, email, slack_user_id.
     Returns {people: [{name, email}], missing: [names without a known email/match], error: str|None}.
     Founders may invite people, but only mentors may call everyone or whole groups.
+    Mentors may also invite someone outside the cohort by email: either the spec is the address, or the person's name
+    matches the start of an address the mentor wrote in the conversation (`known_emails`, e.g. "James" + james@x.com).
     """
     everyone = [{"name": r["name"], "email": r.get("email"), "slack": r.get("slack_user_id"), "role": "mentor"} for r in mentors] + \
                [{"name": r["name"], "email": r.get("email"), "slack": r.get("slack_user_id"), "role": "founder"} for r in founders]
@@ -64,6 +76,14 @@ def resolve_attendees(specs: list, founders: list, mentors: list, requester_slac
                 if key in ("everyone", "everybody", "all", "cohort") or p["role"] + "s" == key:
                     add(p)
             continue
+        typed = emails_in(spec)
+        if typed:
+            if requester_role == "mentor":
+                address = typed[0]
+                chosen.setdefault(address.lower(), {"name": spec.split("<")[0].strip() or address.split("@")[0].title(), "email": address})
+            else:
+                missing.append(f"{typed[0]} (only mentors can invite people outside the cohort)")
+            continue
         slack_id = re.sub(r"[<@>|].*$", "", spec.lstrip("<@")) if spec.startswith("<@") else spec
         matches = [p for p in everyone if p["slack"] and p["slack"].lower() == slack_id.lower()]
         if not matches:
@@ -74,7 +94,12 @@ def resolve_attendees(specs: list, founders: list, mentors: list, requester_slac
         elif len(matches) > 1:
             missing.append(f"{spec} (which one? {', '.join(m['name'] for m in matches)})")
         else:
-            missing.append(spec)
+            first = key.split()[0] if key.split() else ""
+            outside = [e for e in (known_emails or []) if first and e.split("@")[0].lower().startswith(first)]
+            if requester_role == "mentor" and len(outside) == 1:
+                chosen.setdefault(outside[0].lower(), {"name": spec.title(), "email": outside[0]})
+            else:
+                missing.append(spec)
     return {"people": list(chosen.values()), "missing": missing, "error": None}
 
 

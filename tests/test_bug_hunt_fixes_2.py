@@ -123,3 +123,27 @@ class MilestoneSyncTests(unittest.TestCase):
             mem, sb = self.memory(status, goals)
             self.assertIsNone(mem.sync_milestone("m1"))
             sb.table.return_value.update.assert_not_called()
+
+
+class OutsideGuestTests(unittest.TestCase):
+    import meetings as _m
+    founders = [{"name": "Takshma Patel", "email": "t@x.com", "slack_user_id": "U1"}]
+    mentors = [{"name": "Ben Lim", "email": "ben@x.com", "slack_user_id": "U2"}]
+
+    def resolve(self, specs, role="mentor", known=None):
+        return self._m.resolve_attendees(specs, self.founders, self.mentors, "U2", role, known)
+
+    def test_name_plus_email_from_the_conversation_invites_the_outside_guest(self):
+        known = self._m.emails_in("James email is <mailto:james@mambapartners.com|james@mambapartners.com>")
+        got = self.resolve(["takshma", "James"], known=known)
+        self.assertEqual(got["missing"], [])
+        self.assertIn("james@mambapartners.com", [p["email"] for p in got["people"]])
+
+    def test_an_email_spec_is_invited_directly_for_mentors_only(self):
+        self.assertEqual([p["email"] for p in self.resolve(["james@mambapartners.com"])["people"]], ["james@mambapartners.com"])
+        got = self.resolve(["james@mambapartners.com"], role="founder")
+        self.assertEqual(got["people"], [])
+        self.assertTrue(got["missing"])
+
+    def test_unknown_name_without_a_matching_email_stays_missing(self):
+        self.assertEqual(self.resolve(["Zed"], known=["james@x.com"])["missing"], ["Zed"])

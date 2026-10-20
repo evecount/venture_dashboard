@@ -120,7 +120,7 @@ def _meeting_tools(role: str) -> list:
         "duration_minutes": {"type": "integer", "description": "Default 60"},
         "where": {"type": "string", "description": "'virtual' for an online meeting (a Google Meet link is added), or the place exactly as given, e.g. '111 Somerset'"},
         "attendees": {"type": "array", "items": {"type": "string"},
-                      "description": "'everyone', 'mentors', 'founders', Slack ids from mentions like U0ABC123, or people's names"},
+                      "description": "'everyone', 'mentors', 'founders', Slack ids from mentions like U0ABC123, people's names, or an email address for someone outside the cohort (when the user gives a person's email, in this message or an earlier one, pass the email itself)"},
         "repeat": {"type": "string", "enum": ["none", "weekly", "fortnightly", "monthly"]},
         "calendar_only": {"type": "boolean", "description": "true to just note it on the studio calendar for everyone to see, with NO invitations or emails (use for 'note it down', 'mark it on the calendar', 'add it to the calendar'). attendees can then be empty."},
     }, ["title", "date", "start_time", "where"])]
@@ -434,6 +434,8 @@ class Agent:
         """
         out = {"text": "", "checkin": None, "rename": None, "meeting": None, "announce_now": None}
         history = self.memory.history(ident["slack_id"])
+        # Emails the person wrote lately (this message or a follow-up), so "James" + "James email is ..." still invites James.
+        ident = {**ident, "recent_text": " ".join([m["content"] for m in history if m["role"] == "user"][-6:] + [text])}
         messages = [{"role": "system", "content": self._system(ident)}, *history, {"role": "user", "content": text}]
         model = (self.settings.get("ai_model") or "").strip() if self.settings else ""
         msg = self.ai.chat.completions.create(
@@ -800,7 +802,8 @@ class Agent:
             return ""
         founders = self.sb.table("founders").select("name,email,slack_user_id").execute().data or []
         mentors_ = self.sb.table("mentors").select("name,email,slack_user_id").execute().data or []
-        got = meetings.resolve_attendees(args.get("attendees") or [], founders, mentors_, me, role)
+        got = meetings.resolve_attendees(args.get("attendees") or [], founders, mentors_, me, role,
+                                          known_emails=meetings.emails_in(ident.get("recent_text", "")))
         if got["error"]:
             return "⚠️ " + got["error"]
         people = got["people"]
