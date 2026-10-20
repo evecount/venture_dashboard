@@ -1898,7 +1898,7 @@ button.gate-row:hover .row-title {
   }
 }
 
-/* ---------- Day / night toggle ---------- */
+/* ---------- Day / night dial ---------- */
 /* The page swaps under a circular reveal (see ThemeToggle); turn off the default cross-fade. */
 ::view-transition-old(root),
 ::view-transition-new(root) {
@@ -1906,193 +1906,207 @@ button.gate-row:hover .row-title {
   mix-blend-mode: normal;
 }
 .theme-toggle {
+  --dial-size: 36px;
+  /* Critically damped spring x(t) = 1 − (1 + 1.6t)·e^(−8t): ~half the turn in the first 10%, then a smooth,
+     gradual settle that lands exactly on the mark with no overshoot. */
+  --dial-ease: linear(
+    0,
+    0.1206 2%,
+    0.2274 4%,
+    0.3218 6%,
+    0.4052 8%,
+    0.4788 10%,
+    0.5436 12%,
+    0.6006 14%,
+    0.6508 16%,
+    0.6948 18%,
+    0.7335 20%,
+    0.8105 25%,
+    0.8657 30%,
+    0.9051 35%,
+    0.9331 40%,
+    0.953 45%,
+    0.967 50%,
+    0.9769 55%,
+    0.9839 60%,
+    0.9922 70%,
+    0.9962 80%,
+    0.9982 90%,
+    1 100%
+  );
+  --dial-turn: 800ms;
+  --bezel-a: #fbfcfe;
+  --bezel-b: #d5d9e2;
+  --tick: oklch(0.55 0.015 260 / 55%);
   position: relative;
   flex-shrink: 0;
-  width: 58px;
-  height: 30px;
-  border-radius: 999px;
+  width: var(--dial-size);
+  height: var(--dial-size);
   padding: 0;
-  overflow: hidden;
+  border-radius: 50%;
   cursor: pointer;
-  border: 1px solid oklch(0.82 0.05 230);
-  background: linear-gradient(160deg, #6ec3ff 0%, #a9dcff 60%, #d8f0ff 100%);
-  box-shadow: inset 0 1px 3px oklch(0.3 0.08 240 / 30%);
+  background: linear-gradient(145deg, var(--bezel-a), var(--bezel-b));
+  box-shadow:
+    0 1px 2px oklch(0.2 0.02 260 / 18%),
+    0 3px 8px oklch(0.2 0.02 260 / 12%),
+    inset 0 1px 0 oklch(1 0 0 / 80%);
   transition:
-    background 0.5s ease,
-    border-color 0.5s ease,
-    box-shadow 0.2s ease;
+    transform 160ms cubic-bezier(0.3, 0.7, 0.4, 1),
+    box-shadow 200ms ease;
 }
 .dark .theme-toggle {
-  border-color: oklch(0.38 0.06 280);
-  background: linear-gradient(160deg, #0f1430 0%, #1d2050 55%, #33296b 100%);
-  box-shadow: inset 0 1px 4px oklch(0 0 0 / 45%);
+  --bezel-a: #434a60;
+  --bezel-b: #1f2330;
+  --tick: oklch(0.85 0.02 260 / 45%);
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 50%),
+    0 3px 10px oklch(0 0 0 / 35%),
+    inset 0 1px 0 oklch(1 0 0 / 12%);
 }
 .theme-toggle:hover {
   box-shadow:
-    inset 0 1px 3px oklch(0.3 0.08 240 / 30%),
+    0 1px 2px oklch(0.2 0.02 260 / 18%),
+    0 3px 8px oklch(0.2 0.02 260 / 12%),
     0 0 0 3px color-mix(in oklch, var(--primary) 22%, transparent);
+}
+.theme-toggle:active {
+  transform: scale(0.93);
 }
 .theme-toggle:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
-.tt-sky {
+/* Watch-style tick marks around the rim. */
+.dial-bezel {
   position: absolute;
-  inset: 0;
+  inset: 1px;
+  border-radius: 50%;
+  background: repeating-conic-gradient(from -1deg, var(--tick) 0 2deg, transparent 2deg 30deg);
+  -webkit-mask: radial-gradient(
+    circle,
+    transparent 13.2px,
+    #000 13.6px,
+    #000 16.4px,
+    transparent 16.8px
+  );
+  mask: radial-gradient(circle, transparent 13.2px, #000 13.6px, #000 16.4px, transparent 16.8px);
 }
-.tt-cloud {
+/* The turning disc: top half day sky, bottom half night sky, with the horizon across the middle. */
+.dial-disc {
   position: absolute;
-  background: #fff;
-  border-radius: 999px;
-  opacity: 0.9;
-  transition:
-    transform 0.55s cubic-bezier(0.5, 0, 0.2, 1),
-    opacity 0.4s ease;
+  inset: 5px;
+  border-radius: 50%;
+  overflow: hidden;
+  box-shadow:
+    inset 0 0 0 1px oklch(0 0 0 / 12%),
+    0 0 0 1px oklch(1 0 0 / 35%);
+  transform: rotate(0deg);
+  transition: transform var(--dial-turn) cubic-bezier(0.16, 1, 0.3, 1);
 }
-.tt-cloud::before {
-  content: "";
+@supports (transition-timing-function: linear(0, 1)) {
+  .dial-disc {
+    transition-timing-function: var(--dial-ease);
+  }
+}
+/* Into night: +180° (clockwise). Back to day: to 0° (anticlockwise). An interrupted turn retargets smoothly. */
+.dark .dial-disc {
+  transform: rotate(180deg);
+}
+.dial-half {
   position: absolute;
-  background: inherit;
-  border-radius: 999px;
+  left: 0;
+  right: 0;
+  height: 50%;
+  display: flex;
+  justify-content: center;
 }
-.tt-cloud-1 {
-  width: 16px;
-  height: 6px;
-  right: 7px;
-  top: 16px;
+.dial-day {
+  top: 0;
+  align-items: flex-start;
+  padding-top: 2px;
+  background: linear-gradient(to bottom, #3d9df0, #8fd0ff 75%, #ffe3b0);
 }
-.tt-cloud-1::before {
-  width: 8px;
-  height: 8px;
-  left: 3px;
-  top: -4px;
+.dial-night {
+  bottom: 0;
+  align-items: flex-end;
+  padding-bottom: 2px;
+  background: linear-gradient(to top, #0c1030, #1f2257 70%, #3a2f73);
 }
-.tt-cloud-2 {
-  width: 10px;
-  height: 4px;
-  right: 17px;
-  top: 7px;
-  opacity: 0.7;
+.dial-sun {
+  color: #ffc23d;
+  fill: #ffd56b;
+  filter: drop-shadow(0 0 2.5px oklch(0.9 0.15 85 / 90%));
 }
-.tt-cloud-2::before {
-  width: 5px;
-  height: 5px;
-  left: 2px;
-  top: -2.5px;
+/* Drawn upside down so it's upright once the disc has turned it to the top. */
+.dial-moon {
+  color: #eef0ff;
+  fill: #eef0ff;
+  transform: rotate(180deg);
+  filter: drop-shadow(0 0 3px oklch(0.9 0.05 270 / 80%));
 }
-.dark .tt-cloud {
-  transform: translateY(22px);
-  opacity: 0;
-}
-.tt-star {
+.dial-star {
   position: absolute;
-  width: 2px;
-  height: 2px;
+  width: 1.5px;
+  height: 1.5px;
   border-radius: 50%;
   background: #fff;
-  opacity: 0;
-  transform: translateY(-10px) scale(0.4);
-  transition:
-    transform 0.55s cubic-bezier(0.2, 0.8, 0.2, 1),
-    opacity 0.4s ease;
+  opacity: 0.85;
 }
-.tt-star-1 {
+.dial-star-1 {
+  left: 5px;
+  bottom: 9px;
+}
+.dial-star-2 {
+  right: 5px;
+  bottom: 6px;
+}
+.dial-star-3 {
   left: 9px;
-  top: 7px;
+  bottom: 3px;
+  opacity: 0.55;
 }
-.tt-star-2 {
-  left: 18px;
-  top: 18px;
-  width: 1.5px;
-  height: 1.5px;
+.dark .dial-star {
+  animation: dial-twinkle 3s ease-in-out infinite;
 }
-.tt-star-3 {
-  left: 24px;
-  top: 6px;
-  width: 1.5px;
-  height: 1.5px;
+.dark .dial-star-2 {
+  animation-delay: 1s;
 }
-.tt-star-4 {
-  left: 6px;
-  top: 19px;
+.dark .dial-star-3 {
+  animation-delay: 2s;
 }
-.dark .tt-star {
-  opacity: 1;
-  transform: none;
-  animation: tt-twinkle 2.8s ease-in-out infinite;
-}
-.dark .tt-star-2 {
-  animation-delay: 0.7s;
-}
-.dark .tt-star-3 {
-  animation-delay: 1.4s;
-}
-.dark .tt-star-4 {
-  animation-delay: 2.1s;
-}
-@keyframes tt-twinkle {
+@keyframes dial-twinkle {
   0%,
   100% {
-    opacity: 1;
+    opacity: 0.9;
   }
   50% {
-    opacity: 0.35;
+    opacity: 0.3;
   }
 }
-.tt-knob {
+/* Fixed glass highlight over the disc, so the turn reads as a physical dial under a lens. */
+.dial-glass {
   position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 22px;
-  height: 22px;
+  inset: 5px;
   border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: radial-gradient(circle at 35% 35%, #fff4b8, #ffc83d 60%, #ff9f1c);
-  box-shadow:
-    0 0 0 3px oklch(0.95 0.12 90 / 35%),
-    0 2px 6px oklch(0.5 0.15 60 / 45%);
-  transition:
-    transform 0.55s cubic-bezier(0.68, -0.35, 0.27, 1.35),
-    background 0.5s ease,
-    box-shadow 0.5s ease;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 80% at 30% 15%, oklch(1 0 0 / 45%), transparent 45%),
+    radial-gradient(circle at 50% 50%, transparent 60%, oklch(0 0 0 / 22%) 100%);
 }
-.dark .tt-knob {
-  transform: translateX(28px) rotate(-200deg);
-  background: radial-gradient(circle at 35% 35%, #ffffff, #e3e6f5 55%, #b9bfdc);
-  box-shadow:
-    0 0 0 3px oklch(0.85 0.04 270 / 18%),
-    0 0 12px oklch(0.85 0.05 270 / 55%);
+/* The 12 o'clock pointer the disc settles against. */
+.dial-pointer {
+  position: absolute;
+  top: 1px;
+  left: 50%;
+  width: 0;
+  height: 0;
+  transform: translateX(-50%);
+  border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent;
+  border-top: 5px solid var(--primary);
+  filter: drop-shadow(0 1px 1px oklch(0 0 0 / 30%));
 }
-.tt-icon {
-  grid-area: 1 / 1;
-  transition:
-    opacity 0.35s ease,
-    transform 0.55s ease;
-}
-.tt-sun {
-  color: #b45309;
-}
-.tt-moon {
-  color: #4b4f7a;
-  opacity: 0;
-  transform: scale(0.5);
-}
-.dark .tt-sun {
-  opacity: 0;
-  transform: scale(0.5);
-}
-.dark .tt-moon {
-  opacity: 1;
-  transform: rotate(200deg);
-}
-.theme-toggle:active .tt-knob {
-  width: 26px;
-}
-.dark .theme-toggle:active .tt-knob {
-  margin-left: -4px;
-}
-/* No slide-in on first paint: the toggle appears already in its place. */
+/* No turn on first paint: the dial appears already set. */
 .theme-toggle.no-anim,
 .theme-toggle.no-anim * {
   transition: none !important;

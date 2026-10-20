@@ -33,7 +33,11 @@ function savedTheme(): Theme | null {
   }
 }
 
-/** Day/night switch for everyone. The page changes with a circular reveal from the button where supported. */
+/**
+ * Day/night dial for everyone: a disc that turns 180° (clockwise into night, back anticlockwise into day) on a
+ * spring curve, quick off the mark and settling exactly on the pointer. The page changes with a circular reveal
+ * from the dial where supported.
+ */
 export function ThemeToggle({ className = "" }: { className?: string }) {
   // Starts as "light" on the server; the real value is read after mount (the boot script already applied it).
   const [theme, setTheme] = useState<Theme>("light");
@@ -115,18 +119,21 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
       className={`theme-toggle ${ready ? "" : "no-anim"} ${className}`}
       onClick={toggle}
     >
-      <span className="tt-sky" aria-hidden="true">
-        <span className="tt-cloud tt-cloud-1" />
-        <span className="tt-cloud tt-cloud-2" />
-        <span className="tt-star tt-star-1" />
-        <span className="tt-star tt-star-2" />
-        <span className="tt-star tt-star-3" />
-        <span className="tt-star tt-star-4" />
+      {/* The disc turns 180°: sun under the pointer by day, moon by night. Everything else stays still. */}
+      <span className="dial-bezel" aria-hidden="true" />
+      <span className="dial-disc" aria-hidden="true">
+        <span className="dial-half dial-day">
+          <Sun className="dial-sun" size={13} strokeWidth={2.6} />
+        </span>
+        <span className="dial-half dial-night">
+          <Moon className="dial-moon" size={12} strokeWidth={2.6} />
+          <span className="dial-star dial-star-1" />
+          <span className="dial-star dial-star-2" />
+          <span className="dial-star dial-star-3" />
+        </span>
       </span>
-      <span className="tt-knob" aria-hidden="true">
-        <Sun className="tt-icon tt-sun" size={14} strokeWidth={2.5} />
-        <Moon className="tt-icon tt-moon" size={13} strokeWidth={2.5} />
-      </span>
+      <span className="dial-glass" aria-hidden="true" />
+      <span className="dial-pointer" aria-hidden="true" />
     </button>
   );
 }
