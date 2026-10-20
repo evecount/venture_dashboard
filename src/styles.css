@@ -2012,7 +2012,7 @@ button.gate-row:hover .row-title {
   box-shadow:
     0 2px 3px oklch(0 0 0 / 28%),
     0 4px 8px oklch(0 0 0 / 14%);
-  /* Set by the time-of-day clock (theme-clock.ts): one clockwise turn per day, 180° at night. */
+  /* The hour hand, set by the clock (theme-clock.ts): 30° per hour from 12 o'clock, creeping with the minutes. */
   transform: rotate(var(--knob-angle, 0deg));
   transition:
     transform var(--knob-turn) cubic-bezier(0.16, 1, 0.3, 1),
@@ -2026,13 +2026,12 @@ button.gate-row:hover .row-title {
 .theme-toggle:active .knob {
   scale: 0.95;
 }
-/* Drawn upright, then tilted so the ridge runs top-left to bottom-right with the mark at 10:30. */
+/* Drawn upright: at 0° the mark points at 12 o'clock, and the ridge turns with it like a clock hand. */
 .knob-face {
   position: absolute;
   inset: 0;
   border-radius: 50%;
   overflow: hidden;
-  transform: rotate(-45deg);
 }
 /* The raised grip bar across the knob: a flat face with a lit edge and a soft shadow on each side. */
 .knob-ridge {

@@ -25,7 +25,7 @@ describe("time-of-day theme", () => {
 
   it("is plain day from 8am to 6pm", () => {
     for (const h of ["08:00", "12:00", "17:59"])
-      expect(phase(h)).toMatchObject({ dark: false, warm: 0, angle: 0 });
+      expect(phase(h)).toMatchObject({ dark: false, warm: 0 });
   });
 
   it("warms gradually from 6pm to sunset, then stays warm until the sun has fully set", () => {
@@ -34,14 +34,13 @@ describe("time-of-day theme", () => {
     expect(a.dark).toBe(false);
     expect(a.warm).toBeGreaterThan(0);
     expect(b.warm).toBeGreaterThan(a.warm);
-    expect(b.angle).toBeGreaterThan(a.angle);
-    expect(phase("19:05")).toMatchObject({ dark: false, warm: 1, angle: 90 });
+    expect(phase("19:05")).toMatchObject({ dark: false, warm: 1 });
   });
 
   it("is night from dusk to dawn, then warm, easing back to day by 8am", () => {
-    expect(phase("19:30")).toMatchObject({ dark: true, angle: 180 });
-    expect(phase("03:00")).toMatchObject({ dark: true, angle: 180 });
-    expect(phase("06:40")).toMatchObject({ dark: false, warm: 1, angle: 270 });
+    expect(phase("19:30")).toMatchObject({ dark: true });
+    expect(phase("03:00")).toMatchObject({ dark: true });
+    expect(phase("06:40")).toMatchObject({ dark: false, warm: 1 });
     const m = phase("07:30");
     expect(m.warm).toBeGreaterThan(0);
     expect(m.warm).toBeLessThan(1);
@@ -49,6 +48,27 @@ describe("time-of-day theme", () => {
 
   it("changes by only a sliver each minute during the evening drift", () => {
     expect(phase("18:31").warm - phase("18:30").warm).toBeLessThan(0.025);
+  });
+});
+
+describe("the red mark is an hour hand", () => {
+  // Local wall-clock time, whatever timezone the tests run in.
+  const local = (h: number, m = 0) => new Date(2026, 9, 20, h, m).getTime();
+  it("points at the hour, the same for am and pm", () => {
+    expect(core.hourAngle(local(0))).toBe(0); // 12 o'clock
+    expect(core.hourAngle(local(1))).toBe(30); // 1am → 1 o'clock
+    expect(core.hourAngle(local(13))).toBe(30); // 1pm → 1 o'clock
+    expect(core.hourAngle(local(15))).toBe(90); // 3 o'clock
+    expect(core.hourAngle(local(21))).toBe(270); // 9 o'clock
+  });
+  it("creeps with the minutes, half a degree each", () => {
+    expect(core.hourAngle(local(13, 30))).toBe(45);
+    expect(core.hourAngle(local(13, 31)) - core.hourAngle(local(13, 30))).toBe(0.5);
+  });
+  it("is what the knob shows, manual choice or not", () => {
+    expect(core.resolve(local(13)).angle).toBe(30);
+    localStorage.setItem(core.KEY, JSON.stringify({ theme: "dark", until: local(23) }));
+    expect(core.resolve(local(13))).toMatchObject({ dark: true, manual: true, angle: 30 });
   });
 });
 

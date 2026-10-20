@@ -6,11 +6,10 @@ export { THEME_BOOT_SCRIPT } from "./theme-clock";
 
 const TICK_MS = 60_000;
 
-/** Shortest turn from one angle to another, so the knob keeps going clockwise through the day (359° → 0°). */
-function turnTo(from: number, to: number, dir?: 1 | -1): number {
+/** Shortest turn from one angle to another, so the hour hand keeps going clockwise past 12 (359° → 0°). */
+function turnTo(from: number, to: number): number {
   let d = (((to - from) % 360) + 360) % 360; // 0..359, clockwise
-  if (dir === -1) d -= 360;
-  else if (dir !== 1 && d > 180) d -= 360;
+  if (d > 180) d -= 360;
   return from + d;
 }
 
@@ -23,15 +22,27 @@ function reveal(el: HTMLElement | null, swap: () => void) {
   const doc = document as Document & {
     startViewTransition?: (cb: () => void) => { ready: Promise<void> };
   };
-  if (!doc.startViewTransition || matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  let done = false;
+  const once = () => {
+    if (done) return;
+    done = true;
     swap();
+  };
+  if (
+    !doc.startViewTransition ||
+    document.visibilityState !== "visible" ||
+    matchMedia("(prefers-reduced-motion: reduce)").matches
+  ) {
+    once();
     return;
   }
+  // A transition waits for the page to render; if it can't (a window that isn't painting), switch anyway.
+  setTimeout(once, 1000);
   const box = el?.getBoundingClientRect();
   const x = box ? box.left + box.width / 2 : innerWidth - 40;
   const y = box ? box.top + box.height / 2 : 32;
   const r = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
-  const t = doc.startViewTransition(() => flushSync(swap));
+  const t = doc.startViewTransition(() => flushSync(once));
   void t.ready
     .then(() =>
       document.documentElement.animate(
@@ -47,10 +58,10 @@ function reveal(el: HTMLElement | null, swap: () => void) {
 }
 
 /**
- * Day/night knob for everyone. It follows the time of day (see theme-clock.ts): the red mark creeps round
- * through the evening as the page warms, and turns to night once the sun has fully set — one clockwise turn per
- * day. A click flips day/night on the spring curve (clockwise into night, anticlockwise back to day) and holds
- * until the clock catches up with the choice; clicking back to what the clock says returns to automatic.
+ * Day/night knob for everyone. Its red mark is an hour hand (1am or 1pm → 1 o'clock), and its colours and the
+ * page's follow the time of day (see theme-clock.ts). A click flips day/night with one full spin of the knob on
+ * the spring curve (clockwise into night, anticlockwise back to day), landing back on the hour. The choice holds
+ * until the clock catches up with it; clicking back to what the clock says returns to automatic.
  */
 export function ThemeToggle({ className = "" }: { className?: string }) {
   const [state, setState] = useState<ThemeState | null>(null);
@@ -124,13 +135,9 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
       /* private mode: switches for this visit only */
     }
     const r = core.resolve(now);
-    const shown = {
-      ...r,
-      dark: toDark,
-      warm: toDark ? 0 : r.warm,
-      angle: r.dark === toDark ? r.angle : toDark ? 180 : 0,
-    };
-    angle.current = turnTo(angle.current, shown.angle, toDark ? 1 : -1);
+    const shown = { ...r, dark: toDark, warm: toDark ? 0 : r.warm }; // even if storage is unavailable
+    // One full turn that lands back on the hour: clockwise into night, anticlockwise back to day.
+    angle.current = turnTo(angle.current, r.angle) + (toDark ? 360 : -360);
     reveal(ref.current, () => {
       core.apply(shown);
       setKnob(angle.current);

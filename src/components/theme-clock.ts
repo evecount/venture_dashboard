@@ -6,6 +6,7 @@
  *   dusk → dawn         night (dusk/dawn = civil twilight: the sun is 6° below the horizon, fully set)
  *   dawn → sunrise      warm again
  *   sunrise → 8am       drifts back to plain day
+ * The knob's red mark is an hour hand (1am or 1pm → 1 o'clock); its colours follow the phases above.
  * A click on the knob holds day or night until the clock itself next switches night on/off, then the clock carries
  * on. Clicking back to what the clock says returns to automatic straight away.
  *
@@ -41,20 +42,26 @@ function sun(t, lat, lon){
 function clamp(x){ return x<0?0:x>1?1:x; }
 
 // Where the clock says we are. offsetMin = the viewer's minutes east of UTC.
-// Returns {dark, warm (0..1), angle (deg, 0..360, one clockwise turn per day), next (ms of the next change)}.
+// Returns {dark, warm (0..1), next (ms of the next change)}.
 function phase(now, lat, lon, offsetMin){
   var off=offsetMin*MIN, mid=Math.floor((now+off)/DAY)*DAY-off; // local midnight
   var s=sun(mid+12*HOUR, lat, lon);
   var eve=Math.min(mid+18*HOUR, s.sunset-15*MIN);     // start warming at 6pm (earlier only where the sun sets before ~6:15)
   var morn=Math.max(mid+8*HOUR, s.sunrise+30*MIN);    // fully day again
-  if(now<s.dawn) return {dark:true, warm:0, angle:180, next:s.dawn};
-  if(now<s.sunrise) return {dark:false, warm:1, angle:270, next:s.sunrise};
-  if(now<morn){ var k=clamp((now-s.sunrise)/(morn-s.sunrise)); return {dark:false, warm:1-k, angle:270+90*k, next:morn}; }
-  if(now<eve) return {dark:false, warm:0, angle:0, next:eve};
-  if(now<s.sunset){ var e=clamp((now-eve)/(s.sunset-eve)); return {dark:false, warm:e, angle:90*e, next:s.sunset}; }
-  if(now<s.dusk) return {dark:false, warm:1, angle:90, next:s.dusk};
+  if(now<s.dawn) return {dark:true, warm:0, next:s.dawn};
+  if(now<s.sunrise) return {dark:false, warm:1, next:s.sunrise};
+  if(now<morn) return {dark:false, warm:1-clamp((now-s.sunrise)/(morn-s.sunrise)), next:morn};
+  if(now<eve) return {dark:false, warm:0, next:eve};
+  if(now<s.sunset) return {dark:false, warm:clamp((now-eve)/(s.sunset-eve)), next:s.sunset};
+  if(now<s.dusk) return {dark:false, warm:1, next:s.dusk};
   var tomorrow=sun(mid+DAY+12*HOUR, lat, lon);
-  return {dark:true, warm:0, angle:180, next:tomorrow.dawn};
+  return {dark:true, warm:0, next:tomorrow.dawn};
+}
+
+// The knob's red mark is an hour hand: 0deg at 12 o'clock, 30deg per hour, creeping with the minutes.
+function hourAngle(now){
+  var d=new Date(now);
+  return ((d.getHours()%12)*60+d.getMinutes())/2;
 }
 
 function read(k){ try{ return JSON.parse(localStorage.getItem(k)||"null"); }catch(e){ return null; } }
@@ -79,8 +86,8 @@ function resolve(now){
   var p=clock(now);
   var o=read(KEY);
   if(o && (o.theme==="light"||o.theme==="dark") && o.until>now)
-    return {dark:o.theme==="dark", warm:0, angle:o.theme==="dark"?180:0, next:o.until, manual:true};
-  return {dark:p.dark, warm:p.warm, angle:p.angle, next:p.next, manual:false};
+    return {dark:o.theme==="dark", warm:0, angle:hourAngle(now), next:o.until, manual:true};
+  return {dark:p.dark, warm:p.warm, angle:hourAngle(now), next:p.next, manual:false};
 }
 
 function apply(r){
@@ -90,7 +97,7 @@ function apply(r){
   d.style.setProperty("--warm", String(Math.round(r.warm*1000)/1000));
 }
 
-window.__vdTheme={sun:sun, phase:phase, clock:clock, nextFlip:nextFlip, resolve:resolve, apply:apply, KEY:KEY, POS:POS};
+window.__vdTheme={sun:sun, phase:phase, hourAngle:hourAngle, clock:clock, nextFlip:nextFlip, resolve:resolve, apply:apply, KEY:KEY, POS:POS};
 })();`;
 
 /** Inline in <head>: set the theme (and the knob's angle) before anything paints. */
@@ -99,6 +106,7 @@ export const THEME_BOOT_SCRIPT = `${THEME_CORE}try{var r=window.__vdTheme.resolv
 export type ThemeState = {
   dark: boolean;
   warm: number;
+  /** Where the knob's red mark points: the hour, like a clock's hour hand. */
   angle: number;
   next: number;
   manual: boolean;
@@ -110,8 +118,15 @@ type Core = {
     lat: number,
     lon: number,
   ) => { sunrise: number; sunset: number; dawn: number; dusk: number };
-  phase: (now: number, lat: number, lon: number, offsetMin: number) => Omit<ThemeState, "manual">;
-  clock: (now: number) => Omit<ThemeState, "manual">;
+  phase: (
+    now: number,
+    lat: number,
+    lon: number,
+    offsetMin: number,
+  ) => Omit<ThemeState, "manual" | "angle">;
+  /** The hour hand: degrees clockwise from 12 o'clock for this local time. */
+  hourAngle: (now: number) => number;
+  clock: (now: number) => Omit<ThemeState, "manual" | "angle">;
   nextFlip: (now: number) => number;
   resolve: (now?: number) => ThemeState;
   apply: (r: Pick<ThemeState, "dark" | "warm">) => void;
