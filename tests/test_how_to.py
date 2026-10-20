@@ -29,7 +29,19 @@ class HowToTests(unittest.TestCase):
                "deliverable": {"title": "T", "due_date": "2026-10-16"}}
         view = b.build_home_view(ctx, None, [], [], [], [], meeting_lines=["- x"])
         self.assertLess(len(view["blocks"]), 100)
-        self.assertIn("How to use Venture Buddy", b.blocks_to_text(view["blocks"]))
+        self.assertIn("What I can do", b.blocks_to_text(view["blocks"]))
+
+    def test_home_guide_is_a_short_grid_per_role(self):
+        for role in ("founder", "mentor"):
+            grid = b.home_features_blocks(role)[1]
+            self.assertLessEqual(len(grid["fields"]), 10)  # Slack's limit per section
+            for f in grid["fields"]:
+                self.assertLess(len(f["text"]), 120)  # a glance, not a paragraph
+        founder = " ".join(f["text"] for f in b.home_features_blocks("founder")[1]["fields"])
+        mentor = " ".join(f["text"] for f in b.home_features_blocks("mentor")[1]["fields"])
+        self.assertIn("Check in", founder)
+        self.assertNotIn("Check in", mentor)
+        self.assertIn("Who's blocked", mentor)
 
 
 

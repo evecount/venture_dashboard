@@ -1502,6 +1502,45 @@ HOW_TO = {
 }
 
 
+FEATURES = {  # the Home tab's at-a-glance guide: a title and a few words each (the full how-to is under "help")
+    "founder": [
+        ("📝 Check in", "Tell me what you did, typed or a voice note"),
+        ("🎯 Goals", "Set milestones, tick goals off as you go"),
+        ("📎 Send files", "Decks, screenshots, Word, Excel, PDFs"),
+        ("🌐 Research", "Competitors, grants, markets, with sources"),
+        ("💡 Explain it", "_\"What's a cap table?\"_ in plain English"),
+        ("✍️ Drafts", "Investor updates, pitch feedback, interview scripts"),
+        ("🎙 Meeting notes", "Send a recording: notes and tasks in one tap"),
+        ("🗓 Meetings", "_\"Book a call with Gwen on Thursday\"_"),
+        ("📰 Monday briefing", "News on your market. Tell me your topics"),
+        ("⚙️ Make me yours", "_\"From now on keep answers short\"_"),
+    ],
+    "mentor": [
+        ("🔎 Ask about anyone", "_\"How's Auvira doing?\"_ · _\"Who's blocked?\"_"),
+        ("🧠 Catch me up", "Digests, and who's talking but not building"),
+        ("💻 What shipped", "Commits, PRs and which code changed"),
+        ("🤝 Who can help", "Founders who solved a similar blocker"),
+        ("📌 Notes & tasks", "Private notes, tasks, milestones for any startup"),
+        ("🗓 Meetings", "Book, move, cancel, or find when mentors are free"),
+        ("📣 Announce", "One-off messages, or routines that repeat"),
+        ("🎙 Meeting notes", "Recorded Meets become notes. Save with one tap"),
+        ("🌐 Research", "Grants and competitors, with sources"),
+        ("⚙️ Make me yours", "_\"Always lead with blockers\"_"),
+    ],
+}
+
+
+def home_features_blocks(role: str) -> list:
+    """What I can do, as a two-column grid that reads in seconds. Full examples are one "help" away."""
+    items = FEATURES.get(role) or []
+    return [{"type": "divider"},
+            {"type": "section", "text": {"type": "mrkdwn", "text": "*What I can do*"},
+             "fields": [{"type": "mrkdwn", "text": f"*{t}*\n{d}"} for t, d in items[:10]]},
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": (
+                "Message me in the *Messages* tab, the way you'd talk. Type *help* for examples, or @mention me in a "
+                "thread to summarise it.")}]}]
+
+
 def how_to_blocks(role: str, compact: bool = False) -> list:
     """A short, copy-able 'how to use Venture Buddy' section, different for founders and mentors. `compact` is the
     one-line reminder for people who already know their way around."""
@@ -1628,9 +1667,7 @@ def build_home_view(context: dict | None, latest: dict | None, tasks: list | Non
     blocks += build_connections_blocks(context["founder_id"], context["startup_id"], conns or [])
     blocks += build_calendar_blocks(context["founder_id"], context["startup_id"], gcal_rows or [])
     blocks += build_task_blocks(tasks or [])
-    # After their first week (and once they've checked in) founders know the basics: keep the Home tab short.
-    week_no = mine["week"] if mine else (int(cur["week"].split()[-1]) if cur else 1)
-    blocks += how_to_blocks("founder", compact=bool(latest) and week_no >= 2)
+    blocks += home_features_blocks("founder")  # at a glance; the full how-to is under "help"
     return {"type": "home", "blocks": add_to_top_row(blocks, dashboard_button_element(context["founder_id"]))}
 
 
@@ -1648,7 +1685,7 @@ def publish_home(slack_user_id: str, client=None):
             base = (build_mentor_blocks(safe_snapshot(), title="Mentor view", tasks=mine, slack_user_id=slack_user_id,
                                         footer_button=False)
                     + studio_connect_blocks(slack_user_id) + my_calendar_blocks(slack_user_id))
-            howto = how_to_blocks("mentor")
+            howto = home_features_blocks("mentor")
             blocks = base + mentor_repo_blocks(97 - len(base) - len(howto)) + howto
             if developer:
                 blocks.insert(1, dev_home.mode_switch("mentor"))
