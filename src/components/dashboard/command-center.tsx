@@ -7,6 +7,7 @@ import {
   type SignalRow,
 } from "@/hooks/use-dash-data";
 import { useAuth } from "@/components/auth/sign-in-gate";
+import { ThemeToggle } from "@/components/theme-toggle";
 import type { Identity } from "@/lib/dash-auth";
 import {
   Activity,
@@ -443,6 +444,7 @@ function Dashboard({
             {isMentor && (
               <ViewAs perspective={perspective} members={founderList} onChange={setPerspective} />
             )}
+            <ThemeToggle />
             <AccountMenu identity={identity} onSignOut={() => void signOut()} />
           </div>
         </div>

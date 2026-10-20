@@ -33,6 +33,7 @@ function RootComponent() {
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { THEME_BOOT_SCRIPT } from "@/components/theme-toggle";
 
 function NotFoundComponent() {
   return (
@@ -126,8 +127,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    // The boot script sets the theme class on <html> before React hydrates, hence the suppressed warning.
+    <html lang="en" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
         <HeadContent />
       </head>
       <body>
@@ -137,4 +140,3 @@ function RootShell({ children }: { children: ReactNode }) {
     </html>
   );
 }
-

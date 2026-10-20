@@ -59,6 +59,29 @@
   --overlay: oklch(0.2 0.01 260 / 30%);
   --shadow-soft: 0 2px 4px oklch(0.2 0 0 / 2%);
 }
+/* Night mode: the same tokens, retuned for a dark background (toggled by ThemeToggle, class on <html>). */
+.dark {
+  --background: oklch(0.165 0.012 265);
+  --foreground: oklch(0.94 0.006 265);
+  --card: oklch(0.21 0.014 265);
+  --primary: oklch(0.71 0.175 47);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.255 0.014 265);
+  --muted: oklch(0.245 0.014 265);
+  --muted-foreground: oklch(0.71 0.017 262);
+  --accent: oklch(0.3 0.055 50);
+  --border: oklch(0.3 0.014 265);
+  --success: oklch(0.74 0.13 163);
+  --success-soft: oklch(0.3 0.05 163);
+  --info: oklch(0.74 0.11 240);
+  --info-soft: oklch(0.3 0.05 240);
+  --warning: oklch(0.8 0.13 80);
+  --warning-soft: oklch(0.31 0.055 80);
+  --destructive: oklch(0.7 0.17 22);
+  --danger-soft: oklch(0.3 0.065 20);
+  --overlay: oklch(0 0 0 / 55%);
+  --shadow-soft: 0 2px 6px oklch(0 0 0 / 35%);
+}
 @layer base {
   * {
     border-color: var(--border);
@@ -151,7 +174,9 @@ html {
   font-size: 14px;
   font-weight: 500;
   color: var(--muted-foreground);
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 .tab-btn:hover {
   color: var(--foreground);
@@ -322,12 +347,30 @@ html {
   font-weight: 500;
   white-space: nowrap;
 }
-.pill-success { background: var(--success-soft); color: var(--success); }
-.pill-info { background: var(--info-soft); color: var(--info); }
-.pill-danger { background: var(--danger-soft); color: var(--destructive); }
-.pill-warning { background: var(--warning-soft); color: var(--warning); }
-.pill-neutral { background: var(--secondary); color: var(--muted-foreground); }
-.pill-orange { background: var(--accent); color: var(--primary); }
+.pill-success {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.pill-info {
+  background: var(--info-soft);
+  color: var(--info);
+}
+.pill-danger {
+  background: var(--danger-soft);
+  color: var(--destructive);
+}
+.pill-warning {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+.pill-neutral {
+  background: var(--secondary);
+  color: var(--muted-foreground);
+}
+.pill-orange {
+  background: var(--accent);
+  color: var(--primary);
+}
 .avatar {
   width: 36px;
   height: 36px;
@@ -594,7 +637,9 @@ html {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 12px;
-  transition: border-color 0.15s, transform 0.15s;
+  transition:
+    border-color 0.15s,
+    transform 0.15s;
 }
 .startup-card:hover {
   border-color: var(--muted-foreground);
@@ -872,7 +917,10 @@ button.feed-row:hover {
 }
 .gate-row {
   display: grid;
-  grid-template-columns: minmax(200px, 2fr) 110px minmax(160px, 1.6fr) minmax(150px, 1fr) minmax(90px, 0.7fr);
+  grid-template-columns: minmax(200px, 2fr) 110px minmax(160px, 1.6fr) minmax(150px, 1fr) minmax(
+      90px,
+      0.7fr
+    );
   align-items: center;
   gap: 16px;
   width: 100%;
@@ -980,7 +1028,9 @@ button.gate-row:hover .row-title {
   padding: 0;
 }
 .gate-matrix td.now .cell {
-  box-shadow: 0 0 0 2px var(--card), 0 0 0 3px var(--primary);
+  box-shadow:
+    0 0 0 2px var(--card),
+    0 0 0 3px var(--primary);
 }
 .link-btn {
   font-weight: 500;
@@ -1003,12 +1053,26 @@ button.gate-row:hover .row-title {
   min-width: 0;
   vertical-align: -2px;
 }
-.cell-submitted { background: var(--success); }
-.cell-on_track { background: var(--info); opacity: 0.75; }
-.cell-behind { background: var(--warning); opacity: 0.8; }
-.cell-blocked { background: var(--destructive); }
-.cell-no_update { background: var(--border); }
-.cell-upcoming { background: var(--secondary); }
+.cell-submitted {
+  background: var(--success);
+}
+.cell-on_track {
+  background: var(--info);
+  opacity: 0.75;
+}
+.cell-behind {
+  background: var(--warning);
+  opacity: 0.8;
+}
+.cell-blocked {
+  background: var(--destructive);
+}
+.cell-no_update {
+  background: var(--border);
+}
+.cell-upcoming {
+  background: var(--secondary);
+}
 .matrix-legend {
   display: flex;
   flex-wrap: wrap;
@@ -1267,7 +1331,9 @@ button.gate-row:hover .row-title {
   border-radius: 10px;
   background: var(--card);
   text-align: left;
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
 }
 .rm-week:hover {
   border-color: var(--muted-foreground);
@@ -1632,7 +1698,11 @@ button.gate-row:hover .row-title {
 
 /* Progress the bot estimated from GitHub work: lighter and striped until someone confirms it. */
 .est-fill {
-  background: repeating-linear-gradient(135deg, var(--primary) 0 6px, color-mix(in oklch, var(--primary) 55%, transparent) 6px 12px);
+  background: repeating-linear-gradient(
+    135deg,
+    var(--primary) 0 6px,
+    color-mix(in oklch, var(--primary) 55%, transparent) 6px 12px
+  );
 }
 .goal-pct {
   margin-left: 8px;
@@ -1825,5 +1895,212 @@ button.gate-row:hover .row-title {
   *::after {
     animation: none !important;
     transition: none !important;
+  }
+}
+
+/* ---------- Day / night toggle ---------- */
+/* The page swaps under a circular reveal (see ThemeToggle); turn off the default cross-fade. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+.theme-toggle {
+  position: relative;
+  flex-shrink: 0;
+  width: 58px;
+  height: 30px;
+  border-radius: 999px;
+  padding: 0;
+  overflow: hidden;
+  cursor: pointer;
+  border: 1px solid oklch(0.82 0.05 230);
+  background: linear-gradient(160deg, #6ec3ff 0%, #a9dcff 60%, #d8f0ff 100%);
+  box-shadow: inset 0 1px 3px oklch(0.3 0.08 240 / 30%);
+  transition:
+    background 0.5s ease,
+    border-color 0.5s ease,
+    box-shadow 0.2s ease;
+}
+.dark .theme-toggle {
+  border-color: oklch(0.38 0.06 280);
+  background: linear-gradient(160deg, #0f1430 0%, #1d2050 55%, #33296b 100%);
+  box-shadow: inset 0 1px 4px oklch(0 0 0 / 45%);
+}
+.theme-toggle:hover {
+  box-shadow:
+    inset 0 1px 3px oklch(0.3 0.08 240 / 30%),
+    0 0 0 3px color-mix(in oklch, var(--primary) 22%, transparent);
+}
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.tt-sky {
+  position: absolute;
+  inset: 0;
+}
+.tt-cloud {
+  position: absolute;
+  background: #fff;
+  border-radius: 999px;
+  opacity: 0.9;
+  transition:
+    transform 0.55s cubic-bezier(0.5, 0, 0.2, 1),
+    opacity 0.4s ease;
+}
+.tt-cloud::before {
+  content: "";
+  position: absolute;
+  background: inherit;
+  border-radius: 999px;
+}
+.tt-cloud-1 {
+  width: 16px;
+  height: 6px;
+  right: 7px;
+  top: 16px;
+}
+.tt-cloud-1::before {
+  width: 8px;
+  height: 8px;
+  left: 3px;
+  top: -4px;
+}
+.tt-cloud-2 {
+  width: 10px;
+  height: 4px;
+  right: 17px;
+  top: 7px;
+  opacity: 0.7;
+}
+.tt-cloud-2::before {
+  width: 5px;
+  height: 5px;
+  left: 2px;
+  top: -2.5px;
+}
+.dark .tt-cloud {
+  transform: translateY(22px);
+  opacity: 0;
+}
+.tt-star {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: #fff;
+  opacity: 0;
+  transform: translateY(-10px) scale(0.4);
+  transition:
+    transform 0.55s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 0.4s ease;
+}
+.tt-star-1 {
+  left: 9px;
+  top: 7px;
+}
+.tt-star-2 {
+  left: 18px;
+  top: 18px;
+  width: 1.5px;
+  height: 1.5px;
+}
+.tt-star-3 {
+  left: 24px;
+  top: 6px;
+  width: 1.5px;
+  height: 1.5px;
+}
+.tt-star-4 {
+  left: 6px;
+  top: 19px;
+}
+.dark .tt-star {
+  opacity: 1;
+  transform: none;
+  animation: tt-twinkle 2.8s ease-in-out infinite;
+}
+.dark .tt-star-2 {
+  animation-delay: 0.7s;
+}
+.dark .tt-star-3 {
+  animation-delay: 1.4s;
+}
+.dark .tt-star-4 {
+  animation-delay: 2.1s;
+}
+@keyframes tt-twinkle {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.tt-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 35% 35%, #fff4b8, #ffc83d 60%, #ff9f1c);
+  box-shadow:
+    0 0 0 3px oklch(0.95 0.12 90 / 35%),
+    0 2px 6px oklch(0.5 0.15 60 / 45%);
+  transition:
+    transform 0.55s cubic-bezier(0.68, -0.35, 0.27, 1.35),
+    background 0.5s ease,
+    box-shadow 0.5s ease;
+}
+.dark .tt-knob {
+  transform: translateX(28px) rotate(-200deg);
+  background: radial-gradient(circle at 35% 35%, #ffffff, #e3e6f5 55%, #b9bfdc);
+  box-shadow:
+    0 0 0 3px oklch(0.85 0.04 270 / 18%),
+    0 0 12px oklch(0.85 0.05 270 / 55%);
+}
+.tt-icon {
+  grid-area: 1 / 1;
+  transition:
+    opacity 0.35s ease,
+    transform 0.55s ease;
+}
+.tt-sun {
+  color: #b45309;
+}
+.tt-moon {
+  color: #4b4f7a;
+  opacity: 0;
+  transform: scale(0.5);
+}
+.dark .tt-sun {
+  opacity: 0;
+  transform: scale(0.5);
+}
+.dark .tt-moon {
+  opacity: 1;
+  transform: rotate(200deg);
+}
+.theme-toggle:active .tt-knob {
+  width: 26px;
+}
+.dark .theme-toggle:active .tt-knob {
+  margin-left: -4px;
+}
+/* No slide-in on first paint: the toggle appears already in its place. */
+.theme-toggle.no-anim,
+.theme-toggle.no-anim * {
+  transition: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme-toggle,
+  .theme-toggle * {
+    transition: none !important;
+    animation: none !important;
   }
 }

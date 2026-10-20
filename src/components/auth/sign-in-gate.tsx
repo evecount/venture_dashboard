@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import type { Identity } from "@/lib/dash-auth";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 type Auth = { identity: Identity; signOut: () => Promise<void> };
 const AuthContext = createContext<Auth | null>(null);
@@ -83,7 +84,10 @@ export function SignInGate({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+    <div className="relative flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="absolute top-4 right-4">
+        <ThemeToggle />
+      </div>
       <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-8 text-center">
         <div className="brand-mark mx-auto">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
