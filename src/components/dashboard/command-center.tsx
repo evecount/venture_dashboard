@@ -405,7 +405,7 @@ function Dashboard({
       <header className="dash-header">
         <div className="dash-header-inner">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="brand-mark" title="Adventure Studio">
+            <div className="brand-mark" title="Venture Studio">
               <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path
                   d="M3 19 11 4l4 7-4 8H3Z M13 19l4-8 4 8h-8Z"
@@ -415,7 +415,7 @@ function Dashboard({
                 />
               </svg>
             </div>
-            <span className="hide-sm truncate font-semibold">Adventure Studio</span>
+            <span className="hide-sm truncate font-semibold">Venture Studio</span>
             <span className="cohort-tag">{cohort?.name ?? "MVP"}</span>
           </div>
           <nav className="tab-nav" aria-label="Dashboard sections">
@@ -482,7 +482,7 @@ function Dashboard({
       <main className="dash-main">
         {body}
         <footer className="page-footer">
-          <span>Adventure Studio · MVP Program</span>
+          <span>Venture Studio · MVP Program</span>
           <span>From founders&apos; Slack check-ins and connected tools · All times SGT</span>
         </footer>
       </main>

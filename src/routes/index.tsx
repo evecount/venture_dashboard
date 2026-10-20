@@ -34,13 +34,13 @@ export const Route = createFileRoute("/")({
   }),
   head: () => ({
     meta: [
-      { title: "Cohort Pulse · Adventure Studio MVP" },
+      { title: "Cohort Pulse · Venture Studio MVP" },
       {
         name: "description",
         content:
-          "Adventure Studio’s command center for the MVP Program cohorts. Track sprint momentum, founder check-ins, deliverables and priority blockers.",
+          "Venture Studio’s command center for the MVP Program cohorts. Track sprint momentum, founder check-ins, deliverables and priority blockers.",
       },
-      { property: "og:title", content: "Cohort Pulse · Adventure Studio MVP" },
+      { property: "og:title", content: "Cohort Pulse · Venture Studio MVP" },
       {
         property: "og:description",
         content:

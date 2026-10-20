@@ -128,7 +128,7 @@ alter publication supabase_realtime add table public.startups;
 -- ==============================================================================
 
 insert into public.cohorts (id, name, current_week, total_weeks)
-values ('sg-01', 'Adventure Studio · SG#01', 1, 12)
+values ('sg-01', 'Venture Studio · SG#01', 1, 12)
 on conflict (id) do nothing;
 
 insert into public.startups (id, cohort_id, name, tagline, stream, lead, velocity, active_status)

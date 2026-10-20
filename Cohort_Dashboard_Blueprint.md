@@ -1,4 +1,4 @@
-# Adventure Studio: Cohort Pulse & Deliverables Command Center
+# Venture Studio: Cohort Pulse & Deliverables Command Center
 
 ## 1. System Architecture
 - **Frontend Dashboard (Lovable/v0):** A read-only, dark-mode command center for internal team members (Ben, James, Gwen) to track cohort progress without data-entry friction.
