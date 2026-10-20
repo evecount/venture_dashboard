@@ -50,6 +50,11 @@ def milestone(mid, created, role="mentor", startup="s1", **kw):
             "goals": [{"title": "Draft script"}], **kw}
 
 
+def task(tid, created, owner=None, by="UMENTOR001", startup="s1"):
+    return {"id": tid, "startup_id": startup, "owner_slack_id": owner, "title": f"Task {tid}", "due_date": "2026-10-23",
+            "status": "open", "created_by": by, "created_at": created, "startups": {"name": "Auvira"}}
+
+
 class MilestoneNotifyTests(unittest.TestCase):
     def setUp(self):
         mn.STARTED = NOW - timedelta(hours=1)
@@ -61,7 +66,11 @@ class MilestoneNotifyTests(unittest.TestCase):
                            milestone("fresh", ago(seconds=10)),                      # goals may still be landing
                            milestone("old", ago(hours=3)),                           # from before the notifier ran
                            milestone("c", ago(minutes=5), startup="s2")],
-            "mentors": [{"name": "Arthur Tan", "slack_user_id": "UMENTOR001"}],
+            "tasks": [task("t1", ago(minutes=5)),
+                      task("mine", ago(minutes=5), owner="UMENTOR001"),              # a mentor's own follow-up
+                      task("selfset", ago(minutes=5), by="UANNLEE001")],             # the founder's own reminder
+            "mentors": [{"name": "Arthur Tan", "email": "arthur@studio.example", "slack_user_id": "UMENTOR001"},
+                        {"name": "Mo Lim", "email": "", "slack_user_id": "UMENTOR002"}],
             "founders": [{"name": "Ann Lee", "email": "ann@old.example", "slack_user_id": "UANNLEE001", "startup_id": "s1"},
                          {"name": "Bo Ng", "email": "bo@example.com", "slack_user_id": None, "startup_id": "s1"},
                          {"name": "Cy", "email": "", "slack_user_id": "UCYCYCY001", "startup_id": "s2"}],
@@ -70,51 +79,64 @@ class MilestoneNotifyTests(unittest.TestCase):
 
     def run_once(self):
         return mn.run(self.db, self.client, lambda k: k in self.seen, self.seen.add,
-                      send_email=lambda to, subj, body: self.mails.append((to, subj, body)), now=NOW)
+                      send_email=lambda *a: self.mails.append(a), now=NOW)
 
     def test_one_combined_message_per_founder_on_slack_and_email(self):
         self.run_once()
         ann = [t for c, t in self.client.posts if c == "UANNLEE001"]
         self.assertEqual(len(ann), 1)
-        self.assertIn("Arthur Tan set 2 new milestones for Auvira", ann[0])
-        self.assertIn("Milestone a", ann[0])
-        self.assertIn("Draft script", ann[0])
-        for skipped in ("Milestone own", "Milestone fresh", "Milestone old"):
+        self.assertIn("Arthur Tan set 2 new milestones and a task for Auvira", ann[0])
+        for shown in ("Milestone a", "Draft script", "Task t1"):
+            self.assertIn(shown, ann[0])
+        for skipped in ("Milestone own", "Milestone fresh", "Milestone old", "Task mine", "Task selfset"):
             self.assertNotIn(skipped, ann[0])
         to = sorted(m[0] for m in self.mails)
         # Ann's Slack email wins over the stored one; Bo isn't on Slack but still gets the email; Cy has no email.
         self.assertEqual(to, ["ann@slack.example", "bo@example.com"])
         self.assertEqual([c for c, _ in self.client.posts].count("UCYCYCY001"), 1)
 
-    def test_each_milestone_is_announced_once(self):
+    def test_email_says_who_sent_it_and_replies_go_to_them(self):
+        self.run_once()
+        to, subject, body, from_name, reply_to = next(m for m in self.mails if m[0] == "bo@example.com")
+        self.assertEqual(subject, "Arthur Tan set 2 new milestones and a task for Auvira")
+        self.assertEqual(from_name, "Arthur Tan via Venture Studio")
+        self.assertEqual(reply_to, ["arthur@studio.example"])
+        self.assertIn("Arthur Tan (your mentor) set", body)
+        self.assertIn("Sent by: Arthur Tan (arthur@studio.example), via Venture Buddy.", body)
+        self.assertIn("Reply to this email to answer Arthur Tan directly.", body)
+        self.assertIn("MILESTONES", body)
+        self.assertIn("TASKS", body)
+        self.assertNotIn("*", body)
+
+    def test_each_item_is_announced_once(self):
         self.run_once()
         posts, mails = len(self.client.posts), len(self.mails)
         self.run_once()
         self.assertEqual((len(self.client.posts), len(self.mails)), (posts, mails))
-        self.assertIn("ms-notify:a", self.seen)
+        self.assertTrue({"ms-notify:a", "task-notify:t1"} <= self.seen)
         self.assertNotIn("ms-notify:fresh", self.seen)
 
-    def test_without_email_settings_only_slack_is_used(self):
+    def test_without_the_studio_account_only_slack_is_used(self):
         mn.run(self.db, self.client, lambda k: False, lambda k: None, send_email=None, now=NOW)
         self.assertTrue(self.client.posts)
 
+    def test_several_mentors_are_each_credited(self):
+        items = [dict(milestone("a", ago(minutes=5)), kind="milestone", mentor="Arthur Tan"),
+                 dict(task("t", ago(minutes=5)), kind="task", mentor="Mo Lim")]
+        text = mn.slack_text("Ann", items, "Auvira")
+        self.assertIn("Arthur Tan and Mo Lim set a new milestone and a task", text)
+        self.assertIn("from Arthur Tan", text)
+        self.assertIn("from Mo Lim", text)
+        subject, body, from_name, reply_to = mn.email_parts("Ann", items, "Auvira", {"Arthur Tan": "a@x.example", "Mo Lim": ""})
+        self.assertEqual(from_name, "Your mentors via Venture Studio")
+        self.assertEqual(reply_to, ["a@x.example"])
+        self.assertIn("Sent by: Arthur Tan (a@x.example), Mo Lim", body)
+
     def test_long_imports_are_summarised(self):
-        items = [milestone(str(i), ago(minutes=5), startup_name="Auvira") for i in range(10)]
-        text = mn.slack_text("Ann", items, "Arthur")
+        items = [dict(milestone(str(i), ago(minutes=5)), kind="milestone", mentor="Arthur") for i in range(10)]
+        text = mn.slack_text("Ann", items, "Auvira")
         self.assertIn("10 new milestones", text)
-        self.assertIn("…and 4 more", text)
-
-    def test_email_reads_as_plain_text(self):
-        subject, body = mn.email_parts("Ann", [milestone("a", ago(minutes=5), startup_name="Auvira")], "Arthur", "https://d.example")
-        self.assertEqual(subject, "Arthur set a new milestone for Auvira")
-        self.assertNotIn("*", body)
-        self.assertIn("due Fri Oct 30", body)
-        self.assertIn("https://d.example", body)
-
-    def test_smtp_needs_settings(self):
-        for k in ("SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"):
-            os.environ.pop(k, None)
-        self.assertIsNone(mn.smtp_sender())
+        self.assertIn("…and 4 more milestones", text)
 
 
 if __name__ == "__main__":

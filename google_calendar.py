@@ -29,8 +29,10 @@ EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
 SCOPES = "openid email https://www.googleapis.com/auth/calendar.events.readonly"
 STUDIO_SCOPES = ("openid email https://www.googleapis.com/auth/calendar.events "
                  "https://www.googleapis.com/auth/meetings.space.settings "
-                 "https://www.googleapis.com/auth/meetings.space.created")  # created: make Meet rooms that anyone with the link can join  # create meetings on the studio calendar
+                 "https://www.googleapis.com/auth/meetings.space.created "
+                 "https://www.googleapis.com/auth/gmail.send")  # created: make Meet rooms that anyone with the link can join  # create meetings on the studio calendar
 MEET_API = "https://meet.googleapis.com/v2/spaces/{code}"
+GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
 SYNC_DAYS = 14
 
 
@@ -100,6 +102,26 @@ class GoogleCalendar:
             raise RuntimeError("could not read the calendar token")
         return self.http("POST", EVENTS_URL, headers={"Authorization": f"Bearer {token}"},
                          params={"conferenceDataVersion": 1, "sendUpdates": "all"}, json=body)
+
+    def send_email(self, encrypted_refresh: str, to: str, subject: str, body: str, from_name: str = "",
+                   from_email: str = "", reply_to: list | None = None) -> dict:
+        """Sends a plain-text email from the connected (studio) Gmail account. Needs the gmail.send permission
+        (granted by reconnecting the studio calendar); Google answers 403 without it."""
+        import base64
+        from email.message import EmailMessage
+        from email.utils import formataddr
+        token = self.access_token(encrypted_refresh)
+        if not token:
+            raise RuntimeError("could not read the studio account token")
+        msg = EmailMessage()
+        msg["To"], msg["Subject"] = to, subject
+        if from_email:
+            msg["From"] = formataddr((from_name, from_email)) if from_name else from_email
+        if reply_to:
+            msg["Reply-To"] = ", ".join(reply_to)
+        msg.set_content(body)
+        raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+        return self.http("POST", GMAIL_SEND_URL, headers={"Authorization": f"Bearer {token}"}, json={"raw": raw})
 
     def create_open_meet(self, encrypted_refresh: str) -> str | None:
         """

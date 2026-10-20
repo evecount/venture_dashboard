@@ -235,5 +235,29 @@ class AgentChangeTests(unittest.TestCase):
         self.assertIn("Which one", out["text"])
 
 
+
+
+class GmailSendTests(unittest.TestCase):
+    def test_sends_raw_mime_from_the_studio_account(self):
+        import base64
+        import google_calendar as g
+        calls = []
+
+        def http(method, url, headers=None, data=None, params=None, json=None):
+            calls.append((url, json))
+            return {"access_token": "tok"} if url == g.TOKEN_URL else {"id": "m1"}
+
+        gc = g.GoogleCalendar("cid", "csecret", "https://r.example", "s" * 32, http=http)
+        gc.send_email(g.encrypt_token("refresh", "s" * 32), "ann@example.com", "Arthur set a new milestone", "Hi Ann",
+                      from_name="Arthur Tan via Venture Studio", from_email="studio@example.com", reply_to=["arthur@example.com"])
+        url, body = calls[-1]
+        self.assertEqual(url, g.GMAIL_SEND_URL)
+        raw = base64.urlsafe_b64decode(body["raw"]).decode()
+        for header in ("To: ann@example.com", "Subject: Arthur set a new milestone", "Reply-To: arthur@example.com",
+                       "From: Arthur Tan via Venture Studio <studio@example.com>"):
+            self.assertIn(header, raw)
+        self.assertIn("gmail.send", g.STUDIO_SCOPES)
+
+
 if __name__ == "__main__":
     unittest.main()

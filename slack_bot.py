@@ -2526,14 +2526,23 @@ def run_mentor_alerts(dry_run: bool = False) -> list:
 
 
 MILESTONE_NOTIFY = os.environ.get("MILESTONE_NOTIFY", "on").lower() != "off"
-_mail = milestone_notify.smtp_sender()
+
+
+def studio_mail(to: str, subject: str, body: str, from_name: str, reply_to: list):
+    """Email from the studio Google account (the one connected for the studio calendar)."""
+    row = studio_row()
+    if not (gcal and row):
+        raise RuntimeError("the studio Google account isn't connected")
+    gcal.send_email(row["refresh_token"], to, subject, body, from_name=from_name, from_email=row.get("account") or "",
+                    reply_to=reply_to)
 
 
 def notify_new_milestones():
-    """Every minute: DM and email founders about milestones a mentor just set for their startup."""
+    """Every minute: DM and email founders about milestones and tasks a mentor just set for their startup."""
     if not (MILESTONE_NOTIFY and supabase and SLACK_BOT_TOKEN):
         return
-    sent = milestone_notify.run(supabase, app.client, alert_seen, alert_mark, send_email=_mail, log=memory.log,
+    sent = milestone_notify.run(supabase, app.client, alert_seen, alert_mark,
+                                send_email=studio_mail if gcal and studio_connected() else None, log=memory.log,
                                 dashboard_url=DASHBOARD_URL or "")
     if sent:
         print(f"[Milestones] told founders: {sent}")
