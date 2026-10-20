@@ -10,6 +10,7 @@ Email is sent from the studio Google account (Gmail API, gmail.send); replies go
 
 import html
 import re
+from urllib.parse import urljoin
 from datetime import datetime, timedelta, timezone
 
 SETTLE = timedelta(seconds=60)
@@ -111,6 +112,7 @@ def email_parts(first_name: str, items: list, startup: str, mentor_emails: dict,
 
 # Email colours: the dashboard's palette (src/styles.css), with the orange darkened for white button text.
 INK, MUTED, LINE, PAGE, SOFT, ORANGE, ORANGE_DARK = "#1D1F24", "#6C727B", "#E1E3E7", "#F7F8F9", "#FFF0E2", "#F76F23", "#C9531A"
+LOGO_PATH = "/email-logo.png"
 FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
 
 
@@ -177,6 +179,11 @@ def email_html(first_name: str, items: list, startup: str, mentor_emails: dict, 
     footer = ("Reply to this email to answer " + (e(names[0]) if one else "your mentors") + " directly. ") if replies else ""
     milestones = [i for i in items if i["kind"] == "milestone"]
     tasks = [i for i in items if i["kind"] == "task"]
+    logo = urljoin(dashboard_url, LOGO_PATH) if dashboard_url else ""  # served by the dashboard site (public/email-logo.png)
+    mark = (f'<img src="{e(logo)}" width="28" height="28" alt="" style="display:inline-block;width:28px;height:28px;border:0;'
+            f'border-radius:7px;vertical-align:middle;margin-right:10px">' if logo else
+            f'<span style="display:inline-block;width:10px;height:10px;border-radius:5px;background:{ORANGE};margin-right:8px"></span>')
+    brand = f'{mark}<span style="vertical-align:middle">VENTURE STUDIO</span>'
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"><title>{e(headline)}</title></head>
@@ -185,7 +192,7 @@ def email_html(first_name: str, items: list, startup: str, mentor_emails: dict, 
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:{PAGE}"><tr><td align="center" style="padding:32px 16px">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px">
 <tr><td style="padding:0 4px 14px 4px;font-size:13px;font-weight:700;letter-spacing:.06em;color:{INK}">
-<span style="display:inline-block;width:10px;height:10px;border-radius:5px;background:{ORANGE};margin-right:8px"></span>VENTURE STUDIO</td></tr>
+{brand}</td></tr>
 <tr><td style="background:#FFFFFF;border:1px solid {LINE};border-radius:12px;padding:28px 28px 24px 28px">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
 <tr><td style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:{ORANGE_DARK}">New for {e(startup)}</td></tr>

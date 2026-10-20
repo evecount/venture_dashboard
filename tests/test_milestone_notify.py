@@ -150,6 +150,13 @@ class MilestoneNotifyTests(unittest.TestCase):
         self.assertIn("Ship &lt;script&gt;", page)
         self.assertIn("A&amp;B Co", page)
         self.assertNotIn("Open the dashboard", page)  # no link without a dashboard url
+        self.assertNotIn("<img", page)                 # nor a logo: it is served by the dashboard site
+
+    def test_logo_comes_from_the_dashboard_site(self):
+        items = [dict(milestone("a", ago(minutes=5)), kind="milestone", mentor="Arthur")]
+        page = mn.email_html("Ann", items, "Auvira", {}, "https://dash.example/")
+        self.assertIn('<img src="https://dash.example/email-logo.png"', page)
+        self.assertTrue(os.path.exists(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "public", "email-logo.png")))
 
 
 if __name__ == "__main__":
