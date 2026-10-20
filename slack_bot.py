@@ -1544,9 +1544,28 @@ def publish_home(slack_user_id: str, client=None):
         print(f"[Home Tab Error] {e}")
 
 
+def has_unlinked_invite(email: str) -> bool:
+    """True if a mentor or founder was pre-registered with this email and hasn't linked a Slack account yet."""
+    if not (supabase and email):
+        return False
+    for table in ("mentors", "founders"):
+        if supabase.table(table).select("id").ilike("email", email.strip()).is_("slack_user_id", "null").limit(1).execute().data:
+            return True
+    return False
+
+
 @app.event("app_home_opened")
 def handle_app_home_opened(event, client):
     if event.get("tab", "home") == "home":
+        if get_role(event["user"]) is None:
+            # A pre-registered mentor or founder opening the app for the first time is linked by their Slack email here,
+            # so their Home tab is the real one straight away instead of the "set up your profile" card. Strangers are
+            # left alone (no DM on every Home open).
+            try:
+                if has_unlinked_invite(slack_email(client, event["user"])) and onboard_member(event["user"], client):
+                    return  # onboard_member already published their Home tab
+            except Exception as e:
+                print(f"[Home Onboarding Warning] {e}")
         publish_home(event["user"], client)
 
 

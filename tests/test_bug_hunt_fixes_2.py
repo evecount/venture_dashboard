@@ -147,3 +147,29 @@ class OutsideGuestTests(unittest.TestCase):
 
     def test_unknown_name_without_a_matching_email_stays_missing(self):
         self.assertEqual(self.resolve(["Zed"], known=["james@x.com"])["missing"], ["Zed"])
+
+
+class HomeOpenLinkTests(unittest.TestCase):
+    def test_unregistered_user_opening_home_is_linked_by_email_first(self):
+        client = mock.MagicMock()
+        with mock.patch.object(b, "get_role", return_value=None), \
+                mock.patch.object(b, "slack_email", return_value="james@mambapartners.com"), \\n                mock.patch.object(b, "has_unlinked_invite", return_value=True), 
+                mock.patch.object(b, "onboard_member", return_value=True) as onboard, \
+                mock.patch.object(b, "publish_home") as publish:
+            b.handle_app_home_opened({"user": "UJAMES", "tab": "home"}, client)
+        onboard.assert_called_once_with("UJAMES", client)
+        publish.assert_not_called()
+
+    def test_registered_user_just_gets_their_home(self):
+        with mock.patch.object(b, "get_role", return_value="mentor"), \
+                mock.patch.object(b, "onboard_member") as onboard, mock.patch.object(b, "publish_home") as publish:
+            b.handle_app_home_opened({"user": "U1", "tab": "home"}, mock.MagicMock())
+        onboard.assert_not_called()
+        publish.assert_called_once()
+
+
+    def test_a_stranger_opening_home_does_not_trigger_onboarding_dms(self):
+        with mock.patch.object(b, "get_role", return_value=None), mock.patch.object(b, "slack_email", return_value="x@y.com"),                 mock.patch.object(b, "has_unlinked_invite", return_value=False),                 mock.patch.object(b, "onboard_member") as onboard, mock.patch.object(b, "publish_home") as publish:
+            b.handle_app_home_opened({"user": "UX", "tab": "home"}, mock.MagicMock())
+        onboard.assert_not_called()
+        publish.assert_called_once()
