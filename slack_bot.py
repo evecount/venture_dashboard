@@ -283,7 +283,8 @@ agent = (Agent(ai_client, AI_MODEL, supabase, memory, connect_url=github_link, c
                 studio_link=lambda sid: studio_link(sid) if is_developer(sid) else None,  # dev-only
                 studio_connected=studio_connected, studio_events=studio_events_fn,
                 settings=settings, channel_context=channels.context_for,
-                awareness=lambda ident: awareness_text(ident), routines=routine_store)
+                awareness=lambda ident: awareness_text(ident), routines=routine_store,
+                repos_changed=lambda row, slack_id: (backfill_soon(row, slack_id), publish_home(slack_id, app.client)))
          if (ai_client and supabase) else None)
 
 # Initialize Slack Bolt App
@@ -1188,7 +1189,14 @@ def build_connections_blocks(founder_id: str, startup_id: str, rows: list) -> li
             head = f"🟡 *{who}*{where} · connected. *Pick the repository to track below.*"
         else:
             head = f"🟡 *{who}*{where} · connected, but no repositories were shared with me."
+        own = row.get("founder_id") == founder_id and github_link(founder_id, startup_id)
+        if own and len(row.get("repos") or []) < 2:
+            head += (chr(10) + "_Want a different repository? Press *Change repositories*, tick it on GitHub, then pick it here "
+                     "or tell me which one to track._")
         blocks += integrations.build_repo_selector(row, head, compact=True)
+        if own:
+            blocks.append({"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": "Change repositories"},
+                                                          "url": github_link(founder_id, startup_id), "action_id": "connect_github_home"}]})
     mine = any(r.get("founder_id") == founder_id for r in rows)
     url = github_link(founder_id, startup_id)
     if url and not mine:

@@ -184,6 +184,28 @@ def monitored_repos(row: dict) -> list:
     return chosen or (granted if len(granted) == 1 else [])
 
 
+def match_repos(wanted: list, granted: list) -> dict:
+    """
+    Resolve what a founder typed ("bazi", "acme/app") against the repos shared with the app.
+    Returns {"chosen": [...], "ambiguous": [(text, [candidates])], "missing": [text]}.
+    """
+    chosen, ambiguous, missing = [], [], []
+    for raw in wanted or []:
+        text = str(raw).strip().lower().strip("/ ")
+        if not text:
+            continue
+        exact = [g for g in granted if g.lower() == text or g.lower().split("/")[-1] == text]
+        hits = exact or [g for g in granted if text in g.lower()]
+        if len(hits) == 1:
+            if hits[0] not in chosen:
+                chosen.append(hits[0])
+        elif hits:
+            ambiguous.append((raw, hits))
+        else:
+            missing.append(raw)
+    return {"chosen": chosen, "ambiguous": ambiguous, "missing": missing}
+
+
 def build_repo_selector(row: dict, headline: str, compact: bool = False) -> list:
     """
     One section: the headline text with a multi-select of the granted repos beside it (the chosen ones preselected).

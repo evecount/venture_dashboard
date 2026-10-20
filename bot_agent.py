@@ -50,7 +50,7 @@ FOUNDER_RULES = """
 You are talking to a FOUNDER. Their startup is fixed; you can only work with their own startup.
 - If they report progress, a blocker, or finished work, call propose_checkin with a faithful structured summary. The founder confirms it before it is saved. If the update is too vague to score, ask one question first.
 - Founders cannot see mentor notes. Never mention or hint at them.
-- If they ask to connect GitHub or share their work, call connect_github. For their calendar: connect_google_calendar to link it, my_calendar to read their own upcoming events. "Work signals" in CONTEXT are real activity (commits, PRs); mention them when relevant and never invent any.
+- If they ask to connect GitHub or share their work, call connect_github. To switch or narrow which repository is tracked (\"track the Bazi one\", \"watch all my repos\"), call choose_repos; it only works with repositories already shared with the app, and if one isn't shared it gives them the link to share it (they never need to revoke the app). For their calendar: connect_google_calendar to link it, my_calendar to read their own upcoming events. "Work signals" in CONTEXT are real activity (commits, PRs); mention them when relevant and never invent any.
 - Milestones are either self-set by the founder or issued by a mentor/advisor ("set by a mentor"). Founders can tick goals off on mentor-issued milestones but cannot rename, drop or add/remove goals on them; tell them to ask their mentor.
 - Founders set their own milestones and the goals inside them (add_milestone, add_goal, update_goal...). A milestone's progress is goals done out of total.
 - When an update clearly finishes a goal, tick it with update_goal in the same turn and say so. If they describe a deliverable or target with no milestone for it yet, offer to create one.
@@ -172,7 +172,11 @@ def build_tools(role: str) -> list:
                   {"new_name": {"type": "string"}}, ["new_name"]),
             *_milestone_tools("founder"),
             *_meeting_tools("founder"),
-            _tool("connect_github", "Give the founder a link to connect their GitHub so progress can be tracked from real work.", {}, []),
+            _tool("connect_github", "Give the founder a link to connect their GitHub (or, if already connected, to change which repositories the app can see).", {}, []),
+            _tool("choose_repos", ("Change which of the founder's GitHub repositories are tracked, from the ones already shared with the app. "
+                                   "Use for 'track X', 'switch to X', 'only watch X', 'track all my repos'."), {
+                "repos": {"type": "array", "items": {"type": "string"}, "description": "Repository names or parts of names, as the founder said them"},
+                "all": {"type": "boolean", "description": "true to track every repository shared with the app"}}, []),
             _tool("connect_google_calendar", "Give the founder a link to share their Google Calendar (read-only meeting counts).", {}, []),
             _tool("my_calendar", "Show the founder their OWN upcoming calendar events (titles and times), e.g. for 'what's on tomorrow?'.", {
                 "days": {"type": "integer", "description": "How many days ahead, 1-7, default 2"}}, []),
@@ -246,7 +250,7 @@ def _label(startup):
 class Agent:
     def __init__(self, ai_client, model: str, sb, memory: Memory | None = None, connect_url=None, calendar_link=None, calendar_text=None,
                  studio_link=None, studio_connected=None, studio_events=None, settings=None, channel_context=None,
-                 awareness=None, routines=None):
+                 awareness=None, routines=None, repos_changed=None):
         self.ai, self.model, self.sb = ai_client, model, sb
         self.calendar_link, self.calendar_text = calendar_link, calendar_text
         self.studio_events = studio_events  # callable(days) -> events on the shared studio calendar
@@ -256,6 +260,7 @@ class Agent:
         self.settings = settings  # dev_controls.Settings: model override, extra instructions, channel context on/off
         self.channel_context = channel_context  # callable(slack_id) -> last 7 days of channels this person can read
         self.awareness = awareness  # callable(ident) -> cohorts, sprint sessions and the automatic messages the bot sends
+        self.repos_changed = repos_changed  # callable(integration_row, slack_id) after the tracked repos change (backfill, refresh Home)
         self.routines = routines  # RoutineStore: standing routines mentors set up in chat (None = unavailable)
 
     # ---------- context ----------
@@ -302,7 +307,8 @@ class Agent:
             tracked = integrations.monitored_repos(row)
             lines.append(f"GitHub connection ({(row.get('founders') or {}).get('name', 'a founder')}): "
                          + (f"tracking {', '.join(tracked)}" if tracked else
-                            "connected but NO repository chosen yet (activity is not tracked until they pick one on their Home tab)"))
+                            "connected but NO repository chosen yet (activity is not tracked until they pick one on their Home tab)")
+                         + f" · repositories shared with the app: {', '.join(row.get('repos') or []) or 'none'}")
         lines.append("Work signals: " + integrations.activity_line(
             integrations.activity_summary(self.sb, c["startup_id"]) if self.sb else {"signals": 0}, "github" in conn))
         lines += self._milestone_lines(c["startup_id"], False)
@@ -573,8 +579,18 @@ class Agent:
                 return self._routine_tool(ident, name, args, out)
             if name == "announce" and role == "mentor":
                 return self._announce(ident, args, out)
+            if name == "choose_repos" and role == "founder":
+                return self._choose_repos(ident, args)
             if name == "connect_github" and role == "founder":
                 url = self.connect_url(ident["context"]["founder_id"], ident["context"]["startup_id"]) if self.connect_url else None
+                mine = self._own_github(ident)
+                if mine and url:
+                    granted = sorted({r for row in mine for r in row.get("repos") or []})
+                    tracked = sorted({r for row in mine for r in integrations.monitored_repos(row)})
+                    return (f"✅ Your GitHub is already connected. I can see {', '.join(granted) or 'no repositories'}"
+                            + (f", and I'm tracking {', '.join(tracked)}." if tracked else ", but I'm not tracking any yet.")
+                            + f"{chr(10)}To let me see other repositories, <{url}|open the GitHub app settings> and tick them (no need to revoke anything). "
+                              "Then tell me which one to track, or pick it on your Home tab.")
                 return (f"🔗 <{url}|Connect GitHub>. GitHub lets you pick all repositories or just your startup's. I only get read access."
                         if url else "GitHub connections aren't set up yet. Ask a mentor to finish the setup.")
             if name == "remember":
@@ -606,6 +622,44 @@ class Agent:
             if kind == "g":
                 found += [{**g, "milestone": m} for g in (m.get("goals") or []) if g["id"].lower().startswith(ref)]
         return found[0] if len(found) == 1 else None
+
+    def _own_github(self, ident: dict) -> list:
+        c = ident["context"]
+        if not self.sb:
+            return []
+        return [r for r in integrations.github_connections(self.sb, c["startup_id"]) if r.get("founder_id") == c["founder_id"]]
+
+    def _choose_repos(self, ident: dict, args: dict) -> str:
+        c = ident["context"]
+        rows = self._own_github(ident)
+        url = self.connect_url(c["founder_id"], c["startup_id"]) if self.connect_url else None
+        if not rows:
+            return (f"🔗 Your GitHub isn't connected yet. <{url}|Connect GitHub> first, then tell me which repository to track."
+                    if url else "GitHub connections aren't set up yet. Ask a mentor to finish the setup.")
+        granted = sorted({r for row in rows for r in row.get("repos") or []})
+        if args.get("all"):
+            got = {"chosen": granted, "ambiguous": [], "missing": []}
+        else:
+            got = integrations.match_repos(args.get("repos") or [], granted)
+        change = f" <{url}|Change repositories on GitHub> to share more, then tell me again." if url else ""
+        if got["ambiguous"]:
+            text, hits = got["ambiguous"][0]
+            return f"⚠️ \"{text}\" could be {', '.join(hits)}. Which one did you mean?"
+        if got["missing"]:
+            return (f"⚠️ I can't see {', '.join(got['missing'])}. The repositories shared with me are: {', '.join(granted) or 'none'}."
+                    + change)
+        if not got["chosen"]:
+            return "Which repository should I track? I can see: " + (", ".join(granted) or "none") + "." + (change if not granted else "")
+        for row in rows:
+            mine = [r for r in got["chosen"] if r in (row.get("repos") or [])]
+            if not mine:
+                continue
+            self.sb.table("integrations").update({"selected_repos": mine}).eq("id", row["id"]).execute()
+            if self.repos_changed:
+                self.repos_changed({**row, "selected_repos": mine}, ident["slack_id"])
+        more = [g for g in granted if g not in got["chosen"]]
+        return (f"✅ Now tracking {', '.join(got['chosen'])}."
+                + (f" Not tracking: {', '.join(more)}." if more else "") + " I'll pull in the last two weeks of activity.")
 
     def _supersede(self, startup_id, keep_id: str, texts: list) -> str:
         """New milestones and goals replace the syllabus items they overlap; says so in the reply."""
