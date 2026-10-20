@@ -63,7 +63,7 @@ const LABELS: Record<string, string> = {
 };
 
 const time = (iso: string) =>
-  new Date(iso).toLocaleString("en-SG", { dateStyle: "medium", timeStyle: "short" });
+  new Date(iso).toLocaleString("en-SG", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Singapore" });
 
 function DevPage() {
   const [state, setState] = useState<State | null>(null);

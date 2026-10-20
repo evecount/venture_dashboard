@@ -3,6 +3,7 @@ import { useMilestones } from "@/hooks/use-milestones";
 import { goalValue, isMilestoneComplete, milestoneValue } from "./insights";
 import type { SetBy } from "@/hooks/use-dash-data";
 import type { Founder } from "./data";
+import { formatDay } from "./program";
 
 const ROLE = { mentor: "Mentor", founder: "Founder" } as const;
 
@@ -36,7 +37,7 @@ export function Milestones({ founder }: { founder: Founder }) {
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Target size={13} />
                 {m.due_date
-                  ? `Due ${new Date(m.due_date).toLocaleDateString("en-SG", { month: "short", day: "numeric" })}`
+                  ? `Due ${formatDay(m.due_date.slice(0, 10), { month: "short", day: "numeric" })}`
                   : "No due date"}
                 {isMilestoneComplete(m) && " · Done"}
               </p>

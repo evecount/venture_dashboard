@@ -942,7 +942,7 @@ def onboard_member(slack_user_id: str, client=None):
         client.chat_postMessage(
             channel=slack_user_id,
             text=f"Welcome, {mentor['name']}! You're signed in as a mentor. Ask me for the cohort pulse any time.",
-            blocks=build_mentor_blocks(safe_snapshot(), slack_user_id=slack_user_id),
+            blocks=fit_blocks(build_mentor_blocks(safe_snapshot(), slack_user_id=slack_user_id), 50),
         )
         publish_home(slack_user_id, client)
         return True
@@ -1206,12 +1206,26 @@ def brand_block() -> dict | None:
         {"type": "mrkdwn", "text": "*Venture Studio*"}]}
 
 
+def fit_blocks(blocks: list, limit: int = 100) -> list:
+    """Keeps a Home view inside Slack's limits (100 blocks, 3000 characters in a section), which a growing cohort could
+    otherwise exceed: Slack then rejects the whole view and every Home tab silently stays stale."""
+    out = []
+    for bl in blocks:
+        t = bl.get("text") if isinstance(bl, dict) else None
+        if isinstance(t, dict) and isinstance(t.get("text"), str) and len(t["text"]) > 3000 and bl.get("type") in ("section", "header"):
+            bl = {**bl, "text": {**t, "text": t["text"][:2990] + "…"}}
+        out.append(bl)
+    if len(out) > limit:
+        out = out[:limit - 1] + [{"type": "context", "elements": [{"type": "mrkdwn", "text": "_There is more than fits here: the rest is on the dashboard._"}]}]
+    return out
+
+
 def branded(blocks: list) -> list:
     """Puts the brand line first, unless it would push the view past Slack's 100-block limit."""
     brand = brand_block()
-    if not brand or len(blocks) >= 100 or any(b.get("block_id") == "brand" for b in blocks):
-        return blocks
-    return [brand] + blocks
+    if not brand or len(blocks) >= 99 or any(b.get("block_id") == "brand" for b in blocks):
+        return fit_blocks(blocks)
+    return fit_blocks([brand] + blocks)
 
 
 def add_to_top_row(blocks: list, element: dict | None) -> list:
@@ -2236,7 +2250,7 @@ def process_inbound_message(user_id: str, text: str, files: list, say, in_channe
     text += conversation  # an @mention in a channel: the thread (or recent messages) it was asked in
 
     if role == "mentor" and PULSE_RE.match(text):
-        say(blocks=build_mentor_blocks(safe_snapshot()), text="Cohort pulse")
+        say(blocks=fit_blocks(build_mentor_blocks(safe_snapshot()), 50), text="Cohort pulse")
         return
 
     if agent is not None:
@@ -2260,7 +2274,7 @@ def process_inbound_message(user_id: str, text: str, files: list, say, in_channe
             print(f"[Agent Error] {e}. Falling back to basic handling.")
 
     if role == "mentor":
-        say(blocks=build_mentor_blocks(safe_snapshot()), text="Cohort pulse")
+        say(blocks=fit_blocks(build_mentor_blocks(safe_snapshot()), 50), text="Cohort pulse")
         return
     say(f"Processing your check-in with Studio AI, <@{user_id}>... ⚡")
     context = resolve_founder_context(user_id)
@@ -3183,7 +3197,7 @@ def send_weekly_digest(dry_run: bool = False):
         extra = news_blocks(news.get(uid), uid)
         try:
             app.client.chat_postMessage(channel=uid, text="Weekly digest",
-                                        blocks=blocks + extra + dashboard_button_blocks(slack_user_id=uid))
+                                        blocks=fit_blocks(blocks + extra + dashboard_button_blocks(slack_user_id=uid), 50))
             if news.get(uid):
                 memory.log(uid, "assistant", "Monday briefing news:" + chr(10) + news[uid])  # so "not interested" is understood
             sent.append(uid)

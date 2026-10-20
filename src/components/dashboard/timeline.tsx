@@ -171,7 +171,7 @@ export function Timeline({ founder, refreshKey }: { founder: Founder; refreshKey
                 <p className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                   {icon(e)}
                   {formatDistanceToNowStrict(new Date(e.at), { addSuffix: true })} &middot;{" "}
-                  {new Date(e.at).toLocaleDateString("en-SG", { month: "short", day: "numeric" })}
+                  {new Date(e.at).toLocaleDateString("en-SG", { month: "short", day: "numeric", timeZone: "Asia/Singapore" })}
                 </p>
                 <p className="mt-2 flex flex-wrap items-center gap-2 text-xs font-medium">
                   {e.title}

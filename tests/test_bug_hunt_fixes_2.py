@@ -357,3 +357,16 @@ class WeekFlipTests(unittest.TestCase):
         start = d(2026, 10, 19)
         fri, sat = cohorts.this_weeks_deliverable(start, d(2026, 10, 23)), cohorts.this_weeks_deliverable(start, d(2026, 10, 24))
         self.assertEqual((fri["week"], sat["week"]), (1, 2))
+
+
+class HomeLimitTests(unittest.TestCase):
+    def test_a_home_view_never_exceeds_slacks_limits(self):
+        blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": f"row {i}"}} for i in range(130)]
+        fitted = b.fit_blocks(blocks)
+        self.assertEqual(len(fitted), 100)
+        self.assertIn("more than fits", fitted[-1]["elements"][0]["text"])
+        long = b.fit_blocks([{"type": "section", "text": {"type": "mrkdwn", "text": "x" * 5000}}])
+        self.assertLessEqual(len(long[0]["text"]["text"]), 3000)
+        with mock.patch.object(b, "brand_block", return_value={"type": "context", "block_id": "brand", "elements": []}):
+            self.assertLessEqual(len(b.branded(blocks)), 100)
+            self.assertEqual(len(b.branded(blocks[:5])), 6)  # the brand line still goes first on a normal view
