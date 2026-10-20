@@ -63,6 +63,7 @@ class Memory:
     def recent_facts(self, limit: int = 25) -> list:
         """Mentor view: newest facts across the whole cohort."""
         return self._guard("recent_facts", lambda: self.sb.table("memories").select("subject_id,fact,audience")
+                           .neq("subject_type", "digest_prefs")  # news preferences aren't facts
                            .order("created_at", desc=True).limit(limit).execute().data or [], [])
 
     # --- CRM: notes ---

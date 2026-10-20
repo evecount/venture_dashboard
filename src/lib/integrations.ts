@@ -62,11 +62,16 @@ export function mapGithubEvent(event: string, payload: any, startupId: string): 
     const commits: any[] = payload.commits ?? [];
     if (payload.deleted || !commits.length) return null;
     const n = commits.length;
+    // Every commit's first line and the files it touched: the evidence the bot's progress estimates and
+    // "what changed?" answers read (paths like src/pages/pricing.tsx say which goal moved).
+    const messages = commits.map((c) => clip(String(c?.message ?? "").split("\n")[0] ?? "", 120)).filter(Boolean).slice(-15);
+    const files = [...new Set(commits.flatMap((c) => [...(c?.added ?? []), ...(c?.modified ?? []), ...(c?.removed ?? [])]))]
+      .filter((f): f is string => typeof f === "string").slice(0, 40);
     return {
       startup_id: startupId, type: "commit", stream: "Tech", actor,
       headline: `${actor} pushed ${n} commit${n === 1 ? "" : "s"} to ${repo}`,
       detail: clip(String(commits[commits.length - 1]?.message ?? "").split("\n")[0] ?? ""),
-      meta: { commits: n, repo },
+      meta: { commits: n, repo, messages, files, branch: String(payload.ref ?? "").replace("refs/heads/", "") || undefined },
     };
   }
   if (event === "pull_request") {
@@ -79,7 +84,13 @@ export function mapGithubEvent(event: string, payload: any, startupId: string): 
       startup_id: startupId, type: "pull_request", stream: "Tech", actor,
       headline: `${actor} ${merged ? "merged" : action} PR #${pr.number} in ${repo}`,
       detail: clip(String(pr.title ?? "")),
-      meta: { action, merged, repo, number: pr.number },
+      meta: {
+        action, merged, repo, number: pr.number,
+        body: clip(String(pr.body ?? "").replace(/\s+/g, " ").trim(), 400) || undefined,
+        changed_files: typeof pr.changed_files === "number" ? pr.changed_files : undefined,
+        additions: typeof pr.additions === "number" ? pr.additions : undefined,
+        deletions: typeof pr.deletions === "number" ? pr.deletions : undefined,
+      },
     };
   }
   if (event === "issues") {

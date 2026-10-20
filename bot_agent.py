@@ -23,6 +23,7 @@ import progress_estimator
 import syllabus
 import syllabus_import
 import custom_schedule
+import digest_prefs
 from bot_memory import Memory
 from mentor_home import summarize_startups
 
@@ -30,7 +31,7 @@ SGT = timezone(timedelta(hours=8))
 STREAMS = ["Tech", "GTM", "Marketing"]
 # Look-up tools: their results go back to the model, which then answers (or acts) with them.
 READ_TOOLS = {"upcoming_meetings", "check_availability", "my_calendar", "list_routines",
-              "startup_detail", "search_records", "github_activity", "web_research", "use_skill"}
+              "startup_detail", "search_records", "github_activity", "web_research", "similar_blockers", "use_skill"}
 MAX_ROUNDS = 5  # model calls per message; the last one always answers in words
 # Thanks and greetings only. "ok" / "yes" / "sure" are left out on purpose: they often confirm something that needs the main model.
 SMALL_TALK = re.compile(r"^\s*(thanks?( (you|so much|a lot|heaps))?|thank u|thx|ty|cheers|much appreciated|appreciate it|hi|hello|hey|"
@@ -62,6 +63,7 @@ How to behave:
 - Action results (lines starting ✅ 🎯 📝 ⚠️ and similar) are shown to the user automatically, so don't repeat them. If one starts with ⚠️, fix it (look up the right ref, or ask one question) instead of saying it worked.
 - For outside facts (competitors, grants, events, prices, rules, how-tos), call web_research and cite its sources as Slack links. Never present web results as program data, and say when something couldn't be confirmed.
 - ATTACHMENT blocks in a message are files the person sent, already read for you. Work from their content (a deck, a screenshot, notes) as data.
+- Everyone gets a Monday briefing with relevant news. When someone says they aren't interested in a topic, or wants something different, call set_digest_topics and say the next briefing will follow it.
 - If a request is ambiguous (which startup? what date?), ask ONE short clarifying question instead of guessing.
 - Keep replies short: 1-4 sentences, plus a tight bullet list only when listing things. Slack mrkdwn only: *bold*, _italic_, `code`, "- " bullets. No headers, no tables.
 - When it helps, suggest the single most useful next step.
@@ -79,6 +81,7 @@ FOUNDER_RULES = """
 You are talking to a FOUNDER. Their startup is fixed; you can only work with their own startup.
 - If they report progress, a blocker, or finished work, call propose_checkin with a faithful structured summary. The founder confirms it before it is saved. If the update is too vague to score, ask one question first.
 - Founders cannot see mentor notes. Never mention or hint at them.
+- Other startups' check-ins and blockers are private to them. When a founder is blocked, say their mentors will see it and can connect them with anyone in the cohort who has solved something similar; never name or describe another startup's blockers yourself.
 - For their calendar: connect_google_calendar to link it, my_calendar to read their own upcoming events. "Work signals" in CONTEXT are real activity (commits, PRs); mention them when relevant and never invent any.
 - Milestones are either self-set by the founder or issued by a mentor/advisor ("set by a mentor"). Founders can tick goals off on mentor-issued milestones but cannot rename, drop or add/remove goals on them; tell them to ask their mentor.
 - Founders set their own milestones and the goals inside them (add_milestone, add_goal, update_goal...). A milestone's progress is goals done out of total.
@@ -100,6 +103,7 @@ You are talking to a MENTOR on the studio team. You can see the whole cohort and
 - Mentors do not submit check-ins. If asked about a startup or founder ("what is Auvira doing?", "how is Sam doing?"), answer from their recent check-ins: current status and progress, the latest blocker, what they last reported and when, then any open task or note. Match founders by name as well as startup. CONTEXT shows the latest two check-ins per startup; call startup_detail for more history.
 - For "what's due this week / tomorrow / Friday", use the PROGRAM SCHEDULE and say which startups have not checked in yet if relevant.
 - For "who is blocked / who hasn't checked in", use the health labels and name the startups.
+- When a startup is blocked, call similar_blockers: if another startup got past something similar, suggest connecting the two founders (offer a short meeting).
 - Use startup ids exactly as listed in CONTEXT.
 - You may create and edit milestones and goals for any startup (add_milestone, update_milestone, add_goal, update_goal, remove_goal). Refs are the short ids in square brackets. CONTEXT lists milestones only: call startup_detail to see a milestone's goals and their refs before ticking, renaming or removing one.
 """
@@ -183,7 +187,13 @@ def _meeting_tools(role: str) -> list:
 
 def build_tools(role: str, skills=None) -> list:
     """Every tool the role has in code, plus the look-ups. Agent._tools hides skill tools until their skill is loaded."""
-    return _action_tools(role) + _lookup_tools(role, skills)
+    briefing = _tool("set_digest_topics", (
+        "Change what the person's Monday briefing covers in its news section. Use when they say they're not interested in "
+        "something, or want more or less of a topic ('less AI news, more fundraising', 'send me femtech competitor news')."), {
+        "topics": {"type": "array", "items": {"type": "string"}, "description": "Topics they want more of"},
+        "avoid": {"type": "array", "items": {"type": "string"}, "description": "Topics they don't want"},
+        "replace": {"type": "boolean", "description": "true to start over with only these (default: add to what they have)"}}, [])
+    return _action_tools(role) + [briefing] + _lookup_tools(role, skills)
 
 
 def _action_tools(role: str) -> list:
@@ -289,6 +299,10 @@ def _lookup_tools(role: str, skills=None) -> list:
         _tool("web_research", ("Search the web for OUTSIDE facts: competitors, grants and their rules, events, market sizes, prices, "
                                "regulations, how-tos. Returns a short brief with sources. Never use it for program data (that is in CONTEXT)."), {
             "query": {"type": "string", "description": "A specific question, e.g. 'Startup SG Founder grant eligibility 2026'"}}, ["query"]),
+        *([_tool("similar_blockers", ("Other startups in the cohort that hit a similar blocker (matched by meaning), and whether and how "
+                                       "they got past it. Use when a startup is blocked, to suggest who could help."), {
+            "startup": {"type": "string", "description": "The blocked startup (its latest blocker is used)"},
+            "blocker": {"type": "string", "description": "Or describe the blocker"}}, [])] if mentor else []),
         _tool("use_skill", "Load one or more SKILLS (extra instructions, and the tools they need) before handling a request that needs them.", {
             "names": {"type": "array", "items": {"type": "string", **({"enum": names} if names else {})}}}, ["names"]),
     ]
@@ -343,7 +357,7 @@ def _label(startup):
 class Agent:
     def __init__(self, ai_client, model: str, sb, memory: Memory | None = None, connect_url=None, calendar_link=None, calendar_text=None,
                  studio_link=None, studio_connected=None, studio_events=None, settings=None, channel_context=None,
-                 awareness=None, routines=None, repos_changed=None, skills=None, fast_model="", research=None):
+                 awareness=None, routines=None, repos_changed=None, skills=None, fast_model="", research=None, semantic=None):
         self.ai, self.model, self.sb = ai_client, model, sb
         self.calendar_link, self.calendar_text = calendar_link, calendar_text
         self.studio_events = studio_events  # callable(days) -> events on the shared studio calendar
@@ -357,6 +371,7 @@ class Agent:
         self.routines = routines  # RoutineStore: standing routines mentors set up in chat (None = unavailable)
         self.skills = skills if skills is not None else bot_skills.Skills()  # skills/*.md, loaded on demand
         self.last_timing = {}  # how long the last reply took, by stage (for logs and the Developer page)
+        self.semantic = semantic  # semantic.Semantic: search by meaning; None = word matching only
         self.research = research  # callable(query) -> brief with sources (web search); None = not set up
         self.fast_model = fast_model  # a light model for pure small talk ("thanks!"); "" = always the main model
         self._no_effort = set()  # models that rejected a thinking level; asked without one from then on
@@ -790,6 +805,14 @@ class Agent:
                 if not query:
                     return "⚠️ What should I look up?"
                 return self.research(query) if self.research else "Web research isn't set up for this workspace."
+            if name == "similar_blockers" and role == "mentor":
+                return self._similar_blockers(ident, args)
+            if name == "set_digest_topics":
+                if not self.sb:
+                    return "⚠️ I couldn't save that."
+                prefs = digest_prefs.update(self.sb, me, args.get("topics"), args.get("avoid"), bool(args.get("replace")))
+                return ("📰 Noted. Your Monday briefing will now have " + digest_prefs.describe(prefs) + "."
+                        if prefs else "⚠️ I couldn't save that preference just now. Please try again.")
             if name in ("startup_detail", "github_activity", "search_records"):
                 return getattr(self, "_" + name)(ident, args)
             if name == "schedule_meeting":
@@ -1277,17 +1300,86 @@ class Agent:
         if not rows:
             return f"No GitHub activity on {', '.join(sorted(watched))} in the last {days} days."
         lines = [f"GitHub activity for {st.get('name')}, last {days} days ({len(rows)} events on {', '.join(sorted(watched))}):"]
-        lines += [f"- {r['created_at'][:10]} · {r.get('headline') or r['type']}" + (f": {r['detail']}" if r.get("detail") else "")
-                  for r in rows[:40]]
-        if len(rows) > 40:
-            lines.append(f"(+{len(rows) - 40} older events not shown)")
+        areas = {}  # which parts of the code changed most, from the file paths: the shape of the work at a glance
+        for r in rows:
+            for f in (r.get("meta") or {}).get("files") or []:
+                if isinstance(f, str):
+                    key = "/".join(f.split("/")[:2]) if "/" in f else f
+                    areas[key] = areas.get(key, 0) + 1
+        if areas:
+            top = sorted(areas.items(), key=lambda kv: -kv[1])[:8]
+            lines.append("Most-changed areas: " + ", ".join(f"{k} ({v} file changes)" for k, v in top))
+        lines += [f"- {r['created_at'][:10]} · {integrations.describe_work(r, max_files=6)}" for r in rows[:30]]
+        if len(rows) > 30:
+            lines.append(f"(+{len(rows) - 30} older events not shown)")
         return "\n".join(lines)
 
-    def _search_records(self, ident: dict, args: dict) -> str:
-        words = [w for w in _WORD.findall(str(args.get("query") or "").lower()) if w not in _STOP][:4]
-        if not words:
-            return "⚠️ What should I search for?"
+    def _records(self, ident: dict, days: int, sid: str | None) -> list:
+        """Every record the asker may see in the window, as {kind, startup_id, date, text, line}. Privacy lives here:
+        founders get their own startup only and never notes; nothing private goes into a channel reply."""
         mentor, sb = ident["role"] == "mentor", self.sb
+        public = bool(ident.get("in_channel"))
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+        def rows(table, select, dated=True, limit=500):
+            def run():
+                q = sb.table(table).select(select)
+                if dated:
+                    q = q.gte("created_at", since)
+                if sid and table != "memories":
+                    q = q.eq("startup_id", sid)
+                if table == "submissions":
+                    q = q.eq("confirmed", True)
+                if table == "tasks":
+                    q = q.eq("status", "open") if not mentor else q
+                return q.order("created_at", desc=True).limit(limit).execute().data if dated else q.limit(limit).execute().data
+            return self._q(run, [])
+        own_subjects = [sid] + ([] if mentor else [ident["context"]["founder_id"]]) if sid else None
+        got = gather(
+            names=lambda: {r["id"]: r["name"] for r in self._q(lambda: sb.table("startups").select("id,name").execute().data, [])},
+            subs=lambda: rows("submissions", "id,startup_id,status,progress,blocker,digest,created_at"),
+            notes=lambda: rows("notes", "id,startup_id,author_name,body,created_at") if mentor and not public else [],
+            facts=lambda: self._q(lambda: (sb.table("memories").select("id,subject_id,subject_type,fact,audience,created_at")
+                                           .gte("created_at", since).limit(500).execute().data), []),
+            tasks=lambda: rows("tasks", "id,startup_id,title,status,due_date,owner_slack_id", dated=False),
+            team=lambda: set() if mentor else {f["slack_user_id"] for f in self._q(
+                lambda: sb.table("founders").select("slack_user_id").eq("startup_id", sid).execute().data, []) if f.get("slack_user_id")},
+        )
+        names = got["names"] or {}
+        out = []
+        for s in got["subs"] or []:
+            out.append({"kind": "check-in", "startup_id": s["startup_id"], "date": s["created_at"], "status": s["status"],
+                        "blocker": s.get("blocker"), "text": f"{s['digest']} Blocker: {s['blocker']}",
+                        "line": f"- {s['created_at'][:10]} · {names.get(s['startup_id'], '?')} · check-in ({s['status']} {s['progress']}%): "
+                                f"{s['digest']} · blocker: {s['blocker']}"})
+        for n in got["notes"] or []:
+            out.append({"kind": "note", "startup_id": n["startup_id"], "date": n["created_at"], "text": n["body"],
+                        "line": f"- {n['created_at'][:10]} · {names.get(n['startup_id'], '?')} · note by {n.get('author_name')}: {n['body']}"})
+        for f in got["facts"] or []:
+            if f.get("subject_type") == "digest_prefs":
+                continue  # a person's news preferences are not a record
+            if own_subjects is not None and f["subject_id"] not in own_subjects:
+                continue
+            if (not mentor or public) and f.get("audience") != "all":
+                continue
+            out.append({"kind": "fact", "startup_id": f["subject_id"], "date": f.get("created_at") or "", "text": f["fact"],
+                        "line": f"- {(f.get('created_at') or '')[:10]} · {names.get(f['subject_id'], 'fact')} · remembered: {f['fact']}"})
+        for t in got["tasks"] or []:
+            if not mentor and t.get("owner_slack_id") and t["owner_slack_id"] not in (got["team"] or set()):
+                continue  # a mentor's private follow-up
+            if public and t.get("owner_slack_id"):
+                continue
+            out.append({"kind": "task", "startup_id": t["startup_id"], "date": t.get("due_date") or "", "text": t["title"],
+                        "line": f"- {names.get(t['startup_id'], '?')} · task ({t.get('status')}): {t['title']}"
+                                + (f" (due {t['due_date']})" if t.get("due_date") else "")})
+        return out
+
+    def _search_records(self, ident: dict, args: dict) -> str:
+        query = str(args.get("query") or "").strip()
+        words = [w for w in _WORD.findall(query.lower()) if w not in _STOP][:6]
+        if not query:
+            return "⚠️ What should I search for?"
+        mentor = ident["role"] == "mentor"
         sid = None if mentor else ident["context"]["startup_id"]
         if mentor and args.get("startup"):
             st, problem = self._resolve_startup(ident, args.get("startup"))
@@ -1295,50 +1387,56 @@ class Agent:
                 return problem
             sid = st["id"]
         days = _clamp(args.get("days"), 1, 365, 90)
-        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-        ors = lambda cols: ",".join(f"{c}.ilike.*{w}*" for c in cols for w in words)  # noqa: E731
+        docs = self._records(ident, days, sid)
+        keyword = lambda d: sum(w in d["text"].lower() for w in words) / (len(words) or 1)  # noqa: E731
+        ranked, how = [], "words"
+        if self.semantic and docs:
+            try:  # by meaning, with a small bonus for the exact words
+                ranked = [(s + 0.15 * keyword(d), d) for s, d in self.semantic.rank(query, docs, limit=60, min_score=0.45)]
+                how = "meaning"
+            except Exception as e:  # noqa: BLE001 - fall back to plain word matching
+                print(f"[Agent Warning] semantic search: {e}")
+        if how == "words" or not ranked:
+            ranked = [(keyword(d), d) for d in docs if keyword(d) > 0]
+        if not ranked:
+            return f"Nothing in the last {days} days matches \"{query}\"."
+        ranked.sort(key=lambda sd: sd[1]["date"], reverse=True)  # newest first among equals
+        ranked.sort(key=lambda sd: -sd[0])
+        lines = list(dict.fromkeys(d["line"] for _, d in ranked))  # the same update saved twice shows once
+        return f"Records about \"{query}\" (last {days} days, matched by {how}, best first):\n" + "\n".join(lines[:25])
 
-        def query(table, select, cols, dated=True, by="startup_id"):
-            def run():
-                q = sb.table(table).select(select).or_(ors(cols))
-                if dated:
-                    q = q.gte("created_at", since)
-                if table == "memories":
-                    q = q.in_("subject_id", [sid] if mentor else [sid, ident["context"]["founder_id"]]) if sid else q
-                    q = q if mentor and not ident.get("in_channel") else q.eq("audience", "all")
-                elif sid:
-                    q = q.eq(by, sid)
-                if table == "submissions":
-                    q = q.eq("confirmed", True)
-                return q.limit(60).execute().data
-            return self._q(run, [])
-        got = gather(
-            names=lambda: {r["id"]: r["name"] for r in self._q(lambda: sb.table("startups").select("id,name").execute().data, [])},
-            subs=lambda: query("submissions", "startup_id,status,progress,blocker,digest,created_at", ["digest", "blocker"]),
-            notes=lambda: query("notes", "startup_id,author_name,body,created_at", ["body"]) if mentor and not ident.get("in_channel") else [],
-            facts=lambda: query("memories", "subject_id,fact,created_at", ["fact"]),
-            tasks=lambda: query("tasks", "startup_id,title,status,due_date,owner_slack_id", ["title"], dated=False),
-            team=lambda: set() if mentor else {f["slack_user_id"] for f in self._q(
-                lambda: sb.table("founders").select("slack_user_id").eq("startup_id", sid).execute().data, []) if f.get("slack_user_id")},
-        )
-        names = got["names"] or {}
-        hits = []  # (text for scoring, date, line)
-        for s in got["subs"] or []:
-            hits.append((f"{s['digest']} {s['blocker']}", s["created_at"], f"- {s['created_at'][:10]} · {names.get(s['startup_id'], '?')} · "
-                         f"check-in ({s['status']} {s['progress']}%): {s['digest']} · blocker: {s['blocker']}"))
-        for n in got["notes"] or []:
-            hits.append((n["body"], n["created_at"], f"- {n['created_at'][:10]} · {names.get(n['startup_id'], '?')} · note by {n.get('author_name')}: {n['body']}"))
-        for f in got["facts"] or []:
-            hits.append((f["fact"], f.get("created_at") or "", f"- {(f.get('created_at') or '')[:10]} · {names.get(f['subject_id'], 'fact')} · remembered: {f['fact']}"))
-        for t in got["tasks"] or []:
-            if not mentor and t.get("owner_slack_id") and t["owner_slack_id"] not in (got["team"] or set()):
-                continue  # a mentor's private follow-up
-            hits.append((t["title"], t.get("due_date") or "", f"- {names.get(t['startup_id'], '?')} · task ({t.get('status')}): {t['title']}"
-                         + (f" (due {t['due_date']})" if t.get("due_date") else "")))
+    def _similar_blockers(self, ident: dict, args: dict) -> str:
+        """Mentors: other startups that hit something like this blocker, and whether (and how) they got past it."""
+        text = str(args.get("blocker") or "").strip()
+        about, problem = (None, "")
+        if args.get("startup"):
+            about, problem = self._resolve_startup(ident, args.get("startup"))
+            if not about:
+                return problem
+        docs = self._records({**ident, "role": "mentor"}, 120, None)
+        subs = sorted([d for d in docs if d["kind"] == "check-in"], key=lambda d: d["date"])
+        if not text and about:  # their latest blocker
+            mine = [d for d in subs if d["startup_id"] == about["id"] and str(d.get("blocker") or "").lower() not in ("", "none")]
+            text = mine[-1]["blocker"] if mine else ""
+        if not text:
+            return "⚠️ Which blocker? Give me the startup or describe it."
+        if not self.semantic:
+            return "Matching blockers by meaning isn't set up here (it needs the Gemini key)."
+        blocked = [d for d in subs if str(d.get("blocker") or "").lower() not in ("", "none")
+                   and (not about or d["startup_id"] != about["id"])]
+        hits = self.semantic.rank(text, blocked, text_of=lambda d: str(d.get("blocker") or ""), limit=6, min_score=0.6)
         if not hits:
-            return f"Nothing in the last {days} days mentions {' / '.join(words)}."
-        hits.sort(key=lambda h: (sum(w in h[0].lower() for w in words), h[1]), reverse=True)
-        return f"Records mentioning {' / '.join(words)} (last {days} days, best matches first):\n" + "\n".join(h[2] for h in hits[:25])
+            return f"No other startup reported a blocker like \"{text}\" in the last 120 days."
+        names = {r["id"]: r["name"] for r in self._q(lambda: self.sb.table("startups").select("id,name").execute().data, [])}
+        founders = self._q(lambda: self.sb.table("founders").select("name,startup_id").execute().data, [])
+        lines = [f"Startups that hit something like \"{text}\":"]
+        for score, d in hits:
+            later = [x for x in subs if x["startup_id"] == d["startup_id"] and x["date"] > d["date"]]
+            fixed = next((x for x in later if str(x.get("blocker") or "").lower() in ("", "none") and x.get("status") != "Blocked"), None)
+            who = ", ".join(f["name"] for f in founders if f.get("startup_id") == d["startup_id"]) or "no founder linked"
+            lines.append(f"- {names.get(d['startup_id'], '?')} ({who}), {d['date'][:10]}: \"{d['blocker']}\" (similarity {score})"
+                         + (f" → moved past it by {fixed['date'][:10]}: {fixed['line'].split('): ', 1)[-1][:200]}" if fixed else " → not resolved yet"))
+        return "\n".join(lines)
 
 
 _WORD = re.compile(r"[a-z0-9][a-z0-9'-]{2,}")

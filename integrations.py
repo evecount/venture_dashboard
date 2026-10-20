@@ -179,6 +179,27 @@ def summarize_activity(rows: list, watched: set) -> dict:
     return out
 
 
+def describe_work(r: dict, max_files: int = 10) -> str:
+    """One GitHub signal as evidence: the headline, every commit message, what a PR says it does, and which files
+    changed. Older signals (before the webhook stored messages and files) fall back to headline and detail."""
+    meta = r.get("meta") or {}
+    parts = [r.get("headline") or r.get("type") or "work"]
+    if r.get("type") == "commit":
+        msgs = meta.get("messages") or ([r["detail"]] if r.get("detail") else [])
+        if msgs:
+            parts.append("commits: " + "; ".join(str(m) for m in msgs[:15]))
+    elif r.get("detail"):
+        parts.append(str(r["detail"]))
+    if meta.get("body"):
+        parts.append(f"description: {meta['body']}")
+    if isinstance(meta.get("changed_files"), int):
+        parts.append(f"size: +{meta.get('additions', 0)}/-{meta.get('deletions', 0)} in {meta['changed_files']} files")
+    files = [f for f in meta.get("files") or [] if isinstance(f, str)]
+    if files:
+        parts.append("files: " + ", ".join(files[:max_files]) + (f" (+{len(files) - max_files} more)" if len(files) > max_files else ""))
+    return " · ".join(parts)
+
+
 def activity_line(a: dict, connected: bool) -> str:
     """One line of real work signals: GitHub activity (if connected) plus calendar meetings (if shared)."""
     parts = []

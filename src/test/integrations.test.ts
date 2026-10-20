@@ -33,6 +33,10 @@ describe("github webhook", () => {
     const repo = { full_name: "acme/app" };
     const push = mapGithubEvent("push", { repository: repo, sender: { login: "ann" }, commits: [{ message: "a" }, { message: "Fix pricing\n\nbody" }] }, "s1");
     expect(push).toMatchObject({ type: "commit", headline: "ann pushed 2 commits to acme/app", detail: "Fix pricing", meta: { commits: 2 } });
+    const rich = mapGithubEvent("push", { repository: repo, ref: "refs/heads/main", sender: { login: "ann" }, commits: [
+      { message: "Add pricing page\n\nlong body", added: ["src/pages/pricing.tsx"], modified: ["src/app.tsx"] },
+      { message: "Fix typo", modified: ["src/app.tsx"], removed: ["old.txt"] }] }, "s1");
+    expect(rich?.meta).toMatchObject({ messages: ["Add pricing page", "Fix typo"], files: ["src/pages/pricing.tsx", "src/app.tsx", "old.txt"], branch: "main" });
 
     const merged = mapGithubEvent("pull_request", { repository: repo, sender: { login: "ann" }, action: "closed", pull_request: { number: 7, title: "Add auth", merged: true } }, "s1");
     expect(merged).toMatchObject({ type: "pull_request", headline: "ann merged PR #7 in acme/app", meta: { merged: true } });

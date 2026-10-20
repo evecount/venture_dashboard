@@ -10,6 +10,10 @@ describe("Developer page actions", () => {
     });
     expect(validDevAction({ type: "setting", key: "paused", value: true })).not.toBeNull();
     expect(validDevAction({ type: "setting", key: "ai_model", value: "gemini-3.8-flash" })).not.toBeNull();
+    expect(validDevAction({ type: "setting", key: "ai_reasoning", value: "low" })).not.toBeNull();
+    expect(validDevAction({ type: "setting", key: "ai_reasoning", value: "" })).not.toBeNull();
+    expect(validDevAction({ type: "setting", key: "ai_reasoning", value: "turbo" })).toBeNull();
+    expect(validDevAction({ type: "setting", key: "fast_model", value: "off" })).not.toBeNull();
     expect(
       validDevAction({ type: "command", command: "ask", args: { text: "hi", as_slack_id: "U0ABC12" } }),
     ).not.toBeNull();

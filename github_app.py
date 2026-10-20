@@ -137,14 +137,18 @@ def backfill_signals(gh: GitHubApp, sb, integration: dict, now: datetime | None 
                 "startup_id": startup_id, "type": "commit", "stream": "Tech", "actor": author,
                 "headline": f"{n} commit{'s' if n != 1 else ''} to {repo} on {day}",
                 "detail": str(((items[0].get("commit") or {}).get("message") or "")).split(chr(10))[0][:140],
-                "created_at": f"{day}T12:00:00+00:00", "meta": {"commits": n, "repo": repo, "backfill": True},
+                "created_at": f"{day}T12:00:00+00:00",
+                "meta": {"commits": n, "repo": repo, "backfill": True,  # every message: what the estimates and answers read
+                         "messages": [str(((c.get("commit") or {}).get("message") or "")).split(chr(10))[0][:120] for c in items][:15]},
             })
         for pr in gh.merged_prs(installation_id, repo, since):
             rows.append({
                 "startup_id": startup_id, "type": "pull_request", "stream": "Tech",
                 "actor": (pr.get("user") or {}).get("login") or "someone",
                 "headline": f"PR #{pr['number']} merged in {repo}", "detail": str(pr.get("title", ""))[:140],
-                "created_at": pr["merged_at"], "meta": {"action": "closed", "merged": True, "repo": repo, "backfill": True},
+                "created_at": pr["merged_at"], "meta": {"action": "closed", "merged": True, "repo": repo, "backfill": True,
+                                                        "number": pr["number"],
+                                                        "body": " ".join(str(pr.get("body") or "").split())[:400] or None},
             })
     if rows:
         sb.table("signals").insert(rows).execute()

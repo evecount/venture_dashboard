@@ -21,8 +21,12 @@ export const DEV_SETTINGS = {
   daily_checkin: "boolean",
   channel_context: "boolean",
   ai_model: "string",
+  ai_reasoning: "string",
+  fast_model: "string",
   extra_instructions: "string",
 } as const;
+/** How hard the model thinks in chat ("" = the provider's default). Skills can ask for more. */
+export const REASONING_LEVELS = ["none", "low", "medium", "high", ""] as const;
 export type DevSetting = keyof typeof DEV_SETTINGS;
 
 export type DevAction =
@@ -51,7 +55,8 @@ export function validDevAction(body: unknown): DevAction | null {
     const value = b["value"];
     if (!(typeof key === "string" && key in DEV_SETTINGS)) return null;
     if (typeof value !== DEV_SETTINGS[key]) return null;
-    if (typeof value === "string" && value.length > (key === "ai_model" ? 100 : 4000)) return null;
+    if (typeof value === "string" && value.length > (key === "extra_instructions" ? 4000 : 100)) return null;
+    if (key === "ai_reasoning" && !(REASONING_LEVELS as readonly string[]).includes(value as string)) return null;
     return { type: "setting", key, value: value as boolean | string };
   }
   if (b["type"] === "command") {

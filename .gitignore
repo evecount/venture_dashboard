@@ -47,3 +47,4 @@ __pycache__/
 
 # Participants' custom syllabi (real venture details); imported with scripts/import_syllabus.py
 syllabi/
+.semantic_cache.json*

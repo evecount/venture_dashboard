@@ -118,6 +118,8 @@ import announce
 import digest
 import transcribe
 import attachments
+import digest_prefs
+import semantic
 import web_research
 import github_app
 import syllabus
@@ -302,7 +304,8 @@ agent = (Agent(ai_client, AI_MODEL, supabase, memory, connect_url=github_link, c
                 awareness=lambda ident: awareness_text(ident), routines=routine_store,
                 repos_changed=lambda row, slack_id: after_repo_choice(row, slack_id),
                 fast_model=FAST_AI_MODEL,
-                research=(lambda q: web_research.research(q, GEMINI_API_KEY, FAST_AI_MODEL or AI_MODEL)) if GEMINI_API_KEY else None)
+                research=(lambda q: web_research.research(q, GEMINI_API_KEY, FAST_AI_MODEL or AI_MODEL)) if GEMINI_API_KEY else None,
+                semantic=semantic.Semantic(GEMINI_API_KEY) if GEMINI_API_KEY else None)
          if (ai_client and supabase) else None)
 
 # Initialize Slack Bolt App
@@ -841,7 +844,9 @@ def founder_welcome_text(name: str, startup_name: str, intro: str | None = None,
              "and show it to you first. Nothing is saved until you press *Save*.",
              "• *On program days at 5 PM* I'll ask how your day went.",
              "• *Your mentors see* the check-ins you save, your milestones and, if you connect it, your GitHub activity.",
-             "• *Ask me anything* about the program: what's due, who the mentors are, or to set up a meeting."]
+             "• *Ask me anything* about the program: what's due, who the mentors are, or to set up a meeting.",
+             "• *Use me as a co-pilot*: send me your deck or a screenshot, ask about competitors or grants, or have me "
+             "explain anything in plain English."]
     where = where_we_are_text(start=start)
     if where:
         lines += ["", where]
@@ -1365,6 +1370,12 @@ HOW_TO = {
             "_\"I finished the script\"_ (I tick the goal off)  ·  _\"Remind me to send the deck on Friday\"_",
             "Milestones set by mentors: you can tick their goals off; ask a mentor to change them",
             "A custom schedule shows up as one milestone per week. If you add your own milestone that covers one of its items, yours replaces that item"]),
+        ("🚀 Your co-pilot", [
+            "*Send me files*: a deck (PDF or PowerPoint), a screenshot, Word or Excel notes. _\"Give me feedback on this pitch\"_ with the deck attached",
+            "_\"Who are our competitors in Singapore?\"_  ·  _\"Am I eligible for Startup SG Founder?\"_ (I search the web and link my sources)",
+            "_\"Explain what a cap table is\"_ (plain English, with a picture; say _nerd mode_ for the technical version)",
+            "_\"Draft my investor update\"_  ·  _\"Help me plan this week\"_  ·  _\"Write me a customer interview script\"_  ·  _\"Help with pricing\"_",
+            "_\"When did I last mention pricing?\"_ (I search your past updates by meaning, not just exact words)"]),
         ("🙋 Stuck? Get a mentor", [
             "Tell me what's blocking you; mentors see blockers on their side",
             "_\"Set up a call with Mo tomorrow at 2 PM, virtually\"_ (name the people; I show a card before inviting anyone)",
@@ -1375,7 +1386,8 @@ HOW_TO = {
             "_\"Connect my Google Calendar\"_ so customer meetings count (only counts are stored)",
             "_\"Rename my startup to Acme\"_"]),
         ("🤖 What I do on my own", [
-            "5:00 PM on program days: I ask how your day went. No reply? One reminder the next morning",
+            "5:00 PM on program days: I ask how your day went, listing what you pushed to GitHub that day (reply *yes* and I draft the check-in). No reply? One reminder the next morning",
+            "Monday 9:00 AM: your briefing, with this week's deliverable, your open goals and news that matters to your startup. Tell me what you'd rather read about",
             "If your last check-in says you're blocked, I follow up once after two days",
             "A reminder an hour before meetings on the studio calendar"]),
     ],
@@ -1402,12 +1414,21 @@ HOW_TO = {
             "_\"Set up a meet with everyone at 3 PM on Thursday at 111 Somerset\"_ or _\"...virtually\"_ (I show a card first)",
             "_\"Set up a fortnightly sprint with Takshma and Matthew, Thursdays at 3 PM\"_",
             "_\"Move Thursday's sprint to 4 PM\"_  ·  _\"Cancel the sprint\"_  ·  _\"What meetings are coming up?\"_"]),
+        ("🧠 Research & analysis", [
+            "_\"Catch me up on the cohort\"_  ·  _\"Who's talking but not building?\"_  ·  _\"What did Auvira actually ship this week?\"_ (commits, PRs and which parts of the code changed)",
+            "_\"Who has been stuck on payments?\"_ (I search check-ins, notes and facts by meaning)  ·  _\"Has anyone solved a blocker like Auvira's?\"_",
+            "_\"What grants could GRC Nexus go for?\"_  ·  _\"Find Auvira's competitors\"_ (web research with sources)",
+            "Send me a deck, screenshot, PDF, Word, PowerPoint or Excel file and ask about it"]),
+        ("💬 In channels", [
+            "@mention me in a thread: _\"@Venture Buddy summarise this\"_  ·  _\"turn this thread into tasks\"_. I read the thread first",
+            "Replies in channels are public, so I never include private notes there. Ask me in a DM for those"]),
         ("📣 Announcements", [
             "_\"Tell everyone office hours moved to 4 PM\"_  ·  _\"Tell the founders to send their pitch decks by Friday\"_  ·  _\"Tell Auvira the sprint is face to face\"_ (I show who gets it first)"]),
         ("🤖 Automatic", [
-            "Monday 9:00 AM digest, and a 9:15 AM nudge when a startup is blocked, quiet, or checking in without code activity",
+            "Monday 9:00 AM digest (with who could help whom, and news on the cohort's space; tell me what you'd rather read about), "
+            "and a 9:15 AM nudge when a startup is blocked, quiet, or checking in without code activity",
             "Founders: a 5:00 PM daily prompt, a morning reminder, and one follow-up when they stay blocked",
-            "Reminders an hour before meetings"]),
+            "Reminders an hour before meetings, with a quick brief on each startup that's invited"]),
     ],
 }
 
@@ -2700,12 +2721,21 @@ def send_weekly_digest(dry_run: bool = False):
     summaries = safe_snapshot()
     blocks = digest.build_digest_blocks(summaries, today, upcoming_meeting_items(), memory.open_tasks(),
                                         cohort_list=cohorts.load(supabase))
+    helps = peer_help_lines(summaries)
+    if helps:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "🤝 *Could help each other*" + chr(10) + chr(10).join(helps)}})
     if dry_run:
         return blocks
+    mentors = mentor_slack_ids()
+    news = briefing_news(mentors, lambda uid: mentor_profile(summaries), "a mentor in a Singapore venture studio programme")
     sent = []
-    for uid in mentor_slack_ids():
+    for uid in mentors:
+        extra = news_blocks(news.get(uid), uid)
         try:
-            app.client.chat_postMessage(channel=uid, text="Weekly digest", blocks=blocks + dashboard_button_blocks(slack_user_id=uid))
+            app.client.chat_postMessage(channel=uid, text="Weekly digest",
+                                        blocks=blocks + extra + dashboard_button_blocks(slack_user_id=uid))
+            if news.get(uid):
+                memory.log(uid, "assistant", "Monday briefing news:" + chr(10) + news[uid])  # so "not interested" is understood
             sent.append(uid)
         except Exception as e:
             print(f"[Digest Error] {uid}: {e}")
@@ -2761,6 +2791,114 @@ def notify_new_milestones():
 def run_weekly_digest():
     if WEEKLY_DIGEST and SLACK_BOT_TOKEN:
         print(f"[Digest] sent to {len(send_weekly_digest())} mentor(s)")
+        print(f"[Briefing] sent to {len(send_founder_briefings())} founder(s)")
+
+
+BRIEFING_FOOTER = ("💬 _Want different news next Monday? Just tell me, e.g. \"less AI news, more fundraising\" or "
+                   "\"news on my competitors\". Right now: {prefs}._")
+
+
+def briefing_news(slack_ids: list, profile_of, who: str) -> dict:
+    """{slack_id: news section} for the Monday briefings, a few at a time (each is one web search)."""
+    if not (GEMINI_API_KEY and slack_ids):
+        return {}
+    from concurrent.futures import ThreadPoolExecutor
+
+    def one(uid):
+        prefs = digest_prefs.get(supabase, uid)
+        try:
+            return uid, web_research.briefing(who, profile_of(uid), prefs["topics"], prefs["avoid"], GEMINI_API_KEY,
+                                              FAST_AI_MODEL or AI_MODEL)
+        except Exception as e:
+            print(f"[Briefing Warning] {uid}: {e}")
+            return uid, ""
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        return {uid: text for uid, text in pool.map(one, slack_ids) if text}
+
+
+def news_blocks(news: str | None, uid: str) -> list:
+    if not news:
+        return []
+    footer = BRIEFING_FOOTER.format(prefs=digest_prefs.describe(digest_prefs.get(supabase, uid)))
+    return [{"type": "divider"}, {"type": "section", "text": {"type": "mrkdwn", "text": "🌏 *Worth knowing this week*" + chr(10) + news[:2900]}},
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": footer}]}]
+
+
+def mentor_profile(summaries: list) -> str:
+    """What the mentors' news should be about: the cohort's startups and what they're working on (no private notes)."""
+    lines = ["The cohort's startups:"]
+    for s in summaries:
+        lat = s.get("latest") or {}
+        lines.append(f"- {s['name']} ({s.get('stream') or 'general'}): {str(lat.get('digest') or 'no update yet')[:200]}")
+    return chr(10).join(lines)
+
+
+def founder_profile(f: dict) -> str:
+    """One founder's startup, as their own records describe it: stream, recent updates and remembered facts."""
+    sid = f["startup_id"]
+    st = (supabase.table("startups").select("name,stream").eq("id", sid).limit(1).execute().data or [{}])[0]
+    subs = (supabase.table("submissions").select("digest").eq("startup_id", sid).eq("confirmed", True)
+            .order("created_at", desc=True).limit(4).execute().data or [])
+    facts = memory.facts([sid, f["id"]], audience_all_only=True, limit=8)
+    work = (supabase.table("signals").select("detail").eq("startup_id", sid).in_("type", ["commit", "pull_request"])
+            .order("created_at", desc=True).limit(12).execute().data or [])  # commit and PR titles describe the product itself
+    return chr(10).join([f"Startup: {st.get('name') or '?'} (stream: {st.get('stream') or 'general'}), founder {f['name']}.",
+                         "What they've been doing lately: " + (" | ".join(x["digest"] for x in subs) or "no updates yet"),
+                         *(["What they're building (recent code work): " + " | ".join(w["detail"] for w in work if w.get("detail"))]
+                           if work else []),
+                         *(["Known about them: " + " | ".join(x["fact"] for x in facts)] if facts else [])])
+
+
+def send_founder_briefings(dry_run: bool = False) -> list:
+    """Monday 9 AM for every linked founder: this week's deliverable and goals, then news that matters to their startup
+    (competitors, their market, useful tech, SG ecosystem), ending with an invitation to change the topics."""
+    today = _today_sgt()
+    if not (supabase and syllabus.has_session(today)):
+        return []
+    founders = daily_checkin.linked_founders(supabase)
+    by_uid = {f["slack_user_id"]: f for f in founders}
+    news = briefing_news(list(by_uid), lambda uid: founder_profile(by_uid[uid]), "a founder in a Singapore venture studio programme")
+    sent = []
+    for uid, f in by_uid.items():
+        ctx = resolve_founder_context(uid) or {}
+        d = ctx.get("deliverable") or {}
+        goals = [g for m in memory.milestones(f["startup_id"]) for g in (m.get("goals") or []) if not g.get("done")][:4]
+        top = [f"☀️ *Morning {(f['name'] or '').split(' ')[0]}! Your Monday briefing*"]
+        if d.get("title"):
+            top.append(f"This week's deliverable: *{d['title']}*" + (f" (due {str(d.get('due_date'))[:10]})" if d.get("due_date") else ""))
+        if goals:
+            top += ["Open goals:"] + [f"• {g['title']}" for g in goals]
+        top.append("Tell me what you're tackling first and I'll keep track.")
+        blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": chr(10).join(top)}}] + news_blocks(news.get(uid), uid)
+        if dry_run:
+            sent.append((uid, blocks))
+            continue
+        try:
+            app.client.chat_postMessage(channel=uid, text="Your Monday briefing", blocks=blocks)
+            memory.log(uid, "assistant", chr(10).join(top) + (chr(10) + "News:" + chr(10) + news[uid] if news.get(uid) else ""))
+            sent.append(uid)
+        except Exception as e:
+            print(f"[Briefing Error] {uid}: {e}")
+    return sent
+
+
+def peer_help_lines(summaries: list) -> list:
+    """For each blocked startup: another startup that got past something similar (matched by meaning)."""
+    if not (agent and agent.semantic):
+        return []
+    out = []
+    for s in summaries:
+        if s.get("health") != "blocked":
+            continue
+        try:
+            text = agent._similar_blockers({"role": "mentor", "slack_id": "digest", "name": "digest"}, {"startup": s["id"]})
+        except Exception as e:
+            print(f"[Peer Help Warning] {s['name']}: {e}")
+            continue
+        solved = [ln[2:] for ln in text.splitlines() if ln.startswith("- ") and "moved past it" in ln]
+        if solved:
+            out.append(f"• *{s['name']}* is blocked; {solved[0]}")
+    return out
 
 
 def run_alerts():

@@ -47,10 +47,21 @@ class AttachmentTests(unittest.TestCase):
         self.assertIn("FILEBYTES", text)
         self.assertEqual([c[0] for c in http.calls], ["GET"])
 
-    def test_office_files_get_a_how_to_share_note(self):
-        text, notes = attachments.read_all([{"name": "plan.pptx", "filetype": "pptx"}], "t", "k", "m", FakeHTTP({}))
-        self.assertIn("Export it as a PDF", notes[0])
+    def test_files_we_cant_open_get_a_how_to_share_note(self):
+        text, notes = attachments.read_all([{"name": "plan.key", "filetype": "key"}], "t", "k", "m", FakeHTTP({}))
+        self.assertIn("Save it as a PDF", notes[0])
         self.assertIn("not readable", text)
+
+    def test_powerpoint_is_read_slide_by_slide_without_a_model(self):
+        import io
+        import zipfile
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr("ppt/slides/slide1.xml", "<p:sld><a:p><a:r><a:t>Auvira &amp; friends</a:t></a:r></a:p></p:sld>")
+        get = lambda method, url, headers=None, json=None: NS(content=buf.getvalue())  # noqa: E731
+        text, notes = attachments.read_all([{"name": "deck.pptx", "url_private": "u"}], "t", "k", "m", get)
+        self.assertIn("--- Slide 1 ---\nAuvira & friends", text)
+        self.assertEqual(notes, [])
 
     def test_a_failed_read_never_raises(self):
         def broken(*a, **k):
@@ -134,6 +145,146 @@ class MeetingBriefTests(unittest.TestCase):
 
     def test_no_founders_invited_means_no_brief(self):
         self.assertEqual(digest.meeting_brief(["mo@studio.io"], [{"email": "sam@x.io", "startup_id": "a"}], self.S), "")
+
+
+class FakeEmbed:
+    """Embeddings by keyword: texts sharing a topic word point the same way."""
+    TOPICS = ("pay", "hire", "design")
+
+    def __init__(self):
+        self.embedded = 0
+
+    def __call__(self, method, url, headers=None, json=None):
+        texts = [r["content"]["parts"][0]["text"].lower() for r in json["requests"]]
+        self.embedded += len(texts)
+        vec = lambda t: [1.0 if w in t or (w == "pay" and "stripe" in t) else 0.0 for w in self.TOPICS] + [0.1]  # noqa: E731
+        return NS(json=lambda: {"embeddings": [{"values": vec(t)} for t in texts]})
+
+
+class SemanticTests(unittest.TestCase):
+    def test_ranks_by_meaning_and_embeds_each_text_once(self):
+        import semantic
+        http = FakeEmbed()
+        idx = semantic.Semantic("k", http=http, cache_path=None)
+        docs = [{"text": "Stripe checkout keeps failing"}, {"text": "Hiring a designer"}]
+        hits = idx.rank("payments problem", docs)
+        self.assertEqual(hits[0][1]["text"], "Stripe checkout keeps failing")
+        idx.rank("payments again", docs)
+        self.assertEqual(http.embedded, 4)  # 2 docs once + 2 queries
+
+    def test_search_records_uses_meaning_and_keeps_founders_to_their_startup(self):
+        import semantic
+        subs = [{"id": "1", "startup_id": "startup-auvira", "status": "Blocked", "progress": 40, "blocker": "Stripe webhook",
+                 "digest": "Stuck on checkout", "created_at": "2026-10-18"},
+                {"id": "2", "startup_id": "startup-other", "status": "Blocked", "progress": 10, "blocker": "Stripe keys",
+                 "digest": "Other startup payments", "created_at": "2026-10-17"}]
+        tables = {"startups": [{"id": "startup-auvira", "name": "Auvira"}, {"id": "startup-other", "name": "Other"}],
+                  "submissions": subs}
+        a, _ = agent_with(Script(), tables, semantic=semantic.Semantic("k", http=FakeEmbed(), cache_path=None))
+        mentor = a._search_records(MENTOR, {"query": "payments"})
+        self.assertIn("matched by meaning", mentor)
+        self.assertIn("Other startup payments", mentor)
+        # FakeSB ignores filters, so the founder path must filter in Python: it does, by startup
+        a._records = lambda ident, days, sid: [d for d in type(a)._records(a, ident, days, sid) if d["startup_id"] == sid]
+        self.assertNotIn("Other startup", a._search_records(FOUNDER, {"query": "payments"}))
+
+    def test_similar_blockers_finds_who_got_past_it(self):
+        import semantic
+        subs = [{"id": "1", "startup_id": "a", "status": "Blocked", "progress": 30, "blocker": "Stripe payouts", "digest": "x",
+                 "created_at": "2026-10-10"},
+                {"id": "2", "startup_id": "a", "status": "In progress", "progress": 50, "blocker": "None",
+                 "digest": "Switched to Stripe Connect express", "created_at": "2026-10-12"},
+                {"id": "3", "startup_id": "b", "status": "Blocked", "progress": 20, "blocker": "Payment gateway rejected us",
+                 "digest": "y", "created_at": "2026-10-19"}]
+        tables = {"startups": [{"id": "a", "name": "Alpha"}, {"id": "b", "name": "Beta"}], "submissions": subs,
+                  "founders": [{"name": "Ann", "startup_id": "a"}]}
+        a, _ = agent_with(Script(), tables, semantic=semantic.Semantic("k", http=FakeEmbed(), cache_path=None))
+        out = a._similar_blockers(MENTOR, {"startup": "Beta"})
+        self.assertIn("Alpha (Ann)", out)
+        self.assertIn("moved past it by 2026-10-12", out)
+        self.assertIn("Switched to Stripe Connect", out)
+        self.assertNotIn("similar_blockers", {t["function"]["name"] for t in bot_agent_tools("founder")})
+
+
+def bot_agent_tools(role):
+    from bot_agent import build_tools
+    return build_tools(role)
+
+
+class DigestPrefsTests(unittest.TestCase):
+    class SB:
+        def __init__(self):
+            self.rows = []
+
+        def table(self, _):
+            sb = self
+
+            class T:
+                def select(self, *_):
+                    return self
+
+                def eq(self, *_):
+                    return self
+
+                def limit(self, *_):
+                    return self
+
+                def delete(self):
+                    sb.rows = []
+                    return self
+
+                def insert(self, row):
+                    sb.rows = [row]
+                    return self
+
+                def execute(self):
+                    return NS(data=list(sb.rows))
+            return T()
+
+    def test_topics_add_up_and_wanting_something_stops_avoiding_it(self):
+        import digest_prefs
+        sb = self.SB()
+        digest_prefs.update(sb, "U1", topics=["fundraising"], avoid=["AI news"])
+        p = digest_prefs.update(sb, "U1", topics=["AI news"])
+        self.assertEqual(p, {"topics": ["fundraising", "AI news"], "avoid": []})
+        self.assertIn("more on fundraising, AI news", digest_prefs.describe(p))
+
+    def test_the_agent_saves_a_change_of_topic(self):
+        sb = self.SB()
+        s = Script(("Done.", [call("set_digest_topics", {"topics": ["femtech competitors"], "avoid": ["crypto"]})]))
+        a, _ = agent_with(s)
+        a.sb = sb
+        out = a.respond(FOUNDER, "not into crypto, send me femtech competitor news")
+        self.assertIn("more on femtech competitors; less on crypto", out["text"])
+
+
+class BriefingTests(unittest.TestCase):
+    def test_briefing_uses_search_and_the_persons_preferences(self):
+        http = FakeHTTP(gemini("- *Rival raises S$2M*: ...", [("https://news.sg/a", "News")]))
+        out = web_research.briefing("a founder", "Startup: Auvira", ["femtech"], ["crypto"], "k", "lite", http)
+        prompt = http.calls[0][2]["contents"][0]["parts"][0]["text"]
+        self.assertIn("They want more on: femtech. They don't want: crypto.", prompt)
+        self.assertIn("Startup: Auvira", prompt)
+        self.assertIn("_Sources: <https://news.sg/a|News>_", out)
+
+
+class GitHubEvidenceTests(unittest.TestCase):
+    def test_work_is_described_with_messages_and_files(self):
+        import integrations
+        line = integrations.describe_work({"type": "commit", "headline": "ann pushed 2 commits", "detail": "Fix",
+                                           "meta": {"messages": ["Add pricing page", "Fix"], "files": ["src/pages/pricing.tsx"]}})
+        self.assertIn("commits: Add pricing page; Fix", line)
+        self.assertIn("files: src/pages/pricing.tsx", line)
+        pr = integrations.describe_work({"type": "pull_request", "headline": "merged PR #7", "detail": "Checkout",
+                                         "meta": {"body": "Adds Stripe", "changed_files": 4, "additions": 120, "deletions": 8}})
+        self.assertIn("description: Adds Stripe · size: +120/-8 in 4 files", pr)
+
+    def test_estimator_prompt_carries_the_evidence(self):
+        import progress_estimator
+        prompt = progress_estimator.build_prompt([("g1", {"title": "Pricing page", "milestone": "Launch"})],
+                                                 [{"created_at": "2026-10-20", "headline": "push", "type": "commit",
+                                                   "meta": {"messages": ["Add pricing"], "files": ["src/pricing.tsx"]}}])
+        self.assertIn("files: src/pricing.tsx", prompt)
 
 
 if __name__ == "__main__":

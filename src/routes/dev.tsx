@@ -45,6 +45,8 @@ const DEFAULTS: Record<DevSetting, boolean | string> = {
   daily_checkin: true,
   channel_context: true,
   ai_model: "",
+  ai_reasoning: "none",
+  fast_model: "",
   extra_instructions: "",
 };
 const LABELS: Record<string, string> = {
@@ -317,6 +319,7 @@ function Console({ run, commands }: { run: Run; commands: Command[] }) {
 
 function Controls({ settings, act, run, state }: { settings: Record<DevSetting, boolean | string>; act: Act; run: Run; state: State }) {
   const [model, setModel] = useState(String(settings.ai_model));
+  const [fast, setFast] = useState(String(settings.fast_model));
   const [extra, setExtra] = useState(String(settings.extra_instructions));
   const [post, setPost] = useState({ channel: "", text: "" });
   const set = (key: DevSetting, value: boolean | string) => act({ type: "setting", key, value });
@@ -346,6 +349,34 @@ function Controls({ settings, act, run, state }: { settings: Record<DevSetting, 
             <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder="Default from AI_MODEL" className="mt-1 w-72 max-w-full" />
           </label>
           <Button variant="outline" onClick={() => void set("ai_model", model.trim())}>
+            Save
+          </Button>
+        </div>
+        <div className="mt-4 flex flex-wrap items-end gap-2">
+          <label className="text-sm">
+            <span className="block font-medium">Thinking in chat</span>
+            <span className="block text-xs text-muted-foreground">None is fastest. Skills like the digest think a little more on their own.</span>
+            <select
+              value={String(settings.ai_reasoning)}
+              onChange={(e) => void set("ai_reasoning", e.target.value)}
+              className="mt-1 h-9 w-72 max-w-full rounded-md border border-input bg-background px-3 text-sm"
+              aria-label="Thinking in chat"
+            >
+              <option value="none">None (fastest)</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High (slowest)</option>
+              <option value="">Model default</option>
+            </select>
+          </label>
+        </div>
+        <div className="mt-4 flex flex-wrap items-end gap-2">
+          <label className="text-sm">
+            <span className="block font-medium">Small-talk model</span>
+            <span className="block text-xs text-muted-foreground">Used for thanks and greetings. Type <code>off</code> to always use the main model.</span>
+            <Input value={fast} onChange={(e) => setFast(e.target.value)} placeholder="Default from AI_FAST_MODEL" className="mt-1 w-72 max-w-full" />
+          </label>
+          <Button variant="outline" onClick={() => void set("fast_model", fast.trim())}>
             Save
           </Button>
         </div>

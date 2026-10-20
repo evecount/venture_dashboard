@@ -22,7 +22,9 @@ FIRST_LOOKBACK_DAYS = 7  # on a startup's first run, assess the last week of wor
 SYSTEM = (
     "You estimate how far a startup's goals have progressed, using only the GitHub work shown. Be conservative: "
     "small or unrelated commits move nothing; give credit only where the work plausibly advances a goal, even "
-    "partly (e.g. building the signup form advances 'Create landing page'). Progress is the TOTAL for the goal so "
+    "partly (e.g. building the signup form advances 'Create landing page'). Commit messages, PR descriptions and the "
+    "changed file paths are the evidence: paths show what was really built (src/pages/pricing.tsx is a pricing page, "
+    "tests/ only is testing, README or config only is housekeeping). Progress is the TOTAL for the goal so "
     "far (not an increment) and must not be below its current value. Non-code goals (interviews, emails, pricing) "
     "usually get no credit from code. Reply with JSON only: "
     '{"updates": [{"goal": "<ref>", "progress": <0-95>, "reason": "<one short sentence citing the work>", '
@@ -69,8 +71,11 @@ def build_prompt(goals: list, work: list, heading: str = SOURCES["github"][2]) -
     lines.append("")
     lines.append(heading)
     for s in work:
-        detail = f" — {s['detail']}" if s.get("detail") else ""
-        lines.append(f"- {s['created_at'][:10]} · {s['headline']}{detail}")
+        if s.get("meta") is not None:  # a GitHub signal: commit messages, PR description and changed files
+            lines.append(f"- {s['created_at'][:10]} · {integrations.describe_work(s, max_files=25)}")
+        else:
+            detail = f" — {s['detail']}" if s.get("detail") else ""
+            lines.append(f"- {s['created_at'][:10]} · {s['headline']}{detail}")
     return "\n".join(lines)
 
 
