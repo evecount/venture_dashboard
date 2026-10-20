@@ -30,7 +30,8 @@ export const Route = createFileRoute("/api/google/callback")({
         const code = url.searchParams.get("code");
         const studio = state?.p === "google-studio";
         const mentor = state?.p === "google-mentor"; // a mentor's own calendar (read-only), not the studio one
-        if (!state || (state.p !== "google" && !studio && !mentor) || !code || code.length > 2048) {
+        const meethost = state?.p === "google-meethost"; // the paid account that hosts Meet rooms (recordings)
+        if (!state || (state.p !== "google" && !studio && !mentor && !meethost) || !code || code.length > 2048) {
           return page(
             "Link expired",
             "This connect link is invalid or has expired. Go back to Slack and ask the bot for a new one.",
@@ -41,8 +42,8 @@ export const Route = createFileRoute("/api/google/callback")({
           method: "POST",
           prefer: "return=minimal",
           body:
-            studio || mentor
-              ? { kind: studio ? "studio" : "mentor", slack_user_id: state.f, code }
+            studio || mentor || meethost
+              ? { kind: studio ? "studio" : meethost ? "meethost" : "mentor", slack_user_id: state.f, code }
               : { founder_id: state.f, startup_id: state.s, code },
         });
         if (!res.ok)

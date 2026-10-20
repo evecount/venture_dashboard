@@ -142,10 +142,10 @@ SM_MODEL = "melia-1"  # US$0.24 per hour of audio (Oct 2026), switches language 
 SINGLISH = ["lah", "lor", "leh", "sia", "meh", "alamak", "shiok", "kopi", "can or not", "paiseh", "jialat", "sian"]
 
 
-def transcribe_speechmatics(data: bytes, filename: str, api_key: str, hints: list | None = None, model: str = SM_MODEL,
-                            http=_requests_http, wait_s: int = 1800) -> str:
-    """Speechmatics batch: upload, wait for the job, then build "[mm:ss] S1: ..." lines from the word timings.
-    The job is deleted from Speechmatics once read."""
+def transcribe_speechmatics(data, filename: str, api_key: str, hints: list | None = None, model: str = SM_MODEL,
+                            http=_requests_http, wait_s: int = 3600) -> str:
+    """Speechmatics batch: upload (bytes, or a file path for big recordings, streamed from disk), wait for the job,
+    then build "[mm:ss] S1: ..." lines from the word timings. The job is deleted from Speechmatics once read."""
     import json as _json
     vocab = [{"content": w} for w in dict.fromkeys([*(h for h in (hints or []) if h and len(h) < 60), *SINGLISH])][:1000]
     if model in ("standard", "enhanced"):  # the older models take a word list for names and Singlish particles
@@ -155,8 +155,13 @@ def transcribe_speechmatics(data: bytes, filename: str, api_key: str, hints: lis
     config = {"type": "transcription", "transcription_config": {"language": "en", "diarization": "speaker", **tc}}
     head = {"Authorization": f"Bearer {api_key}"}
     import requests  # multipart upload; the injectable http covers the JSON calls
-    res = requests.post(SM_API, headers=head, files={"data_file": (filename or "meeting", data)},
-                        data={"config": _json.dumps(config)}, timeout=600)
+    body = data if isinstance(data, (bytes, bytearray)) else open(data, "rb")
+    try:
+        res = requests.post(SM_API, headers=head, files={"data_file": (filename or "meeting", body)},
+                            data={"config": _json.dumps(config)}, timeout=1800)
+    finally:
+        if body is not data:
+            body.close()
     if res.status_code >= 300:
         raise RuntimeError(f"Speechmatics {res.status_code}: {res.text[:300]}")
     job = res.json()["id"]

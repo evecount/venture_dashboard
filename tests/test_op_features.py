@@ -362,6 +362,52 @@ class SpeechmaticsTests(unittest.TestCase):
         self.assertEqual(out, "[00:00] S1: Hi Takshma.\n[01:05] S2: We're at 24")
 
 
+class MeetHostTests(unittest.TestCase):
+    def gc(self, http):
+        import google_calendar as g
+        cal = g.GoogleCalendar("cid", "secret", "https://x/cb", "state-secret", http=http)
+        cal.access_token = lambda enc: "TOKEN"
+        return cal
+
+    def test_connect_link_asks_only_for_meet_rooms_and_meet_files(self):
+        import urllib.parse
+        import google_calendar as g
+        url = g.meethost_connect_url("cid", "https://x/cb", "s", "UDEV")
+        scope = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["scope"][0]
+        self.assertEqual(scope.split(), ["openid", "email", "https://www.googleapis.com/auth/meetings.space.created",
+                                         "https://www.googleapis.com/auth/drive.meet.readonly"])
+
+    def test_room_is_open_and_falls_back_when_auto_recording_is_refused(self):
+        bodies = []
+
+        def http(method, url, headers=None, data=None, params=None, json=None):
+            bodies.append(json)
+            if "artifactConfig" in json["config"]:
+                raise RuntimeError("400 Client Error: auto recording not available")
+            return {"meetingUri": "https://meet.google.com/abc-defg-hij"}
+        self.assertEqual(self.gc(http).create_open_meet("enc", auto_record=True), "https://meet.google.com/abc-defg-hij")
+        self.assertEqual(bodies[-1], {"config": {"accessType": "OPEN"}})  # guests still join without being admitted
+
+    def test_finished_recordings_are_listed_with_their_room(self):
+        from datetime import datetime, timezone
+
+        def http(method, url, headers=None, data=None, params=None, json=None):
+            if url.endswith("/conferenceRecords"):
+                return {"conferenceRecords": [{"name": "conferenceRecords/r1", "space": "spaces/s1",
+                                               "startTime": "2026-10-20T07:00:00Z", "endTime": "2026-10-20T08:00:00Z"}]}
+            if url.endswith("/recordings"):
+                return {"recordings": [{"name": "conferenceRecords/r1/recordings/a", "state": "FILE_GENERATED",
+                                        "driveDestination": {"file": "drive123"}},
+                                       {"name": "conferenceRecords/r1/recordings/b", "state": "STARTED"}]}
+            if url.endswith("/spaces/s1"):
+                return {"meetingCode": "abc-defg-hij"}
+            return {}
+        recs = self.gc(http).meet_recordings("enc", datetime(2026, 10, 20, tzinfo=timezone.utc))
+        self.assertEqual(recs, [{"record": "conferenceRecords/r1", "recording": "conferenceRecords/r1/recordings/a",
+                                 "meeting_code": "abc-defg-hij", "start": "2026-10-20T07:00:00Z", "end": "2026-10-20T08:00:00Z",
+                                 "file_id": "drive123"}])
+
+
 class MilestoneProgressTests(unittest.TestCase):
     """Same rule as the dashboard's milestoneProgress (src/components/dashboard/insights.ts)."""
 

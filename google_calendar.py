@@ -31,7 +31,12 @@ STUDIO_SCOPES = ("openid email https://www.googleapis.com/auth/calendar.events "
                  "https://www.googleapis.com/auth/meetings.space.settings "
                  "https://www.googleapis.com/auth/meetings.space.created "
                  "https://www.googleapis.com/auth/gmail.send")  # created: make Meet rooms that anyone with the link can join  # create meetings on the studio calendar
+# A paid Google account that hosts the program's Meet rooms, so recordings land in its Drive and the bot picks them up.
+# Only these: create rooms (and read their meeting records), and read files Google Meet itself saved in Drive.
+MEETHOST_SCOPES = ("openid email https://www.googleapis.com/auth/meetings.space.created "
+                   "https://www.googleapis.com/auth/drive.meet.readonly")
 MEET_API = "https://meet.googleapis.com/v2/spaces/{code}"
+MEET_V2 = "https://meet.googleapis.com/v2"
 GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
 SYNC_DAYS = 14
 
@@ -46,6 +51,17 @@ def connect_url(client_id: str | None, redirect_uri: str | None, secret: str | N
     state = integrations.sign_state({"f": founder_id, "s": "studio" if studio else startup_id, "p": "google-studio" if studio else "google"}, secret)
     return AUTH_URL + "?" + urlencode({
         "client_id": client_id, "redirect_uri": redirect_uri, "response_type": "code", "scope": STUDIO_SCOPES if studio else SCOPES,
+        "access_type": "offline", "prompt": "consent", "state": state, "include_granted_scopes": "true",
+    })
+
+
+def meethost_connect_url(client_id: str | None, redirect_uri: str | None, secret: str | None, slack_id: str) -> str | None:
+    """Consent screen for the Meet host account (a developer connects it once from the Home tab)."""
+    if not (client_id and redirect_uri and secret and slack_id):
+        return None
+    state = integrations.sign_state({"f": slack_id, "s": "meethost", "p": "google-meethost"}, secret)
+    return AUTH_URL + "?" + urlencode({
+        "client_id": client_id, "redirect_uri": redirect_uri, "response_type": "code", "scope": MEETHOST_SCOPES,
         "access_type": "offline", "prompt": "consent", "state": state, "include_granted_scopes": "true",
     })
 
@@ -125,25 +141,79 @@ class GoogleCalendar:
         raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
         return self.http("POST", GMAIL_SEND_URL, headers={"Authorization": f"Bearer {token}"}, json={"raw": raw})
 
-    def create_open_meet(self, encrypted_refresh: str) -> str | None:
+    def create_open_meet(self, encrypted_refresh: str, auto_record: bool = False) -> str | None:
         """
         Creates a Meet room whose access type is OPEN from the start: anyone with the link joins without the host admitting
         them. (Changing a Calendar-created room afterwards is refused by Google for this kind of account.)
+        auto_record asks Google to record from the start (only some subscriptions allow it; refused -> a plain open room).
         Returns the meeting link, or None if the account hasn't granted the permission or Google refuses.
         """
         token = self.access_token(encrypted_refresh)
         if not token:
             return None
+        config = {"accessType": "OPEN"}
+        if auto_record:
+            config["artifactConfig"] = {"recordingConfig": {"autoRecordingGeneration": "ON"}}
         for attempt in range(3):  # Google's Meet service is occasionally slow; a retry beats falling back to a lobby room
             try:
                 space = self.http("POST", "https://meet.googleapis.com/v2/spaces", headers={"Authorization": f"Bearer {token}"},
-                                  json={"config": {"accessType": "OPEN"}})
+                                  json={"config": config})
                 return space.get("meetingUri")
             except Exception as e:  # noqa: BLE001
                 print(f"[Open Meet Warning] attempt {attempt + 1}: {e}")
+                if "artifactConfig" in config and ("400" in str(e) or "403" in str(e)):
+                    config.pop("artifactConfig")  # this subscription can't auto-record: still make the open room
+                    continue
                 if "403" in str(e) or "401" in str(e):
                     break  # a permission problem won't fix itself by retrying
         return None
+
+    def meet_recordings(self, encrypted_refresh: str, since) -> list:
+        """Recordings Google has finished saving for rooms this account created, for meetings that ended after `since`:
+        [{record, meeting_code, start, end, file_id}]. [] when nothing (or no permission)."""
+        token = self.access_token(encrypted_refresh)
+        if not token:
+            return []
+        auth = {"Authorization": f"Bearer {token}"}
+        out, page = [], None
+        while True:
+            params = {"filter": f'end_time>="{since.strftime("%Y-%m-%dT%H:%M:%SZ")}"', "pageSize": 50}
+            if page:
+                params["pageToken"] = page
+            data = self.http("GET", f"{MEET_V2}/conferenceRecords", headers=auth, params=params)
+            for rec in data.get("conferenceRecords") or []:
+                files = self.http("GET", f"{MEET_V2}/{rec['name']}/recordings", headers=auth).get("recordings") or []
+                done = [r for r in files if r.get("state") == "FILE_GENERATED" and (r.get("driveDestination") or {}).get("file")]
+                if not done:
+                    continue
+                code = ""
+                try:
+                    code = self.http("GET", f"{MEET_V2}/{rec['space']}", headers=auth).get("meetingCode", "")
+                except Exception as e:  # noqa: BLE001 - still worth processing without the calendar match
+                    print(f"[Meet Recording Warning] space: {e}")
+                out += [{"record": rec["name"], "recording": r["name"], "meeting_code": code, "start": rec.get("startTime"),
+                         "end": rec.get("endTime"), "file_id": r["driveDestination"]["file"]} for r in done]
+            page = data.get("nextPageToken")
+            if not page:
+                return out
+
+    def download_drive_file(self, encrypted_refresh: str, file_id: str, path: str, max_bytes: int = 2 * 1024 ** 3) -> int:
+        """Streams a Drive file (a Meet recording) to `path` without holding it in memory. Returns its size."""
+        import requests
+        token = self.access_token(encrypted_refresh)
+        if not token:
+            raise RuntimeError("could not read the Meet host token")
+        size = 0
+        with requests.get(f"https://www.googleapis.com/drive/v3/files/{file_id}", params={"alt": "media"},
+                          headers={"Authorization": f"Bearer {token}"}, stream=True, timeout=600) as r:
+            r.raise_for_status()
+            with open(path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=1024 * 1024):
+                    size += len(chunk)
+                    if size > max_bytes:
+                        raise ValueError("that recording is too big")
+                    f.write(chunk)
+        return size
 
     def open_meet(self, encrypted_refresh: str, meet_code: str) -> bool:
         """

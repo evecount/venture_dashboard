@@ -238,6 +238,16 @@ def studio_row() -> dict | None:
         return None
 
 
+def meethost_row() -> dict | None:
+    """The paid Google account that hosts Meet rooms (recordings land in its Drive). None when not connected."""
+    try:
+        rows = supabase.table("studio_calendar").select("*").eq("id", "meethost").execute().data if supabase else []
+        return rows[0] if rows else None
+    except Exception as e:
+        print(f"[Meet Host Warning] {e}")
+        return None
+
+
 def studio_connected() -> bool:
     return studio_row() is not None
 
@@ -1859,6 +1869,11 @@ def capture_meeting(user_id: str, role: str, f: dict, text: str, say):
         say("I couldn't make out any speech in that recording. Is it the right file?")
         return
     _awaiting.pop(user_id, None)
+    deliver_notes(user_id, role, title, transcript, say)
+
+
+def deliver_notes(user_id: str, role: str, title: str, transcript: str, say):
+    """Notes from a transcript, the transcript itself as a file, and an offer to save them. `say` posts to their DM."""
     startups = [r["name"] for r in (supabase.table("startups").select("name").execute().data or [])] if supabase else []
     try:
         notes = meeting_capture.summarize(transcript, title, startups, ai_client, FAST_AI_MODEL or AI_MODEL)
@@ -1866,7 +1881,7 @@ def capture_meeting(user_id: str, role: str, f: dict, text: str, say):
         print(f"[Meeting Capture Error] summary: {e}")
         notes = ""
     try:  # the full transcript as a file they can keep or search (needs the files:write scope)
-        chan = getattr(say, "channel", None) or app.client.conversations_open(users=user_id)["channel"]["id"]
+        chan = getattr(say, "channel", None) or getattr(say, "dm_channel", None) or app.client.conversations_open(users=user_id)["channel"]["id"]
         app.client.files_upload_v2(channel=chan, filename=f"Transcript - {title[:60]}.txt", title=f"Transcript: {title}",
                                    content=transcript)
     except Exception as e:
@@ -1879,6 +1894,84 @@ def capture_meeting(user_id: str, role: str, f: dict, text: str, say):
     body = f"📝 *Notes: {title}*\n{notes}\n\n{ask}"
     say(body)
     memory.log(user_id, "assistant", body[:4000])  # so "save" (or "change X") is understood next
+
+
+class _DM:
+    """A `say` for messages the bot starts itself: posts to the person's DM and remembers that channel (for files)."""
+
+    def __init__(self, uid: str):
+        self.uid, self.dm_channel = uid, None
+
+    def __call__(self, text: str = "", **kw):
+        res = app.client.chat_postMessage(channel=self.uid, text=text, **kw)
+        self.dm_channel = self.dm_channel or res.get("channel")
+        return res
+
+
+def process_meet_recordings():
+    """Every few minutes: recordings the Meet host account saved for rooms it created -> transcript and notes for whoever
+    set the meeting up (the developers when nobody did). Each recording is handled once."""
+    host, studio = meethost_row(), studio_row()
+    if not (gcal and host and SLACK_BOT_TOKEN):
+        return
+    now = datetime.now(timezone.utc)
+    try:
+        found = gcal.meet_recordings(host["refresh_token"], now - timedelta(hours=24))
+    except Exception as e:
+        print(f"[Meet Recording Warning] {e}")
+        return
+    for rec in found:
+        key = f"meetrec:{rec['recording']}"
+        if alert_seen(key):
+            continue
+        alert_mark(key)  # first, so a slow or failed job never runs (and bills) twice
+        threading.Thread(target=_process_recording, args=(rec, host, studio), daemon=True).start()
+
+
+def _process_recording(rec: dict, host: dict, studio: dict | None):
+    import tempfile
+    title, uid = "a recorded meeting", None
+    try:  # which of our meetings it was: the studio event carrying this room's link
+        start = parse_ts(rec["start"]) if rec.get("start") else datetime.now(timezone.utc) - timedelta(hours=3)
+        events = gcal.events(studio["refresh_token"], start - timedelta(hours=2), start + timedelta(hours=4), only_ours=True) if studio else []
+        ev = next((e for e in events or [] if rec.get("meeting_code") and rec["meeting_code"] in json.dumps(e)), None)
+        if ev:
+            title = ev.get("summary") or title
+            uid = ((ev.get("extendedProperties") or {}).get("private") or {}).get("requester")
+    except Exception as e:
+        print(f"[Meet Recording Warning] matching the event: {e}")
+    targets = [uid] if uid else [r["slack_user_id"] for r in (supabase.table("mentors").select("email,slack_user_id").execute().data or [])
+                                 if (r.get("email") or "").lower() in DEV_EMAILS and r.get("slack_user_id")]
+    if not targets:
+        return
+    say = _DM(targets[0])
+    path = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
+    try:
+        size = gcal.download_drive_file(host["refresh_token"], rec["file_id"], path)
+        say(f"🎥 The recording of *{title}* is in (about {max(1, size // (2 * 1024 * 1024))} min of video). Transcribing it now; "
+            "the notes will be here in a few minutes.")
+        transcript = ""
+        if SPEECHMATICS_API_KEY:
+            try:
+                transcript = meeting_capture.transcribe_speechmatics(path, "meeting.mp4", SPEECHMATICS_API_KEY, voice_hints(),
+                                                                     SPEECHMATICS_MODEL)
+            except Exception as e:
+                print(f"[Meet Recording Warning] Speechmatics failed: {e}")
+        if not transcript and GEMINI_API_KEY and size <= 150 * 1024 * 1024:  # the fallback holds the file in memory
+            with open(path, "rb") as f:
+                transcript = meeting_capture.transcribe(f.read(), "audio/mp4", GEMINI_API_KEY, MEETING_MODEL, voice_hints())
+        if not transcript:
+            say(f"I couldn't transcribe the recording of *{title}*. It's still in the Meet host's Drive (Meet Recordings).")
+            return
+        deliver_notes(targets[0], get_role(targets[0]) or "mentor", title, transcript, say)
+    except Exception as e:
+        print(f"[Meet Recording Error] {e}")
+        say(f"I couldn't process the recording of *{title}* ({str(e)[:120]}). It's still in the Meet host's Drive.")
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
 
 
 def send_after_meeting_prompts():
@@ -1906,6 +1999,16 @@ def send_after_meeting_prompts():
         if alert_seen(key):
             continue
         title = ev.get("summary") or "your meeting"
+        if meethost_row() and "meet.google.com" in json.dumps(ev):
+            text = (f"How did *{title}* go? 🎥 If it was recorded in Meet, I'll send the notes here as soon as Google saves the "
+                    "recording. Otherwise, tell me the outcomes, or send me any recording you made, and I'll write them up.")
+            try:
+                app.client.chat_postMessage(channel=uid, text=text)
+                memory.log(uid, "assistant", text)
+                alert_mark(key)
+            except Exception as e:
+                print(f"[After Meeting Error] {uid}: {e}")
+            continue
         text = (f"How did *{title}* go? 🎙 If you recorded it (a phone voice memo, a Meet recording or any audio or video file), "
                 "send it here and I'll transcribe it and write up the summary, decisions and action items. "
                 "Or just tell me the outcomes and I'll note them.\n_Please only send recordings everyone in the meeting agreed to._")
@@ -2513,7 +2616,11 @@ def handle_confirm_meeting(ack, body, client):
         begin, end = parse_ts(m["begin"]), parse_ts(m["end"])
         description = (f"Requested by {m['requester']} through VentureOS. Join with the Google account this invitation was sent to.")
         only = bool(m.get("calendar_only"))
-        open_link = gcal.create_open_meet(studio["refresh_token"]) if meetings.is_virtual(m["where"]) and not only else None
+        open_link = None
+        if meetings.is_virtual(m["where"]) and not only:
+            host = meethost_row()  # the paid account hosts the room, so its recording lands in that Drive
+            open_link = gcal.create_open_meet(host["refresh_token"], auto_record=True) if host else None
+            open_link = open_link or gcal.create_open_meet(studio["refresh_token"])
         event = gcal.create_event(studio["refresh_token"], meetings.build_event_body(
             m["title"], begin, end, m["where"], m["attendees"], description, m.get("repeat"), m.get("requester_slack"),
             meet_link=open_link, studio_wide=only))
@@ -2553,7 +2660,31 @@ def handle_cancel_meeting(ack, body, client):
 
 
 def studio_connect_blocks(slack_id: str) -> list:
-    """Mentor Home: connect the shared studio calendar once, or reconnect it (e.g. to grant a new permission)."""
+    """Mentor Home: the studio calendar, then (developers) the paid Meet host account."""
+    blocks = _studio_calendar_blocks(slack_id)
+    return blocks + meethost_blocks(slack_id) if blocks else blocks
+
+
+def meethost_blocks(slack_id: str) -> list:
+    """Developers only: connect the paid Google account that hosts Meet rooms, so recordings are written up automatically."""
+    if not (gcal and is_developer(slack_id)):
+        return []
+    url = google_calendar.meethost_connect_url(GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI, STATE_SECRET, slack_id)
+    row = meethost_row()
+    text = ("*Meet host* 🎥" + chr(10) + (
+        f"Meet rooms are hosted by *{row.get('account')}*: guests join without waiting, and recordings it saves to Drive are "
+        "transcribed and written up for whoever set the meeting up." if row else
+        "Connect a paid Google account (one that can record Meet) and it will host the Meet rooms I create: guests still join "
+        "without waiting, and when a meeting is recorded I transcribe it and write up the notes automatically."))
+    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+    if url:
+        blocks.append({"type": "actions", "elements": [{"type": "button", **({} if row else {"style": "primary"}),
+                       "text": {"type": "plain_text", "text": "Reconnect Google paid account" if row else "Connect Google paid account"},
+                       "url": url, "action_id": "connect_meethost"}]})
+    return blocks
+
+
+def _studio_calendar_blocks(slack_id: str) -> list:
     url = studio_link(slack_id)
     if not url:
         return []
@@ -2715,6 +2846,11 @@ def handle_disconnect_my_calendar(ack, body, client):
     publish_home(user_id, client)
 
 
+@app.action("connect_meethost")
+def handle_connect_meethost(ack):
+    ack()  # the button opens Google's consent page; nothing to do here
+
+
 @app.action("connect_studio")
 def handle_connect_studio(ack):
     ack()  # link button
@@ -2780,6 +2916,21 @@ def process_google_pending():
                     f"✅ *Your calendar is connected* ({got.get('email')}). I'll use it to suggest meeting times and flag clashes, "
                     "and other mentors can see your schedule on the dashboard. Events you mark private in Google show as Busy."))
                 threading.Thread(target=lambda: mentor_calendars.sync_all(supabase, gcal), daemon=True).start()
+                publish_home(sid, app.client)
+                continue
+            if item.get("kind") == "meethost":
+                sid = item.get("slack_user_id")
+                if not (sid and is_developer(sid)):
+                    continue  # only a developer connects the Meet host account
+                if not got.get("refresh_token"):
+                    raise RuntimeError("Google returned no refresh token")
+                supabase.table("studio_calendar").upsert({
+                    "id": "meethost", "account": got["email"], "connected_by": sid,
+                    "refresh_token": google_calendar.encrypt_token(got["refresh_token"], STATE_SECRET)}).execute()
+                app.client.chat_postMessage(channel=sid, text=(
+                    f"✅ *Meet host connected* ({got['email']}). New Meet rooms I create are hosted by this account; guests "
+                    "still join without waiting. When a meeting is recorded, I'll transcribe it and send the notes to whoever "
+                    "set it up, a few minutes after Google saves the recording."))
                 publish_home(sid, app.client)
                 continue
             if item.get("kind") == "studio":
@@ -4084,6 +4235,7 @@ if BackgroundScheduler:
     scheduler.add_job(beat, "interval", seconds=30, max_instances=1)
     scheduler.add_job(send_meeting_reminders, "interval", minutes=5, max_instances=1)
     scheduler.add_job(send_after_meeting_prompts, "interval", minutes=5, max_instances=1)
+    scheduler.add_job(process_meet_recordings, "interval", minutes=5, max_instances=1)
     scheduler.add_job(notify_new_milestones, "interval", minutes=1, max_instances=1)
     # Copy upcoming studio meetings into studio_events for the dashboard (only the bot's own events).
     scheduler.add_job(lambda: studio_events.sync(supabase, studio_events_fn(studio_events.WINDOW_DAYS, strict=True)),
