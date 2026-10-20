@@ -353,6 +353,15 @@ class MeetingCaptureTests(unittest.TestCase):
         self.assertEqual(calls[-1], ("DELETE", "/v1beta/files/abc"))
 
 
+class SpeechmaticsTests(unittest.TestCase):
+    def test_words_become_timed_speaker_turns(self):
+        import meeting_capture as mc
+        w = lambda c, spk, t, kind="word": {"type": kind, "start_time": t, "alternatives": [{"content": c, "speaker": spk}]}  # noqa: E731
+        out = mc.lines_from_words([w("Hi", "S1", 0.2), w("Takshma", "S1", 0.5), w(".", "S1", 0.9, "punctuation"),
+                                   w("We're", "S2", 65.0), w("at", "S2", 65.3), w("24", "S2", 65.5)])
+        self.assertEqual(out, "[00:00] S1: Hi Takshma.\n[01:05] S2: We're at 24")
+
+
 class MilestoneProgressTests(unittest.TestCase):
     """Same rule as the dashboard's milestoneProgress (src/components/dashboard/insights.ts)."""
 

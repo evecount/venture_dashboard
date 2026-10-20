@@ -93,6 +93,9 @@ AI_MODEL = os.environ.get("AI_MODEL") or ("gemini-3.8-flash" if GEMINI_API_KEY e
 FAST_AI_MODEL = os.environ.get("AI_FAST_MODEL") or ("gemini-3.5-flash-lite" if GEMINI_API_KEY else "")
 # Meeting recordings: the cheapest model that transcribes well (about US$0.06 per hour of audio on 3.5 Flash-Lite).
 MEETING_MODEL = os.environ.get("MEETING_MODEL") or FAST_AI_MODEL or AI_MODEL
+# Preferred for meeting recordings when set: Speechmatics batch (Melia 1, US$0.24/hour, real speaker labels).
+SPEECHMATICS_API_KEY = os.environ.get("SPEECHMATICS_API_KEY", "")
+SPEECHMATICS_MODEL = os.environ.get("SPEECHMATICS_MODEL") or "melia-1"
 
 # Initialize AI Client
 ai_client = (
@@ -1840,7 +1843,14 @@ def capture_meeting(user_id: str, role: str, f: dict, text: str, say):
         data = meeting_capture.download(f, SLACK_BOT_TOKEN)
         say(f"🎧 Got *{name}* (about {meeting_capture.minutes(f, data)} min). Transcribing it now: that takes roughly a minute "
             "per 20 minutes of audio. I'll post the notes here.")
-        transcript = meeting_capture.transcribe(data, meeting_capture.audio_mime(f), GEMINI_API_KEY, MEETING_MODEL, voice_hints())
+        hints, transcript = voice_hints(), ""
+        if SPEECHMATICS_API_KEY:  # better speaker labels and names; Gemini is the fallback
+            try:
+                transcript = meeting_capture.transcribe_speechmatics(data, name, SPEECHMATICS_API_KEY, hints, SPEECHMATICS_MODEL)
+            except Exception as e:
+                print(f"[Meeting Capture Warning] Speechmatics failed, using Gemini: {e}")
+        if not transcript:
+            transcript = meeting_capture.transcribe(data, meeting_capture.audio_mime(f), GEMINI_API_KEY, MEETING_MODEL, hints)
     except Exception as e:
         print(f"[Meeting Capture Error] {e}")
         say(f"I couldn't transcribe *{name}* ({str(e)[:120]}). Could you try again, or tell me the outcomes in a message?")
