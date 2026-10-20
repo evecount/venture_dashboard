@@ -2612,6 +2612,40 @@ def refresh_changed_homes():
 
 # --- GITHUB CONNECTION CONFIRMATION & REPO PICKER ---
 
+_repo_seen: dict = {}  # integration id -> (granted repos, chosen repos) as last seen; empty until the first pass
+
+
+def watch_repo_changes():
+    """
+    A founder changing which repositories the app may see happens on GitHub, and only a webhook updates our copy.
+    Notice it here: refresh their Home tab and the mentors', and pull in the recent work from what is now tracked.
+    """
+    if not (supabase and SLACK_BOT_TOKEN):
+        return
+    try:
+        rows = supabase.table("integrations").select("*").eq("provider", "github").execute().data or []
+    except Exception:
+        return
+    first = not _repo_seen
+    for row in rows:
+        state = (tuple(sorted(row.get("repos") or [])), tuple(sorted(row.get("selected_repos") or [])))
+        before = _repo_seen.get(row["id"])
+        _repo_seen[row["id"]] = state
+        if first or before is None or before == state:
+            continue
+        try:
+            founder = (supabase.table("founders").select("slack_user_id").eq("id", row["founder_id"]).execute().data or [{}])[0]
+            slack_id = founder.get("slack_user_id")
+            print(f"[Repos Changed] {row['account']}: {before} -> {state}")
+            if integrations.monitored_repos(row):
+                # the recent work in the repos now tracked, up to this moment (webhooks only cover what happens from here on)
+                backfill_in_background({**row, "created_at": datetime.now(timezone.utc).isoformat()}, slack_id)
+            for uid in {u for u in [slack_id] + mentor_slack_ids() if u}:
+                publish_home(uid, app.client)
+        except Exception as e:
+            print(f"[Repos Changed Error] {e}")
+
+
 _poll_warned = False
 
 
@@ -3368,6 +3402,7 @@ if BackgroundScheduler:
     scheduler.add_job(audit_deadlines_and_blockers, "cron", hour=9, minute=0)
     scheduler.add_job(poll_new_connections, "interval", seconds=10, max_instances=1)
     scheduler.add_job(refresh_changed_homes, "interval", seconds=15, max_instances=1)
+    scheduler.add_job(watch_repo_changes, "interval", seconds=20, max_instances=1)
     scheduler.add_job(beat, "interval", seconds=30, max_instances=1)
     scheduler.add_job(send_meeting_reminders, "interval", minutes=5, max_instances=1)
     # Copy upcoming studio meetings into studio_events for the dashboard (only the bot's own events).
