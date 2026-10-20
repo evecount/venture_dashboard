@@ -128,3 +128,31 @@ export function isMonitored(
   const effective = chosen.length ? chosen : granted?.length === 1 ? granted : [];
   return !!repoFullName && effective.includes(repoFullName);
 }
+
+/**
+ * A stable id for the signal an event produces, so the same GitHub event delivered twice (two webhooks on one repo, an
+ * app installed twice, a retry) is stored once: the second insert hits the primary key and is dropped.
+ * Pushes are identified by their new head commit, pull requests and issues by number and action.
+ */
+export async function signalDedupeId(
+  startupId: string,
+  event: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  payload: any,
+): Promise<string | null> {
+  const repo = payload?.repository?.full_name;
+  let key: string | null = null;
+  if (event === "push" && payload?.after) key = `push|${payload.after}`;
+  else if (event === "pull_request" && payload?.pull_request?.number)
+    key = `pr|${payload.pull_request.number}|${payload.action}`;
+  else if (event === "issues" && payload?.issue?.number)
+    key = `issue|${payload.issue.number}|${payload.action}`;
+  if (!key || !repo) return null;
+  const digest = new Uint8Array(
+    await crypto.subtle.digest("SHA-1", new TextEncoder().encode(`${startupId}|${repo}|${key}`)),
+  );
+  digest[6] = (digest[6]! & 0x0f) | 0x50;
+  digest[8] = (digest[8]! & 0x3f) | 0x80;
+  const hex = [...digest.slice(0, 16)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}

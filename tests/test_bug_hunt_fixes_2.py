@@ -424,3 +424,15 @@ class SlackLimitTests(unittest.TestCase):
                     self.assertLessEqual(len(bl["text"]["text"]), 150)
                 if bl.get("type") == "section" and isinstance(bl.get("text"), dict):
                     self.assertLessEqual(len(bl["text"]["text"]), 3000)
+
+
+class DigestOverdueTests(unittest.TestCase):
+    def test_overdue_follow_ups_are_labelled_as_such(self):
+        import digest as d
+        from datetime import date
+        blocks = d.build_digest_blocks([], date(2026, 10, 20), [], [
+            {"title": "Old one", "due_date": "2026-10-16", "startups": {"name": "Auvira"}},
+            {"title": "Soon", "due_date": "2026-10-22", "startups": {"name": "Auvira"}}])
+        text = " ".join(bl.get("text", {}).get("text", "") for bl in blocks if bl["type"] == "section")
+        self.assertIn("or overdue", text)
+        self.assertEqual(text.count("overdue"), 2)  # heading + the one late item

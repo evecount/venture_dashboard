@@ -76,3 +76,25 @@ describe("isMonitored with repos removed from the app", () => {
     expect(isMonitored(["a/x"], "a/x", [])).toBe(true); // repo list not loaded yet
   });
 });
+
+describe("signalDedupeId", () => {
+  const push = (after: string) => ({ repository: { full_name: "a/web" }, after });
+  it("is the same for the same event and different for another", async () => {
+    const { signalDedupeId } = await import("@/lib/integrations");
+    const a = await signalDedupeId("s1", "push", push("abc123"));
+    expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(await signalDedupeId("s1", "push", push("abc123"))).toBe(a);
+    expect(await signalDedupeId("s1", "push", push("def456"))).not.toBe(a);
+    expect(await signalDedupeId("s2", "push", push("abc123"))).not.toBe(a);
+  });
+  it("identifies pull requests and issues by number and action, and gives up on anything else", async () => {
+    const { signalDedupeId } = await import("@/lib/integrations");
+    const repo = { full_name: "a/web" };
+    const opened = await signalDedupeId("s", "pull_request", { repository: repo, action: "opened", pull_request: { number: 7 } });
+    const merged = await signalDedupeId("s", "pull_request", { repository: repo, action: "closed", pull_request: { number: 7 } });
+    expect(opened).not.toBe(merged);
+    expect(await signalDedupeId("s", "issues", { repository: repo, action: "opened", issue: { number: 3 } })).toBeTruthy();
+    expect(await signalDedupeId("s", "star", { repository: repo })).toBeNull();
+    expect(await signalDedupeId("s", "push", { repository: repo })).toBeNull(); // no head commit
+  });
+});

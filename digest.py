@@ -113,8 +113,9 @@ def build_digest_blocks(summaries: list, today: date, meetings: list | None = No
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Coming up this week*" + NL + NL.join(lines)}})
     due = [t for t in (tasks or []) if t.get("due_date") and str(t["due_date"]) <= (today + timedelta(days=7)).isoformat()]
     if due:
-        rows = [f"• {t['title']} · {(t.get('startups') or {}).get('name', 'startup')} · due {syllabus.friendly_date(t['due_date'])}" for t in due[:8]]
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Follow-ups due this week*" + NL + NL.join(rows)}})
+        rows = [f"• {t['title']} · {(t.get('startups') or {}).get('name', 'startup')} · due {syllabus.friendly_date(t['due_date'])}"
+                + (" ⚠️ overdue" if str(t["due_date"])[:10] < today.isoformat() else "") for t in due[:8]]
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Follow-ups due this week or overdue*" + NL + NL.join(rows)}})
     blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text":
                    "Ask me about any startup or founder, for example _\"how is Auvira doing?\"_ or _\"who hasn't checked in?\"_"}]})
     return blocks + (footer or [])

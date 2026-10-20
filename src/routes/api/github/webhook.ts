@@ -1,6 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { admin } from "@/lib/supabase-admin";
-import { isMonitored, mapGithubEvent, mergeRepos, verifyGithubSignature } from "@/lib/integrations";
+import {
+  isMonitored,
+  mapGithubEvent,
+  mergeRepos,
+  signalDedupeId,
+  verifyGithubSignature,
+} from "@/lib/integrations";
 
 type Integration = { id: string; startup_id: string; repos: string[] | null; selected_repos: string[] | null };
 type Staged = { repos: string[] | null };
@@ -59,7 +65,14 @@ export const Route = createFileRoute("/api/github/webhook")({
         }
         const signal = mapGithubEvent(event, payload, integration.startup_id);
         if (!signal) return new Response("ignored", { status: 202 });
-        const res = await admin("signals", { method: "POST", body: signal, prefer: "return=minimal" });
+        // The same event can arrive twice (two webhooks on one repo, retries): a stable id makes the second insert a no-op.
+        const signalId = await signalDedupeId(integration.startup_id, event, payload);
+        const res = await admin("signals", {
+          method: "POST",
+          body: signalId ? { id: signalId, ...signal } : signal,
+          prefer: "return=minimal",
+        });
+        if (!res.ok && res.status === 409) return new Response("duplicate", { status: 200 });
         return new Response(res.ok ? "ok" : "store failed", { status: res.ok ? 200 : 500 });
       },
     },
