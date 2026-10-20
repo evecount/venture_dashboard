@@ -153,7 +153,8 @@ class HomeOpenLinkTests(unittest.TestCase):
     def test_unregistered_user_opening_home_is_linked_by_email_first(self):
         client = mock.MagicMock()
         with mock.patch.object(b, "get_role", return_value=None), \
-                mock.patch.object(b, "slack_email", return_value="james@mambapartners.com"), \\n                mock.patch.object(b, "has_unlinked_invite", return_value=True), 
+                mock.patch.object(b, "slack_email", return_value="james@mambapartners.com"), \
+                mock.patch.object(b, "has_unlinked_invite", return_value=True), \
                 mock.patch.object(b, "onboard_member", return_value=True) as onboard, \
                 mock.patch.object(b, "publish_home") as publish:
             b.handle_app_home_opened({"user": "UJAMES", "tab": "home"}, client)
