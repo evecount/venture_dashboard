@@ -206,6 +206,20 @@ def match_repos(wanted: list, granted: list) -> dict:
     return {"chosen": chosen, "ambiguous": ambiguous, "missing": missing}
 
 
+def keep_implicit_choice(before: tuple | None, row: dict) -> list | None:
+    """
+    A founder who shared exactly one repository is tracked without choosing. When they later share more, that one repository
+    would silently stop being tracked (several shared and none chosen). Returns [that repository] so tracking carries on.
+    """
+    if not before:
+        return None
+    old_repos, old_selected = before
+    now = list(row.get("repos") or [])
+    if len(old_repos) == 1 and not old_selected and not row.get("selected_repos") and len(now) >= 2 and old_repos[0] in now:
+        return [old_repos[0]]
+    return None
+
+
 def build_repo_selector(row: dict, headline: str, compact: bool = False) -> list:
     """
     One section: the headline text with a multi-select of the granted repos beside it (the chosen ones preselected).

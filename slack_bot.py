@@ -2680,6 +2680,14 @@ def watch_repo_changes():
     for row in rows:
         state = (tuple(sorted(row.get("repos") or [])), tuple(sorted(row.get("selected_repos") or [])))
         before = _repo_seen.get(row["id"])
+        keep = None if first else integrations.keep_implicit_choice(before, row)
+        if keep:  # they shared more repos: carry on tracking the one they had
+            try:
+                supabase.table("integrations").update({"selected_repos": keep}).eq("id", row["id"]).execute()
+                row = {**row, "selected_repos": keep}
+                state = (state[0], tuple(keep))
+            except Exception as e:
+                print(f"[Repos Changed Warning] {e}")
         _repo_seen[row["id"]] = state
         if first or before is None or before == state:
             continue

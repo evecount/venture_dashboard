@@ -36,6 +36,16 @@ class MatchTests(unittest.TestCase):
         self.assertEqual(i.match_repos(["nothing"], GRANTED)["missing"], ["nothing"])
 
 
+class KeepTests(unittest.TestCase):
+    def test_sharing_more_repos_keeps_the_one_already_tracked(self):
+        row = {"repos": ["a/x", "a/y"], "selected_repos": None}
+        self.assertEqual(i.keep_implicit_choice((("a/x",), ()), row), ["a/x"])
+        self.assertIsNone(i.keep_implicit_choice((("a/x",), ("a/x",)), row))        # they had chosen: leave it
+        self.assertIsNone(i.keep_implicit_choice(((), ()), row))                     # nothing was tracked before
+        self.assertIsNone(i.keep_implicit_choice((("a/z",), ()), row))               # the old one is gone
+        self.assertIsNone(i.keep_implicit_choice((("a/x",), ()), {"repos": ["a/x"], "selected_repos": None}))  # still one repo
+
+
 class ChooseTests(unittest.TestCase):
     def setUp(self):
         row = {"id": "i1", "founder_id": "f1", "repos": GRANTED, "selected_repos": None, "account": "acme", "founders": {"name": "A"}}
