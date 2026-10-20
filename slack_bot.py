@@ -296,7 +296,7 @@ agent = (Agent(ai_client, AI_MODEL, supabase, memory, connect_url=github_link, c
                 studio_connected=studio_connected, studio_events=studio_events_fn,
                 settings=settings, channel_context=channels.context_for,
                 awareness=lambda ident: awareness_text(ident), routines=routine_store,
-                repos_changed=lambda row, slack_id: (backfill_soon(row, slack_id), publish_home(slack_id, app.client)))
+                repos_changed=lambda row, slack_id: after_repo_choice(row, slack_id))
          if (ai_client and supabase) else None)
 
 # Initialize Slack Bolt App
@@ -1189,7 +1189,62 @@ def connect_blocks(founder_id: str, startup_id: str) -> list:
     ] + calendar_connect_blocks(founder_id, startup_id)
 
 
+def after_repo_choice(row: dict, founder_slack_id: str | None, also_publish: str | None = None):
+    """
+    The tracked repositories were just chosen (Home dropdown, chat, or a mentor). Tell the watcher it already knows, pull in the
+    recent work of what is now tracked (up to this moment: webhooks only covered what was tracked at the time), refresh Home tabs.
+    """
+    _repo_seen[row["id"]] = (tuple(sorted(row.get("repos") or [])), tuple(sorted(row.get("selected_repos") or [])))
+    if integrations.monitored_repos(row):
+        backfill_in_background({**row, "created_at": datetime.now(timezone.utc).isoformat()}, founder_slack_id)
+    for uid in {u for u in (founder_slack_id, also_publish) if u}:
+        publish_home(uid, app.client)
+
+
 _repo_slots: dict = {}  # integration id -> extra empty "Select repo N" rows the founder has opened with the plus button
+
+
+def mentor_repo_blocks(room: int) -> list:
+    """
+    Mentor Home: every startup's GitHub connection with the same repo dropdowns the founders get, so a mentor can choose
+    which repositories count without messaging the bot. Fits inside `room` blocks (Slack allows 100 per Home tab).
+    """
+    if room < 4 or not supabase:
+        return []
+    try:
+        rows = supabase.table("integrations").select("*,startups(name)").eq("provider", "github").execute().data or []
+        names = [s["name"] for s in (supabase.table("startups").select("id,name").order("name").execute().data or [])]
+    except Exception as e:
+        print(f"[Mentor Repos Warning] {e}")
+        return []
+    if not rows:
+        return []
+    blocks = [{"type": "divider"}, {"type": "section", "text": {"type": "mrkdwn", "text": (
+        "*GitHub repositories* 🔌" + chr(10) + "Choose which repositories count toward each startup's progress. "
+        "Founders can change theirs too, or you can just ask me.")}}]
+    left, skipped, connected = room - len(blocks) - 1, 0, set()
+    for row in sorted(rows, key=lambda r: ((r.get("startups") or {}).get("name") or "")):
+        name = (row.get("startups") or {}).get("name") or "a startup"
+        connected.add(name)
+        tracked = integrations.monitored_repos(row)
+        head = f"*{name}*" + (f" ({row['account']})" if row.get("account") else "") + " · " + (
+            "tracking " + ", ".join(f"*{r}*" for r in tracked) if tracked else
+            "no repository chosen yet" if len(row.get("repos") or []) > 1 else "no repositories shared")
+        slots = integrations.build_repo_slots(row, head, _repo_slots.get(row["id"], 0))
+        if len(slots) > left:
+            skipped += 1
+            continue
+        blocks += slots
+        left -= len(slots)
+    notes = []
+    missing = [n for n in names if n not in connected]
+    if missing:
+        notes.append("GitHub not connected: " + ", ".join(missing))
+    if skipped:
+        notes.append(f"{skipped} more startup{'s' if skipped != 1 else ''} don't fit here. Ask me to set their repositories.")
+    if notes and left >= 1:
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(notes)}]})
+    return blocks
 
 
 def build_connections_blocks(founder_id: str, startup_id: str, rows: list) -> list:
@@ -1293,7 +1348,7 @@ HOW_TO = {
             "_\"Set a milestone for Auvira: Landing page live by Oct 20. Goals: copy approved, page published\"_ "
             "(add _\"by Arthur\"_ to credit another mentor; founders can only tick its goals)",
             "_\"Assign Auvira to the GTM stream\"_  ·  _\"Rename SharedOut to Acme\"_ (I show a card first)",
-            "_\"Track the Bazi repo for Scripting Destiny\"_  ·  _\"Track all of Takshma's repos\"_ (picks from what the founder shared with the GitHub app)"]),
+            "_\"Track the Bazi repo for Scripting Destiny\"_  ·  _\"Track all of Takshma's repos\"_ (picks from what the founder shared with the GitHub app), or use the dropdowns under *GitHub repositories* on this Home tab"]),
         ("📄 Custom syllabus for a participant", [
             "*1.* Attach the syllabus PDF in a DM to me. The file name or your message should say _syllabus_ or _curriculum_",
             "*2.* I read it, work out whose it is (or ask you to pick the startup) and show a preview of what I'd add",
@@ -1459,9 +1514,11 @@ def publish_home(slack_user_id: str, client=None):
                 publish_dev_home(slack_user_id, client)
                 return
             mine = [t for t in memory.open_tasks() if t.get("owner_slack_id") == slack_user_id]
-            blocks = (build_mentor_blocks(safe_snapshot(), title="Mentor view", tasks=mine, slack_user_id=slack_user_id,
-                                          footer_button=False)
-                      + studio_connect_blocks(slack_user_id) + my_calendar_blocks(slack_user_id) + how_to_blocks("mentor"))
+            base = (build_mentor_blocks(safe_snapshot(), title="Mentor view", tasks=mine, slack_user_id=slack_user_id,
+                                        footer_button=False)
+                    + studio_connect_blocks(slack_user_id) + my_calendar_blocks(slack_user_id))
+            howto = how_to_blocks("mentor")
+            blocks = base + mentor_repo_blocks(97 - len(base) - len(howto)) + howto
             if developer:
                 blocks.insert(1, dev_home.mode_switch("mentor"))
             blocks = add_to_top_row(blocks, dashboard_button_element(slack_user_id=slack_user_id))
@@ -2787,9 +2844,7 @@ def handle_select_repos(ack, body, client):
         if (body.get("container") or {}).get("type") == "message":  # picked from a DM: update that message
             client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text="Repositories updated",
                                blocks=integrations.build_repo_selector(row, headline))
-        publish_home(user_id, client)  # the Home tab always reflects the choice straight away
-        if chosen:
-            backfill_soon(row, user_id)
+        after_repo_choice(row, user_id)  # Home reflects the choice straight away, and recent work is pulled in once
     except Exception as e:
         print(f"[Repo Select Error] {e}")
 
@@ -2825,10 +2880,8 @@ def handle_repo_slot(ack, body, client):
             return
         supabase.table("integrations").update({"selected_repos": chosen or None}).eq("id", integration_id).execute()
         row["selected_repos"] = chosen or None
-        publish_home(user_id, client)
         founder = (supabase.table("founders").select("slack_user_id").eq("id", row["founder_id"]).execute().data or [{}])[0]
-        if chosen:
-            backfill_soon(row, founder.get("slack_user_id") or user_id)
+        after_repo_choice(row, founder.get("slack_user_id"), also_publish=user_id)
     except Exception as e:
         print(f"[Repo Slot Error] {e}")
 
