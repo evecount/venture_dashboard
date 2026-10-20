@@ -1222,6 +1222,20 @@ def after_repo_choice(row: dict, founder_slack_id: str | None, also_publish: str
 _repo_slots: dict = {}  # integration id -> extra empty "Select repo N" rows the founder has opened with the plus button
 
 
+def ask_more_repos_button(row: dict) -> dict | None:
+    """Mentor Home: a plus that asks the founder (after Slack's own confirm) to share more repositories on GitHub.
+    Only the founder can change what their GitHub account shares with the app."""
+    founder = (row.get("founders") or {}).get("name") or "the founder"
+    if not (row.get("founders") or {}).get("slack_user_id"):
+        return None
+    return {"type": "button", "text": {"type": "plain_text", "text": "➕", "emoji": True}, "action_id": "ask_share_repos",
+            "value": row["id"], "confirm": {
+                "title": {"type": "plain_text", "text": "Ask for more repositories?"},
+                "text": {"type": "mrkdwn", "text": f"Only {founder} can choose which of their GitHub repositories Venture Buddy sees. "
+                                                   f"I'll DM {founder.split()[0]} a link to share more, then you can pick them here."},
+                "confirm": {"type": "plain_text", "text": "Ask them"}, "deny": {"type": "plain_text", "text": "Cancel"}}}
+
+
 def mentor_repo_blocks(room: int) -> list:
     """
     Mentor Home: every startup's GitHub connection with the same repo dropdowns the founders get, so a mentor can choose
@@ -1230,7 +1244,8 @@ def mentor_repo_blocks(room: int) -> list:
     if room < 4 or not supabase:
         return []
     try:
-        rows = supabase.table("integrations").select("*,startups(name)").eq("provider", "github").execute().data or []
+        rows = (supabase.table("integrations").select("*,startups(name),founders(name,slack_user_id)").eq("provider", "github")
+                .execute().data or [])
         names = [s["name"] for s in (supabase.table("startups").select("id,name").order("name").execute().data or [])]
     except Exception as e:
         print(f"[Mentor Repos Warning] {e}")
@@ -1248,7 +1263,7 @@ def mentor_repo_blocks(room: int) -> list:
         head = f"*{name}*" + (f" ({row['account']})" if row.get("account") else "") + " · " + (
             "tracking " + ", ".join(f"*{r}*" for r in tracked) if tracked else
             "no repository chosen yet" if len(row.get("repos") or []) > 1 else "no repositories shared")
-        slots = integrations.build_repo_slots(row, head, _repo_slots.get(row["id"], 0))
+        slots = integrations.build_repo_slots(row, head, _repo_slots.get(row["id"], 0), more=ask_more_repos_button(row))
         if len(slots) > left:
             skipped += 1
             continue
@@ -1283,7 +1298,9 @@ def build_connections_blocks(founder_id: str, startup_id: str, rows: list) -> li
             head += chr(10) + "_Only these count toward your progress. Press ➕ to track another._"
         elif own:
             head += (chr(10) + "_I can only see this one. When you connect GitHub, choose *All repositories* so you can pick any of them here._")
-        blocks += integrations.build_repo_slots(row, head, _repo_slots.get(row["id"], 0))
+        more = ({"type": "button", "text": {"type": "plain_text", "text": "➕", "emoji": True}, "url": github_link(founder_id, startup_id),
+                 "action_id": "share_more_repos"} if own else None)  # opens GitHub to share more repositories with the app
+        blocks += integrations.build_repo_slots(row, head, _repo_slots.get(row["id"], 0), more=more)
         if own:
             blocks.append({"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": "Change repositories"},
                                                           "url": github_link(founder_id, startup_id), "action_id": "connect_github_home"}]})
@@ -2922,6 +2939,43 @@ def handle_repo_slot(ack, body, client):
         after_repo_choice(row, founder.get("slack_user_id"), also_publish=user_id)
     except Exception as e:
         print(f"[Repo Slot Error] {e}")
+
+
+@app.action("share_more_repos")
+def handle_share_more_repos(ack):
+    ack()  # link button: GitHub opens in the browser; the access check picks up new repositories afterwards
+
+
+@app.action("ask_share_repos")
+def handle_ask_share_repos(ack, body, client):
+    """A mentor pressed the plus (and confirmed): DM the founder a link to share more repositories with the GitHub app."""
+    ack()
+    user_id = body["user"]["id"]
+    try:
+        if get_role(user_id) != "mentor":
+            return
+        rows = (supabase.table("integrations").select("*,startups(name),founders(name,slack_user_id)")
+                .eq("id", body["actions"][0]["value"]).execute().data)
+        row = rows[0] if rows else None
+        founder = (row or {}).get("founders") or {}
+        url = github_link(row["founder_id"], row["startup_id"]) if row else None
+        if not (row and founder.get("slack_user_id") and url):
+            client.chat_postMessage(channel=user_id, text="I couldn't reach that founder on Slack. Ask them to press ➕ on their Home tab.")
+            return
+        mentor = (supabase.table("mentors").select("name").eq("slack_user_id", user_id).limit(1).execute().data or [{}])[0].get("name") or "Your mentor"
+        first = (founder.get("name") or "there").split()[0]
+        text = (f"Hey {first}, {mentor} would like more of your GitHub work to count toward "
+                f"*{(row.get('startups') or {}).get('name', 'your startup')}*. Press the button, choose the repositories you're "
+                "working in (or *All repositories*) and save. They'll show up on your *Home* tab to pick.")
+        client.chat_postMessage(channel=founder["slack_user_id"], text=text, blocks=[
+            {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+            {"type": "actions", "elements": [{"type": "button", "style": "primary", "url": url, "action_id": "share_more_repos",
+                                              "text": {"type": "plain_text", "text": "Share more repositories"}}]}])
+        memory.log(founder["slack_user_id"], "assistant", text)
+        client.chat_postMessage(channel=user_id, text=f"Done. I asked {founder.get('name')} to share more GitHub repositories. "
+                                                      "New ones will appear in their dropdown on your Home tab.")
+    except Exception as e:
+        print(f"[Ask Share Repos Error] {e}")
 
 
 @app.action("add_repo_slot")

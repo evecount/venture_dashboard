@@ -220,15 +220,16 @@ def empty_slots(row: dict, extra: int = 0) -> int:
     return min(max(extra, 1 if not chosen else 0), len(repos) - len(chosen))
 
 
-def build_repo_slots(row: dict, headline: str, extra: int = 0) -> list:
+def build_repo_slots(row: dict, headline: str, extra: int = 0, more: dict | None = None) -> list:
     """
     The headline, then one row per tracked repository ("Repo 1 v", "Repo 2 v") and empty "Select repo N v" rows, each a dropdown
-    of the repositories shared with the app. The last row has a plus button that opens the next row.
+    of the repositories shared with the app. The last row has a plus button that opens the next row. When every shared
+    repository is already showing, `more` (a button: share more on GitHub, or ask the founder to) takes the plus's place.
     """
     repos = list(row.get("repos") or [])
     blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": headline}}]
     if not repos:
-        return blocks
+        return blocks + ([{"type": "actions", "block_id": f"slot_{row['id']}_more", "elements": [more]}] if more else [])
     chosen = [r for r in monitored_repos(row) if r in repos]
     empty = empty_slots(row, extra)
     total = len(chosen) + empty
@@ -247,6 +248,8 @@ def build_repo_slots(row: dict, headline: str, extra: int = 0) -> list:
         if i == total - 1 and len(repos) - len(chosen) > empty:
             elements.append({"type": "button", "text": {"type": "plain_text", "text": "➕", "emoji": True},
                              "action_id": "add_repo_slot", "value": row["id"]})
+        elif i == total - 1 and more:
+            elements.append(more)
         blocks.append({"type": "actions", "block_id": f"slot_{row['id']}_{i}", "elements": elements})
     return blocks
 

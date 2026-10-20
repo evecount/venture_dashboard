@@ -116,5 +116,34 @@ class ChooseTests(unittest.TestCase):
         self.assertIn("isn't connected yet", self.agent._choose_repos(self.ident, {"repos": ["x"]}))
 
 
+
+
+class MoreReposButtonTests(unittest.TestCase):
+    MORE = {"type": "button", "action_id": "ask_share_repos", "value": "i1"}
+
+    def test_plus_stays_when_every_shared_repo_is_tracked(self):
+        row = {"id": "i1", "repos": ["a/one"], "selected_repos": ["a/one"]}
+        rows = [b for b in i.build_repo_slots(row, "head", more=self.MORE) if b["type"] == "actions"]
+        self.assertEqual([e.get("action_id") for e in rows[-1]["elements"]], ["repo_slot", "ask_share_repos"])
+
+    def test_the_normal_plus_wins_while_shared_repos_are_left(self):
+        row = {"id": "i1", "repos": ["a/one", "a/two"], "selected_repos": ["a/one"]}
+        rows = [b for b in i.build_repo_slots(row, "head", more=self.MORE) if b["type"] == "actions"]
+        ids = [e.get("action_id") for r in rows for e in r["elements"]]
+        self.assertIn("add_repo_slot", ids)
+        self.assertNotIn("ask_share_repos", ids)
+
+    def test_nothing_shared_still_gets_the_button(self):
+        blocks = i.build_repo_slots({"id": "i1", "repos": []}, "head", more=self.MORE)
+        self.assertEqual(blocks[-1]["elements"], [self.MORE])
+
+    def test_mentor_plus_asks_for_confirmation_and_needs_a_founder_on_slack(self):
+        import slack_bot as b
+        btn = b.ask_more_repos_button({"id": "i1", "founders": {"name": "Wai Leng", "slack_user_id": "U0C9QADP59Q"}})
+        self.assertEqual(btn["action_id"], "ask_share_repos")
+        self.assertIn("Wai Leng", btn["confirm"]["text"]["text"])
+        self.assertIsNone(b.ask_more_repos_button({"id": "i1", "founders": {"name": "X", "slack_user_id": None}}))
+
+
 if __name__ == "__main__":
     unittest.main()
