@@ -1874,6 +1874,11 @@ def capture_meeting(user_id: str, role: str, f: dict, text: str, say):
 
 def deliver_notes(user_id: str, role: str, title: str, transcript: str, say):
     """Notes from a transcript, the transcript itself as a file, and an offer to save them. `say` posts to their DM."""
+    spoken = re.sub(r"\[\d+:\d+\]\s*[^:]{1,40}:", " ", transcript)  # drop the "[00:03] S1:" labels before counting words
+    if len(spoken.split()) < 15:
+        say(f"🎧 The recording of *{title}* has almost no speech in it, so there's nothing to write up. "
+            "If that's wrong, check the microphone was on, or send me the file again.")
+        return
     startups = [r["name"] for r in (supabase.table("startups").select("name").execute().data or [])] if supabase else []
     try:
         notes = meeting_capture.summarize(transcript, title, startups, ai_client, FAST_AI_MODEL or AI_MODEL)
@@ -1971,6 +1976,7 @@ def process_meet_recordings():
         if alert_seen(key):
             continue
         alert_mark(key)  # first, so a slow or failed job never runs (and bills) twice
+        print(f"[Meet Recording] new recording for room {rec.get('meeting_code') or '?'}: processing")
         threading.Thread(target=_process_recording, args=(rec, host, studio), daemon=True).start()
 
 
@@ -4281,7 +4287,7 @@ if BackgroundScheduler:
     scheduler.add_job(beat, "interval", seconds=30, max_instances=1)
     scheduler.add_job(send_meeting_reminders, "interval", minutes=5, max_instances=1)
     scheduler.add_job(send_after_meeting_prompts, "interval", minutes=5, max_instances=1)
-    scheduler.add_job(process_meet_recordings, "interval", minutes=5, max_instances=1)
+    scheduler.add_job(process_meet_recordings, "interval", minutes=2, max_instances=1)  # a cheap list call when there's nothing new
     scheduler.add_job(notify_new_milestones, "interval", minutes=1, max_instances=1)
     # Copy upcoming studio meetings into studio_events for the dashboard (only the bot's own events).
     scheduler.add_job(lambda: studio_events.sync(supabase, studio_events_fn(studio_events.WINDOW_DAYS, strict=True)),
