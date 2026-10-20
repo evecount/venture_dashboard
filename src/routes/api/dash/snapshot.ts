@@ -226,6 +226,14 @@ export const Route = createFileRoute("/api/dash/snapshot")({
                 c.provider === "github" &&
                 ((c.selected_repos ?? []).length > 0 || (c.repos ?? []).length === 1),
             ),
+            // Connected on GitHub but nothing is being tracked (several repos shared and none chosen, or none shared).
+            github_pending:
+              mine.some((c) => c.provider === "github") &&
+              !mine.some(
+                (c) =>
+                  c.provider === "github" &&
+                  ((c.selected_repos ?? []).length > 0 || (c.repos ?? []).length === 1),
+              ),
             calendar: mine.some((c) => c.provider === "google"),
           };
         });

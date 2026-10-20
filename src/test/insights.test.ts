@@ -171,6 +171,12 @@ describe("setup gaps", () => {
       "No milestones yet",
     ]);
   });
+  it("tells apart 'GitHub connected, nothing tracked' from 'not connected'", () => {
+    const ms = [{ startup_id: "s1", status: "open" }];
+    expect(setupGaps("s1", [row("f1", { github_pending: true })], founders, ms)).toEqual([
+      "GitHub connected, but no repo is being tracked yet",
+    ]);
+  });
   it("only mentions the optional calendar once the essentials are done", () => {
     const ms = [{ startup_id: "s1", status: "open" }];
     expect(setupGaps("s1", [row("f1", { github: true })], founders, ms)).toEqual([

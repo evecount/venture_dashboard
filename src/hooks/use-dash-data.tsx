@@ -118,6 +118,7 @@ export type SetupRow = {
   startup_id: string;
   slack: boolean;
   github: boolean;
+  github_pending?: boolean;
   calendar: boolean;
 };
 

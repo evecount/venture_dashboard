@@ -156,8 +156,19 @@ def refresh_repos(row: dict) -> dict:
     try:
         repos = gh.list_repos(row["external_id"])
         account = row.get("account") or gh.account(row["external_id"])
-        supabase.table("integrations").update({"repos": repos, "account": account}).eq("id", row["id"]).execute()
-        return {**row, "repos": repos, "account": account}
+    except Exception as e:
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        if status != 404:  # a blip: keep what we have
+            print(f"[GitHub Refresh Warning] {e}")
+            return row
+        repos, account = [], row.get("account")  # the app was uninstalled: nothing is shared any more
+    try:
+        patch = {"repos": repos, "account": account}
+        kept = [r for r in (row.get("selected_repos") or []) if r in repos]  # a repo that was renamed or removed can't stay chosen
+        if kept != list(row.get("selected_repos") or []):
+            patch["selected_repos"] = kept or None
+        supabase.table("integrations").update(patch).eq("id", row["id"]).execute()
+        return {**row, **patch}
     except Exception as e:
         print(f"[GitHub Refresh Warning] {e}")
         return row
@@ -2612,6 +2623,21 @@ def refresh_changed_homes():
 
 # --- GITHUB CONNECTION CONFIRMATION & REPO PICKER ---
 
+def reconcile_github():
+    """
+    Every few minutes: re-read from GitHub what each connection can see, so a webhook that never arrived (or a renamed or
+    removed repo) cannot leave the dashboard out of date. Real changes are then picked up by watch_repo_changes.
+    """
+    if not (supabase and SLACK_BOT_TOKEN and gh):
+        return
+    try:
+        rows = supabase.table("integrations").select("*").eq("provider", "github").execute().data or []
+    except Exception:
+        return
+    for row in rows:
+        refresh_repos(row)
+
+
 _repo_seen: dict = {}  # integration id -> (granted repos, chosen repos) as last seen; empty until the first pass
 
 
@@ -3403,6 +3429,7 @@ if BackgroundScheduler:
     scheduler.add_job(poll_new_connections, "interval", seconds=10, max_instances=1)
     scheduler.add_job(refresh_changed_homes, "interval", seconds=15, max_instances=1)
     scheduler.add_job(watch_repo_changes, "interval", seconds=20, max_instances=1)
+    scheduler.add_job(reconcile_github, "interval", minutes=10, max_instances=1)
     scheduler.add_job(beat, "interval", seconds=30, max_instances=1)
     scheduler.add_job(send_meeting_reminders, "interval", minutes=5, max_instances=1)
     # Copy upcoming studio meetings into studio_events for the dashboard (only the bot's own events).

@@ -235,6 +235,7 @@ type SetupLike = {
   startup_id: string;
   slack: boolean;
   github: boolean;
+  github_pending?: boolean;
   calendar: boolean;
 };
 
@@ -254,7 +255,12 @@ export function setupGaps(
   const gaps = mine
     .filter((s) => !s.slack)
     .map((s) => `${nameOf.get(s.founder_id) ?? "A founder"} isn't linked to the Slack bot yet`);
-  if (!mine.some((s) => s.github)) gaps.push("No GitHub repo connected");
+  if (!mine.some((s) => s.github))
+    gaps.push(
+      mine.some((s) => s.github_pending)
+        ? "GitHub connected, but no repo is being tracked yet"
+        : "No GitHub repo connected",
+    );
   if (!milestones.some((m) => m.startup_id === startupId && m.status !== "dropped"))
     gaps.push("No milestones yet");
   if (!gaps.length && !mine.some((s) => s.calendar)) gaps.push("Calendar not shared (optional)");
