@@ -1198,6 +1198,10 @@ button.gate-row:hover .row-title {
   background: var(--secondary);
   font-size: 14px;
 }
+/* The card is the same colour as the bar's track, so at 0% the bar vanished: give it a visible track here. */
+.deliverable-box .progress {
+  background: color-mix(in oklab, var(--foreground) 14%, transparent);
+}
 .list {
   display: grid;
   gap: 12px;
