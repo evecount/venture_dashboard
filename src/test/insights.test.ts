@@ -229,7 +229,12 @@ describe("progress measured against milestones", () => {
   });
 
   it("flags overdue milestones and points at the oldest one", () => {
-    const late = ms({ id: "f", title: "Late one", due_date: "2026-10-09", goals: [{ done: false }] });
+    const late = ms({
+      id: "f",
+      title: "Late one",
+      due_date: "2026-10-09",
+      goals: [{ done: false }],
+    });
     const p = milestoneProgress([half, late], "s1", "2026-10-14")!;
     expect(p.overdue).toBe(1);
     expect(p.focus).toMatchObject({ title: "Late one", overdue: true, expected: 100 });
@@ -254,6 +259,15 @@ describe("progress measured against milestones", () => {
     expect(at([{}], [done])).toBe("submitted");
     const wk1 = program.weeks.find((w) => w.week === 1)!;
     expect(gateStatus("s1", wk1, [], [], now, [done, half]).milestone).toBeUndefined();
+  });
+
+  it("judges a finished week by the milestones that fell due in it", () => {
+    const later = new Date("2026-10-21T02:00:00Z"); // week 3: week 2's gate has passed
+    const g = gateStatus("s1", wk2, [sub({ progress: 60 })], [], later, [done, half]);
+    expect(g.state).toBe("behind");
+    expect(g.reason).toBe("75% of the 2 milestones due that week (1 finished)");
+    expect(gateStatus("s1", wk2, [], [], later, [done]).state).toBe("submitted");
+    expect(gateStatus("s1", wk2, [], [], later, []).state).toBe("behind"); // nothing due: old reading
   });
 
   it("charts how complete the milestones due each week are, falling back to check-ins", () => {

@@ -124,6 +124,41 @@ export function gateStatus(
     };
   }
 
+  // A finished week with milestones due in it: judge it by how many of those got done (their state today).
+  const wasDue =
+    today > end && milestones.length
+      ? milestones.filter((m) => {
+          const d = m.due_date?.slice(0, 10);
+          return (
+            m.startup_id === startupId &&
+            m.status !== "dropped" &&
+            !!d &&
+            dayNum(d) > dayNum(start) - 3 &&
+            d <= end
+          );
+        })
+      : [];
+  if (wasDue.length) {
+    const pct = Math.round(wasDue.reduce((n, m) => n + milestoneOwn(m).pct, 0) / wasDue.length);
+    const finished = wasDue.filter((m) => isMilestoneComplete(m)).length;
+    const plural = wasDue.length === 1 ? "" : "s";
+    return finished === wasDue.length
+      ? {
+          ...base,
+          progress: pct,
+          expected: 100,
+          state: "submitted",
+          reason: `All ${wasDue.length} milestone${plural} due that week were finished`,
+        }
+      : {
+          ...base,
+          progress: pct,
+          expected: 100,
+          state: "behind",
+          reason: `${pct}% of the ${wasDue.length} milestone${plural} due that week (${finished} finished)`,
+        };
+  }
+
   const submitted = forGate.some(
     (s) => s.status === "Completed" || (s.progress ?? 0) >= 100 || !!s.artifact_url,
   );
