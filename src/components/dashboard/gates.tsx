@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ChevronLeft, ChevronRight, GitPullRequest, MessageSquare, Video } from "lucide-react";
-import type { SignalRow, SubmissionRow } from "@/hooks/use-dash-data";
+import type { Milestone, SignalRow, SubmissionRow } from "@/hooks/use-dash-data";
 import type { Founder } from "./data";
 import { formatDay, type ProgramState } from "./program";
 import { GATE_LABEL, gateStatus, type GateState } from "./insights";
@@ -12,6 +12,7 @@ type Common = {
   program: ProgramState;
   subs: SubmissionRow[];
   signals: SignalRow[];
+  milestones: Milestone[];
   now: Date;
   openStartup: (id: string) => void;
 };
@@ -19,14 +20,22 @@ type Common = {
 const ORDER: GateState[] = ["blocked", "behind", "no_update", "on_track", "submitted", "upcoming"];
 
 /** Where every startup stands on one gate's deliverable, with the evidence behind it. */
-export function GateBoard({ founders, program, subs, signals, now, openStartup }: Common) {
+export function GateBoard({
+  founders,
+  program,
+  subs,
+  signals,
+  milestones,
+  now,
+  openStartup,
+}: Common) {
   // Today only looks forward: finished gates live in the Program tab's grid.
   const [picked, setWeek] = useState(program.week);
   const week = Math.max(picked, program.week);
   const w = program.weeks.find((x) => x.week === week) ?? program.weeks[0];
   if (!w) return null;
   const rows = founders
-    .map((f) => ({ f, g: gateStatus(f.id, w, subs, signals, now) }))
+    .map((f) => ({ f, g: gateStatus(f.id, w, subs, signals, now, milestones) }))
     .sort(
       (a, b) =>
         ORDER.indexOf(a.g.state) - ORDER.indexOf(b.g.state) ||
@@ -84,7 +93,7 @@ export function GateBoard({ founders, program, subs, signals, now, openStartup }
           <div className="gate-row gate-row-head" role="row">
             <span role="columnheader">Startup</span>
             <span role="columnheader">Status</span>
-            <span role="columnheader">Deliverable progress</span>
+            <span role="columnheader">Progress</span>
             <span role="columnheader">Evidence this week</span>
             <span role="columnheader">Last update</span>
           </div>
@@ -136,7 +145,15 @@ export function GateBoard({ founders, program, subs, signals, now, openStartup }
 }
 
 /** Every startup against all 12 gates at a glance. */
-export function GateMatrix({ founders, program, subs, signals, now, openStartup }: Common) {
+export function GateMatrix({
+  founders,
+  program,
+  subs,
+  signals,
+  milestones,
+  now,
+  openStartup,
+}: Common) {
   return (
     <section className="panel" aria-labelledby="matrix-title">
       <div className="panel-head">
@@ -168,7 +185,7 @@ export function GateMatrix({ founders, program, subs, signals, now, openStartup 
                   </button>
                 </th>
                 {program.weeks.map((w) => {
-                  const g = gateStatus(f.id, w, subs, signals, now);
+                  const g = gateStatus(f.id, w, subs, signals, now, milestones);
                   return (
                     <td key={w.week} className={w.week === program.week ? "now" : ""}>
                       <span

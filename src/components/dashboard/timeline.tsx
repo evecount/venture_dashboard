@@ -18,6 +18,9 @@ import {
   type TimelineGroup,
 } from "@/hooks/use-timeline";
 import type { Founder } from "./data";
+import { useMilestones } from "@/hooks/use-milestones";
+import { milestoneProgress } from "./insights";
+import { sgtDate } from "./program";
 import { deliverableId } from "./insights";
 import { programState } from "./program";
 
@@ -72,6 +75,11 @@ const FILTERS: { id: "all" | TimelineGroup; label: string }[] = [
 
 export function Timeline({ founder, refreshKey }: { founder: Founder; refreshKey: string }) {
   const { entries, loading } = useTimeline(founder.startupId, refreshKey);
+  const milestones = useMilestones(founder.startupId);
+  const mp =
+    founder.startupId && milestones
+      ? milestoneProgress(milestones, founder.startupId, sgtDate(new Date()))
+      : null;
   const [filter, setFilter] = useState<"all" | TimelineGroup>("all");
 
   if (!entries) {
@@ -93,10 +101,19 @@ export function Timeline({ founder, refreshKey }: { founder: Founder; refreshKey
       <h3 className="detail-heading">Timeline</h3>
       {(latest || work.commits || work.prsMerged || work.meetings) && (
         <div className="mb-4 flex flex-wrap items-center gap-2 text-[11px]">
-          {latest && (
-            <span className="pill pill-neutral">
-              <TrendingUp size={10} /> {latest.progress}% {progressScope(latest)}
+          {mp ? (
+            <span
+              className="pill pill-neutral"
+              title="Average completion of the milestones in play"
+            >
+              <TrendingUp size={10} /> {mp.pct}% of milestones
             </span>
+          ) : (
+            latest && (
+              <span className="pill pill-neutral">
+                <TrendingUp size={10} /> {latest.progress}% {progressScope(latest)}
+              </span>
+            )
           )}
           {blocked !== null && (
             <span className="pill pill-danger">
@@ -107,7 +124,8 @@ export function Timeline({ founder, refreshKey }: { founder: Founder; refreshKey
           {(work.commits > 0 || work.prsMerged > 0) && (
             <span className="pill pill-neutral" title="Last 7 days">
               <GitCommitHorizontal size={10} /> {work.commits} commit{work.commits === 1 ? "" : "s"}
-              {work.prsMerged > 0 && ` · ${work.prsMerged} PR${work.prsMerged === 1 ? "" : "s"} merged`}
+              {work.prsMerged > 0 &&
+                ` · ${work.prsMerged} PR${work.prsMerged === 1 ? "" : "s"} merged`}
             </span>
           )}
           {work.meetings > 0 && (
@@ -134,7 +152,9 @@ export function Timeline({ founder, refreshKey }: { founder: Founder; refreshKey
           </button>
         ))}
       </div>
-      {loading && !entries.length && <p className="text-[11px] text-muted-foreground">Loading...</p>}
+      {loading && !entries.length && (
+        <p className="text-[11px] text-muted-foreground">Loading...</p>
+      )}
       {!loading && !shown.length && (
         <p className="text-[11px] text-muted-foreground">
           {filter === "all" ? "No confirmed activity yet." : "Nothing in this category yet."}
@@ -154,8 +174,11 @@ export function Timeline({ founder, refreshKey }: { founder: Founder; refreshKey
                 <p className="mt-2 flex flex-wrap items-center gap-2 text-xs font-medium">
                   {e.title}
                   {e.progress !== undefined && (
-                    <span className="text-muted-foreground">
-                      {e.progress}%{delta ? ` (${delta > 0 ? "+" : ""}${delta})` : ""}
+                    <span
+                      className="text-muted-foreground"
+                      title="The progress they reported in this check-in"
+                    >
+                      reported {e.progress}%{delta ? ` (${delta > 0 ? "+" : ""}${delta})` : ""}
                     </span>
                   )}
                 </p>

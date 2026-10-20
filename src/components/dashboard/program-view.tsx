@@ -148,6 +148,7 @@ export function ProgramView({
             program={program}
             subs={snapshot.submissions}
             signals={snapshot.signals}
+            milestones={snapshot.milestones}
             now={now}
             openStartup={openStartup}
           />

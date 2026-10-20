@@ -6,10 +6,13 @@ import {
   expectedProgress,
   gateStatus,
   goalValue,
+  milestoneExpected,
+  milestoneProgress,
   milestoneValue,
   setupGaps,
   upcomingMilestones,
   weeklyProgress,
+  weeklySeries,
 } from "@/components/dashboard/insights";
 
 // Wed 14 Oct 2026, 10:00 SGT: week 2 runs Mon 12 to the gate on Fri 16.
@@ -186,5 +189,77 @@ describe("setup gaps", () => {
       [],
     );
     expect(setupGaps("s2", [row("f1")], founders, ms)).toEqual([]);
+  });
+});
+
+describe("progress measured against milestones", () => {
+  const ms = (over: Record<string, unknown>) => ({
+    id: Math.random().toString(),
+    startup_id: "s1",
+    title: "A milestone",
+    due_date: "2026-10-16",
+    status: "open",
+    goals: [] as { done: boolean }[],
+    ...over,
+  });
+  const done = ms({ id: "a", title: "Done one", due_date: "2026-10-12", status: "done" });
+  const half = ms({
+    id: "b",
+    title: "Half done",
+    goals: [{ done: true }, { done: false }],
+  });
+  const later = ms({ id: "c", due_date: "2026-12-30", goals: [{ done: false }] });
+  const dropped = ms({ id: "d", status: "dropped" });
+
+  it("expects a milestone to ramp up over its last week and to be finished once due", () => {
+    expect(milestoneExpected("2026-10-16", "2026-10-09")).toBe(0);
+    expect(milestoneExpected("2026-10-16", "2026-10-14")).toBe(67);
+    expect(milestoneExpected("2026-10-16", "2026-10-16")).toBe(100);
+    expect(milestoneExpected("2026-10-10", "2026-10-14")).toBe(100);
+    expect(milestoneExpected(null, "2026-10-14")).toBe(0);
+  });
+
+  it("averages the milestones in play and ignores far-off, dropped and long-finished ones", () => {
+    const long = ms({ id: "e", due_date: "2026-08-01", status: "done" });
+    const p = milestoneProgress([done, half, later, dropped, long], "s1", "2026-10-14")!;
+    expect(p).toMatchObject({ pct: 75, expected: 84, counted: 2, complete: 1, overdue: 0 });
+    expect(p.focus).toMatchObject({ title: "Half done", pct: 50, overdue: false });
+    expect(milestoneProgress([later], "s1", "2026-10-14")).toBeNull(); // nothing to measure yet
+    expect(milestoneProgress([long], "s1", "2026-10-14")).toMatchObject({ pct: 100, counted: 0 });
+  });
+
+  it("flags overdue milestones and points at the oldest one", () => {
+    const late = ms({ id: "f", title: "Late one", due_date: "2026-10-09", goals: [{ done: false }] });
+    const p = milestoneProgress([half, late], "s1", "2026-10-14")!;
+    expect(p.overdue).toBe(1);
+    expect(p.focus).toMatchObject({ title: "Late one", overdue: true, expected: 100 });
+  });
+
+  it("makes this week's gate follow the milestones, not the check-in percentage", () => {
+    // The check-in says 10%: against the program's deliverable that was "behind".
+    const subs = [sub({ progress: 10 })];
+    expect(gateStatus("s1", wk2, subs, [], now).state).toBe("behind");
+    const g = gateStatus("s1", wk2, subs, [], now, [done, half]);
+    expect(g.state).toBe("on_track");
+    expect(g.progress).toBe(75);
+    expect(g.milestone?.focus?.title).toBe("Half done");
+    expect(g.reason).toContain("75% across 2 milestones");
+  });
+
+  it("still reports blocked, no update and complete, and keeps past weeks on check-ins", () => {
+    const at = (subs: Record<string, unknown>[], list = [done, half]) =>
+      gateStatus("s1", wk2, subs.map(sub), [], now, list).state;
+    expect(at([{ status: "Blocked" }])).toBe("blocked");
+    expect(at([])).toBe("no_update");
+    expect(at([{}], [done])).toBe("submitted");
+    const wk1 = program.weeks.find((w) => w.week === 1)!;
+    expect(gateStatus("s1", wk1, [], [], now, [done, half]).milestone).toBeUndefined();
+  });
+
+  it("charts how complete the milestones due each week are, falling back to check-ins", () => {
+    const { series, mode } = weeklySeries("s1", [], [done, half], program.weeks);
+    expect(mode).toBe("milestones");
+    expect(series.find((s) => s.week === 2)?.progress).toBe(75);
+    expect(weeklySeries("s1", [], [], program.weeks).mode).toBe("checkins");
   });
 });

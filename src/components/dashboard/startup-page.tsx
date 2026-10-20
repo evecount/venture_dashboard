@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import type { DashSnapshot } from "@/hooks/use-dash-data";
 import type { Founder } from "./data";
 import { formatDay, sgtDate, sgtTime, type ProgramState } from "./program";
-import { blockedDays, checkinStreak, gateStatus, setupGaps, weeklyProgress } from "./insights";
+import { blockedDays, checkinStreak, gateStatus, setupGaps, weeklySeries } from "./insights";
 import {
   GatePill,
   HealthPill,
@@ -36,10 +36,18 @@ export function StartupPage({
   onBack?: (() => void) | undefined;
 }) {
   const w = program.weeks.find((x) => x.week === program.week);
-  const gate = w ? gateStatus(founder.id, w, snapshot.submissions, snapshot.signals, now) : null;
+  const gate = w
+    ? gateStatus(founder.id, w, snapshot.submissions, snapshot.signals, now, snapshot.milestones)
+    : null;
+  const ms = gate?.milestone ?? null;
   const streak = checkinStreak(founder.id, snapshot.submissions, program, now);
   const blocked = blockedDays(founder.id, snapshot.submissions, now);
-  const series = weeklyProgress(founder.id, snapshot.submissions, program.weeks);
+  const { series, mode } = weeklySeries(
+    founder.id,
+    snapshot.submissions,
+    snapshot.milestones,
+    program.weeks,
+  );
   const notes = snapshot.notes.filter((n) => n.startup_id === founder.id);
   const tasks = snapshot.tasks.filter((t) => t.startup_id === founder.id);
   const meetings = snapshot.meetings.filter(
@@ -80,9 +88,15 @@ export function StartupPage({
           sub={gate?.reason ?? "No gate this week"}
         />
         <Kpi
-          label="Deliverable progress"
+          label={ms ? "Milestone progress" : "Deliverable progress"}
           value={gate?.progress === null || !gate ? "—" : `${gate.progress}%`}
-          sub={gate ? `About ${gate.expected}% expected by now` : "—"}
+          sub={
+            gate
+              ? ms
+                ? `About ${gate.expected}% expected by now · ${ms.complete}/${ms.counted} done${ms.overdue ? ` · ${ms.overdue} overdue` : ""}`
+                : `About ${gate.expected}% expected by now`
+              : "—"
+          }
           tone={
             gate && gate.progress !== null && gate.progress < gate.expected - 25
               ? "warning"
@@ -108,7 +122,11 @@ export function StartupPage({
           <section className="panel" aria-labelledby="trend-title">
             <div className="panel-head">
               <h2 id="trend-title">Progress by week</h2>
-              <span className="panel-meta">Latest progress on each week&apos;s deliverable</span>
+              <span className="panel-meta">
+                {mode === "milestones"
+                  ? "How complete the milestones due each week are"
+                  : "Latest progress on each week's deliverable"}
+              </span>
             </div>
             <WeekBars series={series} current={program.week} size="lg" />
           </section>
@@ -125,19 +143,34 @@ export function StartupPage({
                 <p>{blocker}</p>
               </div>
             )}
-            {w && (
+            {ms?.focus ? (
               <div className="deliverable-box">
-                <p className="eyebrow">Due {w.gateDate ? formatDay(w.gateDate) : "this week"}</p>
-                <p className="mt-1 font-medium">{w.deliverable || "No deliverable this week"}</p>
-                {gate && (
-                  <div className="mt-3 flex items-center gap-3">
-                    <Progress value={gate.progress ?? 0} expected={gate.expected} />
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {gate.progress ?? 0}%
-                    </span>
-                  </div>
-                )}
+                <p className="eyebrow">
+                  {ms.focus.overdue ? "Overdue milestone" : "Milestone to work on"}
+                  {ms.focus.due ? ` · due ${formatDay(ms.focus.due)}` : ""}
+                </p>
+                <p className="mt-1 font-medium">{ms.focus.title}</p>
+                <div className="mt-3 flex items-center gap-3">
+                  <Progress value={ms.focus.pct} expected={ms.focus.expected} />
+                  <span className="shrink-0 text-xs text-muted-foreground">{ms.focus.pct}%</span>
+                </div>
               </div>
+            ) : (
+              w &&
+              !ms && (
+                <div className="deliverable-box">
+                  <p className="eyebrow">Due {w.gateDate ? formatDay(w.gateDate) : "this week"}</p>
+                  <p className="mt-1 font-medium">{w.deliverable || "No deliverable this week"}</p>
+                  {gate && (
+                    <div className="mt-3 flex items-center gap-3">
+                      <Progress value={gate.progress ?? 0} expected={gate.expected} />
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {gate.progress ?? 0}%
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )
             )}
             {!isMentor && (
               <p className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">

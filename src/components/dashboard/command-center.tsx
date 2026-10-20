@@ -39,7 +39,7 @@ import {
   sgtTime,
   type ProgramState,
 } from "./program";
-import { gateStatus, setupGaps, upcomingMilestones, weeklyProgress } from "./insights";
+import { gateStatus, setupGaps, upcomingMilestones, weeklySeries } from "./insights";
 import { setByLabel } from "./milestones";
 import { GateBoard } from "./gates";
 import { ProgramView } from "./program-view";
@@ -122,7 +122,14 @@ function cohortHealth(
   ).length;
   const atRisk = w
     ? founders.filter((f) => {
-        const s = gateStatus(f.id, w, snapshot.submissions, snapshot.signals, now).state;
+        const s = gateStatus(
+          f.id,
+          w,
+          snapshot.submissions,
+          snapshot.signals,
+          now,
+          snapshot.milestones,
+        ).state;
         return s === "behind" || s === "blocked" || s === "no_update";
       }).length
     : 0;
@@ -557,7 +564,14 @@ function TodayView({
   const w = program.weeks.find((x) => x.week === program.week);
   const atRisk = w
     ? founders.filter((f) => {
-        const s = gateStatus(f.id, w, snapshot.submissions, snapshot.signals, now).state;
+        const s = gateStatus(
+          f.id,
+          w,
+          snapshot.submissions,
+          snapshot.signals,
+          now,
+          snapshot.milestones,
+        ).state;
         return s === "behind" || s === "blocked" || s === "no_update";
       }).length
     : 0;
@@ -611,6 +625,7 @@ function TodayView({
         program={program}
         subs={snapshot.submissions}
         signals={snapshot.signals}
+        milestones={snapshot.milestones}
         now={now}
         openStartup={openStartup}
       />
@@ -831,7 +846,16 @@ function CohortView({
       ) : (
         <div className="card-grid">
           {visible.map((f) => {
-            const g = w ? gateStatus(f.id, w, snapshot.submissions, snapshot.signals, now) : null;
+            const g = w
+              ? gateStatus(
+                  f.id,
+                  w,
+                  snapshot.submissions,
+                  snapshot.signals,
+                  now,
+                  snapshot.milestones,
+                )
+              : null;
             return (
               <button
                 key={f.id}
@@ -855,7 +879,10 @@ function CohortView({
                 )}
                 <span className="card-trend">
                   <WeekBars
-                    series={weeklyProgress(f.id, snapshot.submissions, program.weeks)}
+                    series={
+                      weeklySeries(f.id, snapshot.submissions, snapshot.milestones, program.weeks)
+                        .series
+                    }
                     current={program.week}
                   />
                 </span>

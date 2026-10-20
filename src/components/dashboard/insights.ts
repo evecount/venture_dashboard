@@ -19,6 +19,8 @@ export type SignalLike = {
 export type GateState = "submitted" | "on_track" | "behind" | "blocked" | "no_update" | "upcoming";
 
 export type GateStatus = {
+  /** Set when progress is measured against the startup's milestones (see milestoneProgress); absent = check-in based. */
+  milestone?: MilestoneProgress;
   week: number;
   state: GateState;
   progress: number | null;
@@ -68,6 +70,7 @@ export function gateStatus(
   subs: SubLike[],
   signals: SignalLike[],
   now: Date,
+  milestones: ProgressMilestone[] = [],
 ): GateStatus {
   const { start, end } = weekWindow(w);
   const today = sgtDate(now);
@@ -91,6 +94,35 @@ export function gateStatus(
     meetings: sigs.filter((s) => s.type === "meeting").reduce((n, s) => n + (s.weight ?? 1), 0),
     lastUpdate: latest?.created_at ?? null,
   };
+
+  // This week, a startup with milestones is measured against THEM, not against the program's deliverable.
+  // (Past and future weeks keep the check-in based reading: milestone completion has no history to replay.)
+  const mp =
+    milestones.length && today >= start && dayNum(today) <= dayNum(end) + 2
+      ? milestoneProgress(milestones, startupId, today)
+      : null;
+  if (mp) {
+    const last = mine[0];
+    const withMp = {
+      ...base,
+      progress: mp.pct,
+      expected: mp.expected,
+      milestone: mp,
+      lastUpdate: last?.created_at ?? null,
+    };
+    if (last?.status === "Blocked")
+      return { ...withMp, state: "blocked", reason: "Blocked on the latest check-in" };
+    if (mp.complete === mp.counted)
+      return { ...withMp, state: "submitted", reason: "All current milestones are complete" };
+    if (base.checkins + base.work + base.meetings === 0)
+      return { ...withMp, state: "no_update", reason: "No check-in or work logged this week yet" };
+    const detail = `${mp.pct}% across ${mp.counted} milestone${mp.counted === 1 ? "" : "s"}${mp.overdue ? ` · ${mp.overdue} overdue` : ""}`;
+    return {
+      ...withMp,
+      state: mp.pct < mp.expected - 25 ? "behind" : "on_track",
+      reason: `${detail}, about ${mp.expected}% expected by now`,
+    };
+  }
 
   const submitted = forGate.some(
     (s) => s.status === "Completed" || (s.progress ?? 0) >= 100 || !!s.artifact_url,
@@ -120,6 +152,142 @@ export function gateStatus(
     state: "on_track",
     reason: `${progress}% done, about ${expected}% expected by now`,
   };
+}
+
+type ProgressMilestone = MilestoneLike & {
+  title?: string;
+  progress?: number | null;
+  est_progress?: number | null;
+  goals?: { done: boolean; progress?: number | null; est_progress?: number | null }[];
+};
+
+export type MilestoneProgress = {
+  /** Average completion of the milestones in play (goals done, partial progress and GitHub estimates included). */
+  pct: number;
+  /** Where they should be by now: past-due milestones count as 100, the ones due this week ramp up to 100 on the due day. */
+  expected: number;
+  estimated: boolean;
+  counted: number;
+  complete: number;
+  overdue: number;
+  /** The one to work on next: the oldest overdue, else the next one due. */
+  focus: {
+    title: string;
+    due: string | null;
+    pct: number;
+    expected: number;
+    overdue: boolean;
+  } | null;
+};
+
+const HORIZON_DAYS = 7; // milestones due within the next week are in play
+const RECENT_DAYS = 21; // finished milestones stay in the picture for three weeks, then make room
+
+/** A milestone is expected to be worked on during its last week: 0 before that, 100 on the due day and after. */
+export function milestoneExpected(due: string | null, today: string): number {
+  if (!due) return 0;
+  if (due <= today) return 100;
+  const into = dayNum(today) - (dayNum(due) - 6);
+  return into <= 0 ? 0 : Math.round((into / 6) * 100);
+}
+
+function milestoneOwn(m: ProgressMilestone) {
+  return isMilestoneComplete(m) ? { pct: 100, estimated: false } : milestoneValue(m.goals ?? [], m);
+}
+
+/**
+ * How a startup is doing against the milestones it was actually given.
+ * In play: everything unfinished that is due within the next week (or has no date), plus what was finished in the last
+ * three weeks. Far-off milestones don't dilute the number and long-finished ones don't inflate it.
+ * null when there is nothing to measure (the caller falls back to check-in progress).
+ */
+export function milestoneProgress(
+  milestones: ProgressMilestone[],
+  startupId: string,
+  today: string,
+): MilestoneProgress | null {
+  const mine = milestones.filter((m) => m.startup_id === startupId && m.status !== "dropped");
+  const day = (m: ProgressMilestone) => (m.due_date ? m.due_date.slice(0, 10) : null);
+  const inPlay = mine.filter((m) => {
+    const due = day(m);
+    if (due && dayNum(due) > dayNum(today) + HORIZON_DAYS) return false;
+    if (isMilestoneComplete(m)) return !!due && dayNum(due) >= dayNum(today) - RECENT_DAYS;
+    return true;
+  });
+  if (!inPlay.length) {
+    return mine.length && mine.every((m) => isMilestoneComplete(m))
+      ? {
+          pct: 100,
+          expected: 100,
+          estimated: false,
+          counted: 0,
+          complete: 0,
+          overdue: 0,
+          focus: null,
+        }
+      : null;
+  }
+  const rows = inPlay.map((m) => {
+    const v = milestoneOwn(m);
+    const due = day(m);
+    return { m, due, v, exp: milestoneExpected(due, today), complete: isMilestoneComplete(m) };
+  });
+  const avg = (f: (r: (typeof rows)[number]) => number) =>
+    Math.round(rows.reduce((n, r) => n + f(r), 0) / rows.length);
+  const open = rows
+    .filter((r) => !r.complete)
+    .sort((a, b) => (a.due ?? "9999").localeCompare(b.due ?? "9999"));
+  const first = open[0];
+  return {
+    pct: avg((r) => r.v.pct),
+    expected: avg((r) => r.exp),
+    estimated: rows.some((r) => r.v.estimated),
+    counted: rows.length,
+    complete: rows.filter((r) => r.complete).length,
+    overdue: open.filter((r) => r.due !== null && r.due < today).length,
+    focus: first
+      ? {
+          title: first.m.title ?? "Milestone",
+          due: first.due,
+          pct: first.v.pct,
+          expected: first.exp,
+          overdue: first.due !== null && first.due < today,
+        }
+      : null,
+  };
+}
+
+/**
+ * The per-week bars: how complete the milestones that fall due in each program week are (null where none fall due).
+ * Startups with no dated milestones keep the check-in based bars.
+ */
+export function weeklySeries(
+  startupId: string,
+  subs: SubLike[],
+  milestones: ProgressMilestone[],
+  weeks: ProgramWeek[],
+): { series: { week: number; progress: number | null }[]; mode: "milestones" | "checkins" } {
+  const dated = milestones.filter(
+    (m) => m.startup_id === startupId && m.status !== "dropped" && m.due_date,
+  );
+  let prevEnd = "";
+  const series = weeks.map((w) => {
+    const { end } = weekWindow(w);
+    const due = dated.filter((m) => {
+      const d = m.due_date!.slice(0, 10);
+      return d > prevEnd && d <= end;
+    });
+    prevEnd = end || prevEnd;
+    return {
+      week: w.week,
+      progress: due.length
+        ? Math.round(due.reduce((n, m) => n + milestoneOwn(m).pct, 0) / due.length)
+        : null,
+    };
+  });
+  return series.some((s) => s.progress !== null)
+    ? { series, mode: "milestones" }
+    : { series: weeklyProgress(startupId, subs, weeks), mode: "checkins" };
 }
 
 /** Latest progress reported on each week's deliverable (null when nothing was reported). */
