@@ -3313,7 +3313,7 @@ def send_founder_briefings(dry_run: bool = False) -> list:
         ctx = resolve_founder_context(uid) or {}
         d = ctx.get("deliverable") or {}
         goals = [g for m in memory.milestones(f["startup_id"]) for g in (m.get("goals") or []) if not g.get("done")][:4]
-        top = [f"☀️ *Morning {(f['name'] or '').split(' ')[0]}! Your Monday briefing*"]
+        top = [f"☀️ *Morning {first_name(f['name'])}! Your Monday briefing*"]
         if d.get("title"):
             top.append(f"This week's deliverable: *{d['title']}*" + (f" (due {str(d.get('due_date'))[:10]})" if d.get("due_date") else ""))
         if goals:

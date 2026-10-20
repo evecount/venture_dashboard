@@ -110,3 +110,36 @@ class GitHubAppTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BackfillSafetyTests(unittest.TestCase):
+    INTEG = {"startup_id": "s", "external_id": "9", "repos": ["a/web"], "selected_repos": None, "created_at": "2026-10-13T11:00:00+00:00"}
+    NOW = datetime(2026, 10, 13, 12, tzinfo=timezone.utc)
+
+    def test_days_and_prs_the_webhooks_already_recorded_are_not_counted_twice(self):
+        live = [{"id": "l1", "type": "commit", "created_at": "2026-10-12T09:30:00+00:00", "meta": {"commits": 2, "repo": "a/web"}},
+                {"id": "l2", "type": "pull_request", "created_at": "2026-10-11T02:00:00+00:00",
+                 "meta": {"merged": True, "repo": "a/web", "number": 4}}]
+        sb = SB(existing=live)
+        n = g.backfill_signals(g.GitHubApp("1", PEM, http=FakeHTTP()), sb, self.INTEG, now=self.NOW)
+        rows = sb.store.get("inserted", [])
+        self.assertEqual(n, 1)  # only 2026-10-10 is new: the 12th and PR #4 are already live signals
+        self.assertEqual([r["created_at"][:10] for r in rows], ["2026-10-10"])
+
+    def test_a_github_failure_keeps_the_earlier_backfill_rows(self):
+        class Boom(FakeHTTP):
+            def __call__(self, method, url, headers, params=None):
+                if url.endswith("/commits"):
+                    raise RuntimeError("404 repo removed")
+                return super().__call__(method, url, headers, params)
+        sb = SB(existing=[{"id": "old1", "type": "commit", "created_at": "2026-10-10T12:00:00+00:00", "meta": {"backfill": True}}])
+        with self.assertRaises(RuntimeError):
+            g.backfill_signals(g.GitHubApp("1", PEM, http=Boom()), sb, self.INTEG, now=self.NOW)
+        self.assertNotIn("deleted", sb.store)  # nothing was thrown away before the failure
+
+    def test_a_repo_removed_from_the_app_is_no_longer_monitored(self):
+        import integrations
+        row = {"repos": ["a/web", "a/api"], "selected_repos": ["a/web", "a/gone"]}
+        self.assertEqual(integrations.monitored_repos(row), ["a/web"])
+        self.assertEqual(integrations.monitored_repos({"repos": ["a/web", "a/api"], "selected_repos": ["a/gone"]}), [])
+        self.assertEqual(integrations.monitored_repos({"repos": [], "selected_repos": ["a/x"]}), ["a/x"])  # list not loaded yet

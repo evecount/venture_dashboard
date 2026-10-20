@@ -117,11 +117,14 @@ def backfill_signals(gh: GitHubApp, sb, integration: dict, now: datetime | None 
     repos = monitored_repos(integration)  # same rule as live webhooks: only what the founder chose
     startup_id, installation_id = integration["startup_id"], integration["external_id"]
 
-    old = (sb.table("signals").select("id,meta").eq("startup_id", startup_id).in_("type", ["commit", "pull_request"])
+    old = (sb.table("signals").select("id,type,meta,created_at").eq("startup_id", startup_id).in_("type", ["commit", "pull_request"])
            .gte("created_at", since.isoformat()).limit(1000).execute().data) or []
     stale = [r["id"] for r in old if (r.get("meta") or {}).get("backfill")]
-    for sid in stale:
-        sb.table("signals").delete().eq("id", sid).execute()
+    # What the live webhooks already recorded: a backfill that runs after the connection (repos added later) must not count it twice.
+    live_days = {((r.get("meta") or {}).get("repo"), str(r.get("created_at") or "")[:10]) for r in old
+                 if r.get("type") == "commit" and not (r.get("meta") or {}).get("backfill")}
+    live_prs = {((r.get("meta") or {}).get("repo"), (r.get("meta") or {}).get("number")) for r in old
+                if r.get("type") == "pull_request" and not (r.get("meta") or {}).get("backfill")}
 
     rows = []
     for repo in repos:
@@ -131,6 +134,8 @@ def backfill_signals(gh: GitHubApp, sb, integration: dict, now: datetime | None 
             if stamp:
                 per_day.setdefault(stamp[:10], []).append(c)
         for day, items in per_day.items():
+            if (repo, day) in live_days:
+                continue
             n = len(items)
             author = ((items[0].get("author") or {}).get("login")) or "someone"
             rows.append({
@@ -142,6 +147,8 @@ def backfill_signals(gh: GitHubApp, sb, integration: dict, now: datetime | None 
                          "messages": [str(((c.get("commit") or {}).get("message") or "")).split(chr(10))[0][:120] for c in items][:15]},
             })
         for pr in gh.merged_prs(installation_id, repo, since):
+            if (repo, pr.get("number")) in live_prs:
+                continue
             rows.append({
                 "startup_id": startup_id, "type": "pull_request", "stream": "Tech",
                 "actor": (pr.get("user") or {}).get("login") or "someone",
@@ -150,6 +157,9 @@ def backfill_signals(gh: GitHubApp, sb, integration: dict, now: datetime | None 
                                                         "number": pr["number"],
                                                         "body": " ".join(str(pr.get("body") or "").split())[:400] or None},
             })
+    # Only now replace the earlier backfill: if GitHub failed above, the old rows are still there.
+    for sid in stale:
+        sb.table("signals").delete().eq("id", sid).execute()
     if rows:
         sb.table("signals").insert(rows).execute()
     return len(rows)

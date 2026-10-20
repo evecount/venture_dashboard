@@ -124,6 +124,7 @@ export function isMonitored(
   repoFullName: string | undefined,
   granted: string[] | null | undefined = [],
 ): boolean {
-  const effective = selected?.length ? selected : granted?.length === 1 ? granted : [];
+  const chosen = granted?.length ? (selected ?? []).filter((r) => granted.includes(r)) : (selected ?? []);
+  const effective = chosen.length ? chosen : granted?.length === 1 ? granted : [];
   return !!repoFullName && effective.includes(repoFullName);
 }

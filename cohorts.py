@@ -78,6 +78,8 @@ def this_weeks_deliverable(start: date, today: date) -> dict | None:
     w = week_of(start, today)
     if not w:
         return None
+    if today.weekday() >= 5 and w < WEEKS:  # after Friday's gate the next week's deliverable is the current one (as on the dashboard)
+        w += 1
     row = syllabus.week_deliverable(f"WK {w:02d}")
     if not row:
         return None

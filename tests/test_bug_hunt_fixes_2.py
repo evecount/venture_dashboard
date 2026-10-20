@@ -339,3 +339,21 @@ class ImportRobustnessTests(unittest.TestCase):
         with mock.patch.object(attachments, "MAX_UNZIPPED", 5):
             with self.assertRaises(ValueError):
                 attachments.office_text(buf.getvalue(), "docx")
+
+
+class WeekFlipTests(unittest.TestCase):
+    def test_the_week_flips_after_fridays_gate_like_the_dashboard(self):
+        import syllabus
+        from datetime import date as d
+        week = lambda day: syllabus.current(day)["week"]  # noqa: E731
+        self.assertEqual([week(d(2026, 10, n)) for n in (15, 16)], ["WK 02", "WK 02"])   # Thursday, gate day
+        self.assertEqual([week(d(2026, 10, n)) for n in (17, 18, 19)], ["WK 03", "WK 03", "WK 03"])  # Sat, Sun, Monday
+        self.assertEqual(syllabus.current_deliverable(d(2026, 10, 17))["id"], "del-wk03")
+        self.assertIsNone(syllabus.current(d(2026, 1, 1)))
+
+    def test_a_cohorts_weekend_deliverable_is_next_weeks(self):
+        import cohorts
+        from datetime import date as d
+        start = d(2026, 10, 19)
+        fri, sat = cohorts.this_weeks_deliverable(start, d(2026, 10, 23)), cohorts.this_weeks_deliverable(start, d(2026, 10, 24))
+        self.assertEqual((fri["week"], sat["week"]), (1, 2))

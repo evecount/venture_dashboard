@@ -229,6 +229,8 @@ def monitored_repos(row: dict) -> list:
     """What the bot watches: only what the founder chose. A single granted repo needs no choosing."""
     chosen = list(row.get("selected_repos") or [])
     granted = list(row.get("repos") or [])
+    if granted:  # a repository the founder has since removed from the app can't be tracked any more
+        chosen = [r for r in chosen if r in granted]
     return chosen or (granted if len(granted) == 1 else [])
 
 

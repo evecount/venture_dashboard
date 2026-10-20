@@ -66,3 +66,13 @@ describe("repository grants", () => {
     expect(isMonitored(["a/y"], "a/y", ["a/x", "a/y"])).toBe(true);
   });
 });
+
+describe("isMonitored with repos removed from the app", () => {
+  it("ignores a chosen repo the app no longer has", async () => {
+    const { isMonitored } = await import("@/lib/integrations");
+    expect(isMonitored(["a/web", "a/gone"], "a/gone", ["a/web", "a/api"])).toBe(false);
+    expect(isMonitored(["a/web", "a/gone"], "a/web", ["a/web", "a/api"])).toBe(true);
+    expect(isMonitored(["a/gone"], "a/web", ["a/web"])).toBe(true); // falls back to the single shared repo
+    expect(isMonitored(["a/x"], "a/x", [])).toBe(true); // repo list not loaded yet
+  });
+});

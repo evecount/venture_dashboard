@@ -46,9 +46,17 @@ def events_for(start: date | None = None) -> list:
 
 
 def current(today: date, start: date | None = None) -> dict | None:
-    """The schedule row for today, or the most recent one before it (weekends). None before the program starts."""
-    past = [e for e in events_for(start) if e["date"] <= today]
-    return past[-1] if past else None
+    """The schedule row for today; on a weekend, Monday's (the new week); None before the program starts."""
+    evs = events_for(start)
+    past = [e for e in evs if e["date"] <= today]
+    if not past:
+        return None
+    if today.weekday() >= 5 and not any(e["date"] == today for e in evs):
+        # The week flips once Friday's gate has passed (the dashboard does the same), so a weekend already belongs to the next one.
+        ahead = next((e for e in evs if e["date"] > today and (e["date"] - today).days <= 2), None)
+        if ahead:
+            return ahead
+    return past[-1]
 
 
 def week_deliverable(week: str, start: date | None = None) -> dict | None:
