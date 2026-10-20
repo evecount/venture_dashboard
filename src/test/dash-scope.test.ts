@@ -42,3 +42,14 @@ describe("parkedInstallFields", () => {
     expect(parkedInstallFields(null, false)).toEqual({});
   });
 });
+
+describe("safeMeetUrl", () => {
+  it("only lets https Meet links through", async () => {
+    const { safeMeetUrl } = await import("@/lib/dash-scope");
+    expect(safeMeetUrl("https://meet.google.com/abc-defg-hij")).toBe("https://meet.google.com/abc-defg-hij");
+    expect(safeMeetUrl("javascript:alert(1)//meet.google.com/x")).toBeNull();
+    expect(safeMeetUrl("http://meet.google.com/abc")).toBeNull();
+    expect(safeMeetUrl("https://evil.example/meet.google.com/abc")).toBeNull();
+    expect(safeMeetUrl(null)).toBeNull();
+  });
+});

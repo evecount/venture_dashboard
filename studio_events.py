@@ -6,6 +6,7 @@ server. Only the bot's own events are copied (the same rule as everywhere else: 
 events), and attendee emails are kept so the dashboard can show founders only the meetings they're invited to.
 """
 
+import re
 from datetime import datetime, timedelta, timezone
 
 WINDOW_DAYS = 30
@@ -13,7 +14,9 @@ WINDOW_DAYS = 30
 
 def _meet_url(ev: dict) -> str | None:
     loc = ev.get("location") or ""
-    return ev.get("hangoutLink") or (loc if "meet.google.com" in loc else None)
+    link = ev.get("hangoutLink") or (loc if "meet.google.com" in loc else None)
+    # The location is free text anyone setting up a meeting can type: only a real https Meet link becomes a link.
+    return link if link and re.fullmatch(r"https://meet\.google\.com/[A-Za-z0-9_?=&./-]+", link) else None
 
 
 def event_rows(events: list, now: datetime | None = None) -> list:

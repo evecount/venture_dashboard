@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { admin } from "@/lib/supabase-admin";
 import { isMonitored } from "@/lib/integrations";
-import { visibleTasks } from "@/lib/dash-scope";
+import { safeMeetUrl, visibleTasks } from "@/lib/dash-scope";
 import { identityFromRequest, json } from "@/lib/dash-auth";
 
 const GITHUB_TYPES = new Set(["commit", "pull_request", "issue"]);
@@ -247,6 +247,7 @@ export const Route = createFileRoute("/api/dash/snapshot")({
           )
           .map(({ attendees, ...e }) => ({
             ...e,
+            meet_url: safeMeetUrl(e.meet_url),
             startup_ids: [
               ...new Set(
                 (attendees ?? [])

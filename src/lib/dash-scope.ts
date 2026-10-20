@@ -37,3 +37,9 @@ export function parkedInstallFields(
   if (!parked || alreadyLinked) return {};
   return { account: parked.account, repos: parked.repos ?? [] };
 }
+
+/** A Meet link is only ever shown as a link when it really is one (https on meet.google.com): the text comes from a
+ *  calendar event's location, which people type, and a `javascript:` URL must never reach an href. */
+export function safeMeetUrl(url: string | null | undefined): string | null {
+  return typeof url === "string" && /^https:\/\/meet\.google\.com\/[A-Za-z0-9_?=&./-]+$/.test(url) ? url : null;
+}

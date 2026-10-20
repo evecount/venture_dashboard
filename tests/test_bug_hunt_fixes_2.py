@@ -436,3 +436,13 @@ class DigestOverdueTests(unittest.TestCase):
         text = " ".join(bl.get("text", {}).get("text", "") for bl in blocks if bl["type"] == "section")
         self.assertIn("or overdue", text)
         self.assertEqual(text.count("overdue"), 2)  # heading + the one late item
+
+
+class MeetLinkSafetyTests(unittest.TestCase):
+    def test_only_real_meet_links_become_links(self):
+        import studio_events as se
+        self.assertEqual(se._meet_url({"hangoutLink": "https://meet.google.com/abc-defg-hij"}), "https://meet.google.com/abc-defg-hij")
+        self.assertEqual(se._meet_url({"location": "https://meet.google.com/abc-defg-hij?authuser=0"}), "https://meet.google.com/abc-defg-hij?authuser=0")
+        self.assertIsNone(se._meet_url({"location": "javascript:alert(1)//meet.google.com/x"}))
+        self.assertIsNone(se._meet_url({"location": "111 Somerset"}))
+        self.assertIsNone(se._meet_url({"hangoutLink": "http://meet.google.com/abc"}))
