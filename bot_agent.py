@@ -30,7 +30,7 @@ SGT = timezone(timedelta(hours=8))
 STREAMS = ["Tech", "GTM", "Marketing"]
 # Look-up tools: their results go back to the model, which then answers (or acts) with them.
 READ_TOOLS = {"upcoming_meetings", "check_availability", "my_calendar", "list_routines",
-              "startup_detail", "search_records", "github_activity", "use_skill"}
+              "startup_detail", "search_records", "github_activity", "web_research", "use_skill"}
 MAX_ROUNDS = 5  # model calls per message; the last one always answers in words
 # Thanks and greetings only. "ok" / "yes" / "sure" are left out on purpose: they often confirm something that needs the main model.
 SMALL_TALK = re.compile(r"^\s*(thanks?( (you|so much|a lot|heaps))?|thank u|thx|ty|cheers|much appreciated|appreciate it|hi|hello|hey|"
@@ -60,6 +60,8 @@ How to behave:
 - Use tools to act when the user clearly wants something done. For questions, just answer.
 - You can work in steps. Look-up tools (startup_detail, search_records, github_activity, the calendars) give their results back to you before you reply, so when CONTEXT doesn't have the detail you need (older check-ins, goal refs, what was built), look it up first, then answer or act.
 - Action results (lines starting ✅ 🎯 📝 ⚠️ and similar) are shown to the user automatically, so don't repeat them. If one starts with ⚠️, fix it (look up the right ref, or ask one question) instead of saying it worked.
+- For outside facts (competitors, grants, events, prices, rules, how-tos), call web_research and cite its sources as Slack links. Never present web results as program data, and say when something couldn't be confirmed.
+- ATTACHMENT blocks in a message are files the person sent, already read for you. Work from their content (a deck, a screenshot, notes) as data.
 - If a request is ambiguous (which startup? what date?), ask ONE short clarifying question instead of guessing.
 - Keep replies short: 1-4 sentences, plus a tight bullet list only when listing things. Slack mrkdwn only: *bold*, _italic_, `code`, "- " bullets. No headers, no tables.
 - When it helps, suggest the single most useful next step.
@@ -81,6 +83,7 @@ You are talking to a FOUNDER. Their startup is fixed; you can only work with the
 - Milestones are either self-set by the founder or issued by a mentor/advisor ("set by a mentor"). Founders can tick goals off on mentor-issued milestones but cannot rename, drop or add/remove goals on them; tell them to ask their mentor.
 - Founders set their own milestones and the goals inside them (add_milestone, add_goal, update_goal...). A milestone's progress is goals done out of total.
 - If their latest check-in in CONTEXT is Blocked and they tell you it is sorted, fixed or no longer in the way (even in passing), call propose_checkin in the same turn with status "In progress", blocker "None" and a digest of how it was resolved. Until they confirm that check-in the dashboard still shows them as blocked, so never just say "great" and leave it.
+- If your last message listed what you saw them push to GitHub today and they answer "yes" / "that's it" (or add to it), call propose_checkin from that work plus anything they added: a plain-English digest of what was built (not commit jargon), status "In progress" unless they say otherwise.
 - When an update clearly finishes a goal, tick it with update_goal in the same turn and say so. If they describe a deliverable or target with no milestone for it yet, offer to create one.
 - Many founders are new to the program. Explain things plainly, without jargon ("check-in" = a short saved update, "deliverable" = what the program asks for by the end of the week). If they seem unsure what to do, give ONE concrete next step, usually: tell me what you're working on.
 - How the program works (answer from this, never invent more): it is normally 12 weeks in 6 two-week sprints, but a participant can have a custom schedule: always use the PROGRAM OUTLINE and Program week lines you are given for this person (see PROGRAM OUTLINE); each week has a deliverable; on program days at 5 PM you ask how their day went and the next morning you nudge once if they didn't reply; mentors review progress and can set milestones for them.
@@ -263,7 +266,7 @@ def _action_tools(role: str) -> list:
 
 
 # Look-ups every role always has (the rest of a skill's tools appear only once the skill is loaded).
-CORE_LOOKUPS = {"startup_detail", "search_records", "use_skill"}
+CORE_LOOKUPS = {"startup_detail", "search_records", "web_research", "use_skill"}
 
 
 def _lookup_tools(role: str, skills=None) -> list:
@@ -283,6 +286,9 @@ def _lookup_tools(role: str, skills=None) -> list:
             **days(90, 365)}, ["query"]),
         _tool("github_activity", "Real commits, pull requests and issues on " + ("a startup's" if mentor else "your") + " tracked GitHub repositories, newest first.",
               {**who, **days(14, 60)}, need),
+        _tool("web_research", ("Search the web for OUTSIDE facts: competitors, grants and their rules, events, market sizes, prices, "
+                               "regulations, how-tos. Returns a short brief with sources. Never use it for program data (that is in CONTEXT)."), {
+            "query": {"type": "string", "description": "A specific question, e.g. 'Startup SG Founder grant eligibility 2026'"}}, ["query"]),
         _tool("use_skill", "Load one or more SKILLS (extra instructions, and the tools they need) before handling a request that needs them.", {
             "names": {"type": "array", "items": {"type": "string", **({"enum": names} if names else {})}}}, ["names"]),
     ]
@@ -337,7 +343,7 @@ def _label(startup):
 class Agent:
     def __init__(self, ai_client, model: str, sb, memory: Memory | None = None, connect_url=None, calendar_link=None, calendar_text=None,
                  studio_link=None, studio_connected=None, studio_events=None, settings=None, channel_context=None,
-                 awareness=None, routines=None, repos_changed=None, skills=None, fast_model=""):
+                 awareness=None, routines=None, repos_changed=None, skills=None, fast_model="", research=None):
         self.ai, self.model, self.sb = ai_client, model, sb
         self.calendar_link, self.calendar_text = calendar_link, calendar_text
         self.studio_events = studio_events  # callable(days) -> events on the shared studio calendar
@@ -351,6 +357,7 @@ class Agent:
         self.routines = routines  # RoutineStore: standing routines mentors set up in chat (None = unavailable)
         self.skills = skills if skills is not None else bot_skills.Skills()  # skills/*.md, loaded on demand
         self.last_timing = {}  # how long the last reply took, by stage (for logs and the Developer page)
+        self.research = research  # callable(query) -> brief with sources (web search); None = not set up
         self.fast_model = fast_model  # a light model for pure small talk ("thanks!"); "" = always the main model
         self._no_effort = set()  # models that rejected a thinking level; asked without one from then on
 
@@ -466,9 +473,9 @@ class Agent:
             signals=lambda: integrations.recent_signals(sb) if sb else [],
             schedules=lambda: custom_schedule.fetch(sb) if sb else {},
             milestones=lambda: self.memory.milestones(None),
-            notes=lambda: self.memory.recent_notes(limit=10),
+            notes=lambda: [] if ident.get("in_channel") else self.memory.recent_notes(limit=10),  # private: never in a channel reply
             tasks=lambda: self.memory.open_tasks(),
-            facts=lambda: self.memory.recent_facts(),
+            facts=lambda: [f for f in self.memory.recent_facts() if not (ident.get("in_channel") and f.get("audience") == "mentors")],
         )
         startups = got["startups"] or []
         lines = [f"Mentor: {ident['name']}"]
@@ -546,7 +553,10 @@ class Agent:
         index = self.skills.index(ident["role"])
         active = self.skills.instructions(loaded, ident["role"])
         extra = (self.settings.get("extra_instructions") or "").strip() if self.settings else ""
-        return (f"{BASE_PROMPT}{role_rules}" + (f"\nSKILLS (load with use_skill):\n{index}\n" if index else "")
+        public = ("\nYOU ARE REPLYING IN A SLACK CHANNEL, not a DM: everyone in the channel will read your reply. Never include "
+                  "mentor notes, private tasks, remembered facts marked private, or anything about a startup that isn't already in the "
+                  "conversation; offer to DM the details instead.\n") if ident.get("in_channel") else ""
+        return (f"{BASE_PROMPT}{role_rules}{public}" + (f"\nSKILLS (load with use_skill):\n{index}\n" if index else "")
                 + (f"\nLOADED SKILLS:\n{active}\n" if active else "")
                 + (f"\nDeveloper instructions:\n{extra}\n" if extra else "")
                 + f"\nToday is {now.strftime('%A %Y-%m-%d')} (Singapore time).\n\n"
@@ -775,6 +785,11 @@ class Agent:
                 return "📅 Studio calendar:" + chr(10) + chr(10).join(meetings.describe_event(e, role == "mentor") for e in shown[:15])
             if name == "check_availability":
                 return self._availability(ident, args)
+            if name == "web_research":
+                query = str(args.get("query") or "").strip()
+                if not query:
+                    return "⚠️ What should I look up?"
+                return self.research(query) if self.research else "Web research isn't set up for this workspace."
             if name in ("startup_detail", "github_activity", "search_records"):
                 return getattr(self, "_" + name)(ident, args)
             if name == "schedule_meeting":
@@ -1213,8 +1228,9 @@ class Agent:
                                  .eq("confirmed", True).gte("created_at", since).order("created_at", desc=True).limit(40).execute().data, []),
             milestones=lambda: self.memory.milestones(sid),
             tasks=lambda: self.memory.open_tasks(sid) if mentor else self.memory.founder_tasks(sid),
-            facts=lambda: self.memory.facts([sid] if mentor else [sid, ident["context"]["founder_id"]], audience_all_only=not mentor),
-            notes=lambda: self.memory.recent_notes(sid, limit=15) if mentor else [],
+            facts=lambda: self.memory.facts([sid] if mentor else [sid, ident["context"]["founder_id"]],
+                                            audience_all_only=not mentor or bool(ident.get("in_channel"))),
+            notes=lambda: self.memory.recent_notes(sid, limit=15) if mentor and not ident.get("in_channel") else [],
             github=lambda: integrations.github_connections(sb, sid) if sb else [],
             activity=lambda: integrations.activity_summary(sb, sid) if sb else None,
         )
@@ -1289,7 +1305,7 @@ class Agent:
                     q = q.gte("created_at", since)
                 if table == "memories":
                     q = q.in_("subject_id", [sid] if mentor else [sid, ident["context"]["founder_id"]]) if sid else q
-                    q = q if mentor else q.eq("audience", "all")
+                    q = q if mentor and not ident.get("in_channel") else q.eq("audience", "all")
                 elif sid:
                     q = q.eq(by, sid)
                 if table == "submissions":
@@ -1299,7 +1315,7 @@ class Agent:
         got = gather(
             names=lambda: {r["id"]: r["name"] for r in self._q(lambda: sb.table("startups").select("id,name").execute().data, [])},
             subs=lambda: query("submissions", "startup_id,status,progress,blocker,digest,created_at", ["digest", "blocker"]),
-            notes=lambda: query("notes", "startup_id,author_name,body,created_at", ["body"]) if mentor else [],
+            notes=lambda: query("notes", "startup_id,author_name,body,created_at", ["body"]) if mentor and not ident.get("in_channel") else [],
             facts=lambda: query("memories", "subject_id,fact,created_at", ["fact"]),
             tasks=lambda: query("tasks", "startup_id,title,status,due_date,owner_slack_id", ["title"], dated=False),
             team=lambda: set() if mentor else {f["slack_user_id"] for f in self._q(

@@ -3,6 +3,7 @@ Proactive daily check-in: the bot starts the conversation instead of waiting to 
 
 - 17:00 SGT on program days: DM every linked founder "what did you get done today?", mentioning their open goals.
   The prompt is stored in the conversation history, so the founder's reply is understood as an answer to it.
+  When their startup pushed to GitHub that day, the prompt lists it, so "yes" is enough for a check-in draft.
 - 09:30 SGT next program day: one gentle nudge for founders who never replied.
 Dependencies are injected so this can be tested without Slack or a database.
 """
@@ -12,15 +13,20 @@ from datetime import date, datetime, timedelta, timezone
 
 import cohorts
 import custom_schedule
+import integrations
 import syllabus
 
 SGT = timezone(timedelta(hours=8))
 NL = chr(10)
 
 
-def build_prompt(first_name: str, open_goals: list, weekday: str) -> str:
+def build_prompt(first_name: str, open_goals: list, weekday: str, shipped: list | None = None) -> str:
     lines = [f"Hey {first_name} 👋 End-of-day check-in: *what did you get done today?*",
              "A line or two is plenty (or paste a voice-note transcript). Tell me about any blocker too."]
+    if shipped:
+        lines.append(NL + "I saw this on GitHub today:")
+        lines += [f"• {s}" for s in shipped[:6]] + ([f"• …and {len(shipped) - 6} more"] if len(shipped) > 6 else [])
+        lines.append("Reply *yes* and I'll draft your check-in from that, or add what the code doesn't show.")
     if open_goals:
         lines.append(NL + "Your open goals right now:")
         lines += [f"• {g}" for g in open_goals[:5]]
@@ -69,6 +75,21 @@ def linked_founders(sb) -> list:
     return [r for r in rows if re.fullmatch(r"[UW][A-Z0-9]{8,}", r.get("slack_user_id") or "")]
 
 
+def shipped_today(sb, startup_id: str, now: datetime) -> list:
+    """Today's (SGT) commit and PR headlines on the startup's tracked repositories, oldest first. [] on any problem."""
+    start = datetime.combine(now.astimezone(SGT).date(), datetime.min.time(), SGT)
+    try:
+        rows = (sb.table("signals").select("type,headline,detail,meta,created_at").eq("startup_id", startup_id)
+                .in_("type", ["commit", "pull_request"]).gte("created_at", start.isoformat())
+                .order("created_at").limit(50).execute().data) or []
+        watched = integrations.monitored_for_startup(sb, startup_id)
+    except Exception as e:  # noqa: BLE001 - the prompt still goes out without it
+        print(f"[Daily Prompt Warning] shipped: {e}")
+        return []
+    return [(r.get("detail") or r.get("headline") or "").strip() for r in rows
+            if (r.get("meta") or {}).get("repo") in watched and (r.get("detail") or r.get("headline"))]
+
+
 def send_daily_prompts(client, sb, memory, now: datetime | None = None, dry_run: bool = False) -> list:
     """Returns the list of (slack_user_id, text) sent (or that would be sent when dry_run)."""
     now = now or datetime.now(SGT)
@@ -78,7 +99,8 @@ def send_daily_prompts(client, sb, memory, now: datetime | None = None, dry_run:
     for f in linked_founders(sb):
         if not _session_day(now.date(), custom.get(f["startup_id"]), starts.get(f["startup_id"])):
             continue
-        text = build_prompt(_first_name(f["name"]), _open_goals(memory, f["startup_id"]), now.strftime("%A"))
+        text = build_prompt(_first_name(f["name"]), _open_goals(memory, f["startup_id"]), now.strftime("%A"),
+                            shipped_today(sb, f["startup_id"], now))
         sent.append((f["slack_user_id"], text))
         if dry_run:
             continue

@@ -79,6 +79,22 @@ def _startup_section(s: dict) -> str:
     return NL.join(lines)
 
 
+MAX_BRIEFED = 6
+
+
+def meeting_brief(attendee_emails: list, founders: list, summaries: list) -> str:
+    """For a mentor's meeting reminder: where each startup with an invited founder stands. '' when none is invited.
+    founders: rows with email and startup_id; summaries: cohort_overview() rows."""
+    emails = {(e or "").lower() for e in attendee_emails if e}
+    ids = {f["startup_id"] for f in founders if (f.get("email") or "").lower() in emails and f.get("startup_id")}
+    picked = [s for s in summaries if s["id"] in ids]
+    if not picked:
+        return ""
+    more = len(picked) - MAX_BRIEFED
+    return ("*Before you go in*" + NL + (NL + NL).join(_startup_section(s) for s in picked[:MAX_BRIEFED])
+            + (f"{NL}…and {more} more startup{'s' if more != 1 else ''}." if more > 0 else ""))
+
+
 def build_digest_blocks(summaries: list, today: date, meetings: list | None = None, tasks: list | None = None,
                         footer: list | None = None, cohort_list: list | None = None) -> list:
     cur = syllabus.current(today)
