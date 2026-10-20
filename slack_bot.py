@@ -1125,6 +1125,24 @@ def dashboard_button_blocks(founder_id: str | None = None, slack_user_id: str | 
     return [{"type": "actions", "elements": [el]}] if el else []
 
 
+def brand_block() -> dict | None:
+    """'[logo] Venture Studio' line for the top of every Home tab. The logo is served by the dashboard site."""
+    if not DASHBOARD_URL:
+        return None
+    logo = DASHBOARD_URL.rstrip("/") + "/email-logo.png"
+    return {"type": "context", "block_id": "brand", "elements": [
+        {"type": "image", "image_url": logo, "alt_text": "Venture Studio logo"},
+        {"type": "mrkdwn", "text": "*Venture Studio*"}]}
+
+
+def branded(blocks: list) -> list:
+    """Puts the brand line first, unless it would push the view past Slack's 100-block limit."""
+    brand = brand_block()
+    if not brand or len(blocks) >= 100 or any(b.get("block_id") == "brand" for b in blocks):
+        return blocks
+    return [brand] + blocks
+
+
 def add_to_top_row(blocks: list, element: dict | None) -> list:
     """Puts the Open dashboard button on the top row of a Home tab: beside the Mentor view / Developer switch if there is one."""
     if not element:
@@ -1522,7 +1540,7 @@ def publish_home(slack_user_id: str, client=None):
             if developer:
                 blocks.insert(1, dev_home.mode_switch("mentor"))
             blocks = add_to_top_row(blocks, dashboard_button_element(slack_user_id=slack_user_id))
-            client.views_publish(user_id=slack_user_id, view={"type": "home", "blocks": blocks})
+            client.views_publish(user_id=slack_user_id, view={"type": "home", "blocks": branded(blocks)})
             return
         context = resolve_founder_context(slack_user_id) if role else None
         latest = None
@@ -1537,9 +1555,10 @@ def publish_home(slack_user_id: str, client=None):
                 .execute()
             )
             latest = res.data[0] if res.data else None
-        client.views_publish(user_id=slack_user_id, view=build_home_view(context, latest, memory.founder_tasks(context["startup_id"]) if context else [], memory.milestones(context["startup_id"]) if context else [], integrations.github_connections(supabase, context["startup_id"]) if context else [],
+        view = build_home_view(context, latest, memory.founder_tasks(context["startup_id"]) if context else [], memory.milestones(context["startup_id"]) if context else [], integrations.github_connections(supabase, context["startup_id"]) if context else [],
                                                integrations.google_connections(supabase, context["startup_id"]) if context else [],
-                                               meeting_lines=founder_meeting_lines(slack_user_id) if context else []))
+                                               meeting_lines=founder_meeting_lines(slack_user_id) if context else [])
+        client.views_publish(user_id=slack_user_id, view=dict(view, blocks=branded(view["blocks"])))
     except Exception as e:
         print(f"[Home Tab Error] {e}")
 
@@ -3176,7 +3195,7 @@ def dev_home_state(uid: str) -> dict:
 def publish_dev_home(uid: str, client=None):
     try:
         blocks = add_to_top_row(dev_home.build_dev_home(dev_home_state(uid)), dashboard_button_element(slack_user_id=uid))
-        (client or app.client).views_publish(user_id=uid, view={"type": "home", "blocks": blocks})
+        (client or app.client).views_publish(user_id=uid, view={"type": "home", "blocks": branded(blocks)})
     except Exception as e:
         print(f"[Dev Home Error] {e}")
 

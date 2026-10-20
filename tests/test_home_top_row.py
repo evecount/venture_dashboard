@@ -1,6 +1,7 @@
 import os
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import slack_bot as b  # noqa: E402
@@ -51,6 +52,27 @@ class TopRowTests(unittest.TestCase):
         b.DASHBOARD_URL = None
         blocks = [{"type": "header"}, {"type": "section"}]
         self.assertEqual(b.add_to_top_row(list(blocks), b.dashboard_button_element()), blocks)
+
+
+
+
+class BrandLineTests(unittest.TestCase):
+    def test_logo_and_name_come_first(self):
+        with mock.patch.object(b, "DASHBOARD_URL", "https://dash.example/"):
+            blocks = b.branded([{"type": "header"}])
+        self.assertEqual(blocks[0]["block_id"], "brand")
+        self.assertEqual(blocks[0]["elements"][0]["image_url"], "https://dash.example/email-logo.png")
+        self.assertIn("Venture Studio", blocks[0]["elements"][1]["text"])
+        self.assertEqual(blocks[1], {"type": "header"})
+
+    def test_never_twice_never_past_the_block_limit_and_off_without_a_site(self):
+        with mock.patch.object(b, "DASHBOARD_URL", "https://dash.example"):
+            once = b.branded([{"type": "header"}])
+            self.assertEqual(b.branded(once), once)
+            full = [{"type": "divider"}] * 100
+            self.assertEqual(b.branded(full), full)
+        with mock.patch.object(b, "DASHBOARD_URL", None):
+            self.assertEqual(b.branded([{"type": "header"}]), [{"type": "header"}])
 
 
 if __name__ == "__main__":
