@@ -14,6 +14,7 @@ from datetime import date, datetime, timedelta, timezone
 import cohorts
 import custom_schedule
 import integrations
+import profile_rules
 import syllabus
 
 SGT = timezone(timedelta(hours=8))
@@ -59,7 +60,7 @@ def build_blocker_followup(first_name: str, blocker: str) -> str:
 
 
 def _first_name(full: str) -> str:
-    return (full or "there").split()[0]
+    return profile_rules.first_name(full)
 
 
 def _open_goals(memory, startup_id: str) -> list:

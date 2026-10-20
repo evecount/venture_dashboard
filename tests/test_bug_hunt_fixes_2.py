@@ -256,3 +256,59 @@ class UnresolvedWarningTests(unittest.TestCase):
         out = a.respond(MENTOR, "add a goal")
         self.assertIn("All done", out["text"])
         self.assertIn("couldn't find that milestone", out["text"])
+
+
+class RoutineTests(unittest.TestCase):
+    def test_every_weeks_is_read_leniently(self):
+        import routines
+        base = {"weekday": "wednesday", "time": "14:00", "instruction": "x"}
+        for given, want in ((2, 2), ("2", 2), ("4 weeks", 4), ("weekly", 1), (None, 1)):
+            row, problem = routines.validate({**base, "every_weeks": given})
+            self.assertIsNone(problem)
+            self.assertEqual(row["every_weeks"], want, given)
+
+    def test_people_routines_resolve_names_and_mentions_to_slack_ids(self):
+        from test_agent_loop import Script, agent_with, call
+        from test_bot_agent import MENTOR
+        tables = {"startups": [], "founders": [{"name": "Takshma Patel", "slack_user_id": "U0C79P3470S", "startups": {"name": "Auvira"}}],
+                  "mentors": [{"name": "Ben", "slack_user_id": "U0C7BRXM34Z"}]}
+        s = Script(("", [call("create_routine", {"instruction": "send the deck", "weekday": "wednesday", "time": "14:00",
+                                                    "audience": "people", "people": ["Takshma", "<@U0C7BRXM34Z>"]})]), ("Set.", []))
+        a, mem = agent_with(s, tables=tables)
+        a.routines = object()  # any truthy store: this path only proposes a card
+        out = a.respond(MENTOR, "every wednesday remind takshma and me")
+        saved = [p for _, p in getattr(mem, "meetings", [])] if hasattr(mem, "meetings") else []
+        card = (out.get("meetings") or [None])[0]
+        self.assertIsNotNone(card, out["text"])
+        self.assertEqual(sorted(card["routine"]["people"]), ["U0C79P3470S", "U0C7BRXM34Z"])
+
+
+class QuestionAfterWarningTests(unittest.TestCase):
+    def run_turn(self, reply):
+        from test_agent_loop import Script, agent_with, call
+        from test_bot_agent import MENTOR
+        s = Script(("", [call("add_goal", {"milestone_ref": "zzzz", "title": "x"})]), (reply, []))
+        a, _ = agent_with(s)
+        return a.respond(MENTOR, "add a goal")["text"]
+
+    def test_a_clarifying_question_replaces_the_warning(self):
+        text = self.run_turn("I couldn't find that one. Which milestone should I add it to?")
+        self.assertNotIn("⚠", text)
+
+    def test_a_question_early_in_the_reply_does_not_hide_a_false_success(self):
+        text = self.run_turn("Need anything else? Done! Goal added.")
+        self.assertIn("couldn't find that milestone", text)
+
+    def test_plain_success_claim_still_shows_the_warning(self):
+        self.assertIn("couldn't find that milestone", self.run_turn("Done! Goal added."))
+
+
+class FirstNameTests(unittest.TestCase):
+    def test_one_rule_for_greetings_everywhere(self):
+        from profile_rules import first_name
+        import daily_checkin, founder_nudges
+        for name, want in (("Takshma Patel", "Takshma"), ("Leung Wai-Leng", "Leung Wai-Leng"), ("James Sun", "James"),
+                           ("Madonna", "Madonna"), ("", "there"), (None, "there"), ("   ", "there")):
+            self.assertEqual(first_name(name), want)
+            self.assertEqual(daily_checkin._first_name(name), want)
+            self.assertEqual(founder_nudges.first_name(name), want)

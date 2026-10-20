@@ -677,7 +677,9 @@ class Agent:
 
         # The model's words, then what really happened. Raw look-ups and warnings show only if it said nothing.
         # A failure the model did not fix in a later round is shown even when it wrote a cheerful reply.
-        parts = [reply, *receipts, *[w for w in unresolved if w not in reply]] if reply else [*warnings, *receipts, *lookups]
+        # (Not when the reply is itself a question: asking about the failure is the prompt's own way of putting it right.)
+        show = [] if _asks_question(reply) else [w for w in unresolved if w not in reply]
+        parts = [reply, *receipts, *show] if reply else [*warnings, *receipts, *lookups]
         default = ("Here's what I captured. Confirm below to sync it to the dashboard." if out["checkin"]
                    else "Please confirm the rename below." if out["rename"] else "Got it.")
         out["text"] = "\n".join(p for p in parts if p) or default
@@ -1220,6 +1222,14 @@ class Agent:
             return problem
         if row["audience"] == "cohort" and not row["cohort_id"]:
             return "Which cohort should it go to?"
+        if row["audience"] == "people":  # names and <@U…> mentions become Slack ids, so the routine can really reach them
+            founders = self.sb.table("founders").select("name,slack_user_id,startups(name)").execute().data or []
+            mentors_ = self.sb.table("mentors").select("name,slack_user_id").execute().data or []
+            got = announce.resolve_recipients(row["people"], founders, mentors_, "")
+            if got["unknown"] or got["unreachable"] or not got["people"]:
+                bad = got["unknown"] + got["unreachable"]
+                return "⚠️ I couldn't reach " + (", ".join(bad) if bad else "anyone") + " on Slack for that routine. Who exactly should it go to?"
+            row["people"] = [p["slack"] for p in got["people"]]
         payload = {"kind": "routine", "routine": row, "requester": ident["name"], "requester_slack": ident["slack_id"]}
         meeting_id = self.memory.save_meeting(ident["slack_id"], payload)
         if not meeting_id:
@@ -1493,6 +1503,12 @@ class Agent:
 _WORD = re.compile(r"[a-z0-9][a-z0-9'-]{2,}")
 _STOP = {"the", "and", "for", "with", "what", "when", "who", "did", "does", "about", "they", "them", "that", "this", "from",
          "have", "has", "any", "anyone", "mention", "mentioned", "say", "said", "ever", "was", "were", "are"}
+
+
+def _asks_question(reply: str) -> bool:
+    """True when the reply ends by asking the user something (a '?' in its last sentence)."""
+    last = [p for p in re.split(r"(?<=[.!?])\s+|\n", (reply or "").strip()) if p.strip()]
+    return bool(last) and "?" in last[-1]
 
 
 def _percent(value, default: int = 50) -> int:

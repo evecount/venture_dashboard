@@ -30,7 +30,10 @@ def validate(args: dict) -> tuple[dict | None, str | None]:
     t = parse_time(args.get("time") or "")
     if not t:
         return None, "What time should it go out (e.g. 2 PM)?"
-    every = int(args.get("every_weeks") or 1)
+    try:
+        every = int(float(str(args.get("every_weeks") or 1).strip().split()[0]))
+    except (ValueError, IndexError):
+        every = 1
     if every not in (1, 2, 4):
         return None, "I can repeat every week, every two weeks or every four weeks."
     audience = str(args.get("audience") or "founders").lower()

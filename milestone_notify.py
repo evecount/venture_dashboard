@@ -10,6 +10,8 @@ Email is sent from the studio Google account (Gmail API, gmail.send); replies go
 
 import html
 import re
+
+import profile_rules
 from urllib.parse import urljoin
 from datetime import datetime, timedelta, timezone
 
@@ -248,7 +250,7 @@ def run(sb, client, seen, mark, send_email=None, log=None, now: datetime | None 
     for startup_id, items in by_startup.items():
         startup = (items[0].get("startups") or {}).get("name") or "your startup"
         for f in (x for x in founders if x.get("startup_id") == startup_id):
-            first = (f.get("name") or "there").split()[0]
+            first = profile_rules.first_name(f.get("name"))
             sid = f.get("slack_user_id") or ""
             if re.fullmatch(r"[UW][A-Z0-9]{8,}", sid):
                 try:

@@ -94,6 +94,10 @@ class FakeMemory:
         self.updates.append(("g", gid, patch))
         return True
 
+    def save_meeting(self, requested_by, payload):
+        self.meetings = getattr(self, "meetings", []) + [(requested_by, payload)]
+        return f"mtg{len(self.meetings)}"
+
     def sync_milestone(self, mid, reopen=True):
         return None
 

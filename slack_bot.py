@@ -140,7 +140,7 @@ import studio_events
 import mentor_calendars
 import progress_estimator
 import integrations
-from profile_rules import match_person, looks_like_email, norm_name
+from profile_rules import match_person, looks_like_email, norm_name, first_name
 import daily_checkin
 from daily_checkin import send_daily_prompts, send_nudges
 from bot_agent import Agent, gather as agent_gather
@@ -895,7 +895,7 @@ def where_we_are_text(today=None, start=None) -> str:
 
 def founder_welcome_text(name: str, startup_name: str, intro: str | None = None, start=None) -> str:
     nl = chr(10)
-    first = (name or "there").split()[0]
+    first = first_name(name)
     lines = [intro or f"👋 Welcome, {first}! You're set up with *{startup_name}*.", "",
              "I'm *Venture Buddy*, the program's assistant. There are no forms here. This is how it works:",
              "• *Tell me what you're working on*, in a line or two or as a voice note. I write it up as a short check-in "
@@ -1115,13 +1115,13 @@ def handle_founder_submit(ack, body, client, view):
             supabase.table("founders").update({"slack_user_id": user_id, "email": email.lower()}).eq("id", row["id"]).execute()
             st_name = next((st["name"] for st in startups if st["id"] == row["startup_id"]), "your startup")
             name, ids = row["name"], (row["id"], row["startup_id"])
-            intro = f"✅ Welcome, {name.split()[0]}! I found your invite and linked you to *{st_name}*."
+            intro = f"✅ Welcome, {first_name(name)}! I found your invite and linked you to *{st_name}*."
         else:
             if not startup:
                 startup = create_startup(new_name or "Untitled startup")
             register_founder(user_id, name, startup["id"], email)
             st_name, ids = startup["name"], (f"founder-{user_id.lower()}", startup["id"])
-            intro = (f"✅ You're in, {name.split()[0]}! You're set up with *{st_name}*"
+            intro = (f"✅ You're in, {first_name(name)}! You're set up with *{st_name}*"
                      + (" (no name yet? just say _\"rename my startup to ...\"_ when you have one)." if not new_name and not picked else "."))
         msg = f"Welcome, {name}! You're set up with {st_name}."
         blocks = founder_welcome_blocks(name, st_name, *ids, intro=intro)
@@ -1303,7 +1303,7 @@ def ask_more_repos_button(row: dict) -> dict | None:
             "value": row["id"], "confirm": {
                 "title": {"type": "plain_text", "text": "Ask for more repositories?"},
                 "text": {"type": "mrkdwn", "text": f"Only {founder} can choose which of their GitHub repositories Venture Buddy sees. "
-                                                   f"I'll DM {founder.split()[0]} a link to share more, then you can pick them here."},
+                                                   f"I'll DM {first_name(founder)} a link to share more, then you can pick them here."},
                 "confirm": {"type": "plain_text", "text": "Ask them"}, "deny": {"type": "plain_text", "text": "Cancel"}}}
 
 
@@ -1759,7 +1759,7 @@ def greeting_reply(role: str | None, name: str = "", text: str = "") -> tuple:
     if role == "mentor":
         return "Cohort pulse", build_mentor_blocks(safe_snapshot())
     if role == "founder":
-        first = (name or "there").split()[0]
+        first = first_name(name)
         msg = (f"Hey {first} 👋 What are you working on? Tell me in a line or two and I'll write it up as a check-in for you to look over."
                + chr(10) + "_Type *help* to see everything I can do._")
     else:
@@ -3651,7 +3651,7 @@ def handle_ask_share_repos(ack, body, client):
             client.chat_postMessage(channel=user_id, text="I couldn't reach that founder on Slack. Ask them to press ➕ on their Home tab.")
             return
         mentor = (supabase.table("mentors").select("name").eq("slack_user_id", user_id).limit(1).execute().data or [{}])[0].get("name") or "Your mentor"
-        first = (founder.get("name") or "there").split()[0]
+        first = first_name(founder.get("name"))
         text = (f"Hey {first}, {mentor} would like more of your GitHub work to count toward "
                 f"*{(row.get('startups') or {}).get('name', 'your startup')}*. Press the button, choose the repositories you're "
                 "working in (or *All repositories*) and save. They'll show up on your *Home* tab to pick.")

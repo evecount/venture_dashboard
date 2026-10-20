@@ -13,6 +13,15 @@ Rules
 """
 
 
+def first_name(name: str | None) -> str:
+    """What to call someone: the first word, except that a hyphenated given name after it usually means surname-first
+    ('Leung Wai-Leng'), so that stays whole. Blank or missing gives 'there'."""
+    parts = (name or "").split()
+    if not parts:
+        return "there"
+    return " ".join(parts) if any("-" in p for p in parts[1:]) else parts[0]
+
+
 def norm_name(name: str) -> str:
     return " ".join((name or "").casefold().split())
 

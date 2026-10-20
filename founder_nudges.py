@@ -10,14 +10,14 @@ Pure text builders; slack_bot sends them.
 from datetime import date, timedelta
 
 import cohorts
+import profile_rules
 
 NL = "\n"
 
 
 def first_name(name: str) -> str:
     """'Takshma Patel' -> 'Takshma'. A hyphenated given name usually means surname-first ('Leung Wai-Leng'), so keep it whole."""
-    parts = (name or "there").split()
-    return name.strip() if any("-" in p for p in parts[1:]) else parts[0]
+    return profile_rules.first_name(name)
 
 
 def founder_text(f: dict, has_github: bool, has_calendar: bool, last_checkin_days: int | None,
