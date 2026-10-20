@@ -287,5 +287,95 @@ class GitHubEvidenceTests(unittest.TestCase):
         self.assertIn("files: src/pricing.tsx", prompt)
 
 
+class PersonalTests(unittest.TestCase):
+    def sb(self):
+        return DigestPrefsTests.SB()
+
+    def test_instructions_are_saved_shown_to_the_model_and_removable(self):
+        import personal
+        sb = self.sb()
+        s = Script(("Will do.", [call("set_personal_instruction", {"instruction": "Always use bullet points"})]), ("ok", []))
+        a, _ = agent_with(s)
+        a.sb = sb
+        del a._context_parts  # use the real one, so the instruction reaches the prompt
+        a._mentor_context = lambda ident: "CTX"
+        a._schedule_lines = lambda ident, today: []
+        out = a.respond(MENTOR, "from now on always use bullet points")
+        self.assertIn("From now on, for you: _Always use bullet points_", out["text"])
+        a.respond(MENTOR, "who is blocked?")
+        self.assertIn("1. Always use bullet points", s.requests[1]["messages"][0]["content"])
+        ok, msg = personal.remove(sb, MENTOR["slack_id"], "1")
+        self.assertTrue(ok)
+        self.assertEqual(personal.instructions(sb, MENTOR["slack_id"]), [])
+
+    def test_a_feature_request_reaches_the_developer(self):
+        sent = []
+        s = Script(("I can't do that yet, so I've passed it on.", [call("request_feature", {"description": "Sync with Notion"})]))
+        a, _ = agent_with(s, notify_developers=sent.append)
+        a.sb = self.sb()
+        out = a.respond(MENTOR, "can you sync with Notion?")
+        self.assertIn("Sync with Notion", sent[0])
+        self.assertIn("Passed to Ben", out["text"])
+
+
+class MeetingCaptureTests(unittest.TestCase):
+    def test_recordings_are_told_apart_from_voice_notes(self):
+        import meeting_capture as mc
+        note = {"subtype": "slack_audio", "mimetype": "audio/webm", "duration_ms": 20000, "size": 90000}
+        self.assertFalse(mc.is_recording(note))
+        self.assertTrue(mc.is_recording(note, expecting=True))                       # I asked for one
+        self.assertTrue(mc.is_recording({**note, "duration_ms": 30 * 60000}))         # long
+        self.assertTrue(mc.is_recording({"name": "sync.mp4", "mimetype": "video/mp4"}))  # a Meet recording
+        self.assertTrue(mc.is_recording(note, "here's the recording of our call"))
+        self.assertFalse(mc.is_recording({"name": "deck.pdf", "mimetype": "application/pdf"}, expecting=True))
+        self.assertEqual(mc.audio_mime({"name": "sync.mp4", "mimetype": "video/mp4"}), "audio/mp4")  # audio prices
+
+    def test_long_audio_goes_through_the_files_api_and_is_deleted(self):
+        import meeting_capture as mc
+        calls = []
+
+        def http(method, url, headers=None, json=None, data=None):
+            calls.append((method, url.split("googleapis.com")[-1]))
+            if "upload/v1beta/files" in url:
+                return NS(headers={"x-goog-upload-url": "https://up.example/1"})
+            if url.startswith("https://up.example"):
+                return NS(json=lambda: {"file": {"name": "files/abc", "uri": "https://g/files/abc", "state": "ACTIVE"}})
+            if ":generateContent" in url:
+                self.assertEqual(json["contents"][0]["parts"][1]["file_data"]["file_uri"], "https://g/files/abc")
+                return NS(json=lambda: gemini("[00:00] Gwen: hi"))
+            return NS(json=lambda: {})
+        old = mc.INLINE_MAX
+        mc.INLINE_MAX = 0
+        try:
+            self.assertEqual(mc.transcribe(b"x" * 10, "audio/mp4", "k", "lite", ["Gwen"], http), "[00:00] Gwen: hi")
+        finally:
+            mc.INLINE_MAX = old
+        self.assertEqual(calls[-1], ("DELETE", "/v1beta/files/abc"))
+
+
+class MilestoneProgressTests(unittest.TestCase):
+    """Same rule as the dashboard's milestoneProgress (src/components/dashboard/insights.ts)."""
+
+    def test_in_play_milestones_and_expected_ramp(self):
+        import progress_estimator as pe
+        from datetime import date
+        today = date(2026, 10, 20)
+        ms = [{"status": "open", "due_date": "2026-10-16", "goals": [{"done": True}, {"done": False}]},          # overdue, 50%
+              {"status": "open", "due_date": "2026-10-23", "goals": [], "progress": 20},                          # this week, 20%
+              {"status": "open", "due_date": "2026-12-01", "goals": [{"done": False}]},                          # far off: out
+              {"status": "done", "due_date": "2026-08-01", "goals": []},                                         # finished long ago: out
+              {"status": "dropped", "due_date": "2026-10-19", "goals": []}]                                      # dropped: out
+        mp = pe.milestone_progress(ms, today)
+        self.assertEqual((mp["pct"], mp["counted"], mp["overdue"]), (35, 2, 1))
+        self.assertEqual(mp["expected"], round((100 + 50) / 2))  # due in 3 days -> halfway through its last week
+        self.assertIsNone(pe.milestone_progress([], today))
+
+    def test_home_shows_milestone_progress_or_falls_back_to_the_check_in(self):
+        import mentor_home
+        self.assertEqual(mentor_home.progress_label({"milestone": {"pct": 35, "counted": 2, "overdue": 1}}),
+                         "35% of current milestones (1 overdue)")
+        self.assertEqual(mentor_home.progress_label({"milestone": None, "latest": {"progress": 70}}), "70% (check-in)")
+
+
 if __name__ == "__main__":
     unittest.main()

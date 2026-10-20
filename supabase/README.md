@@ -52,6 +52,7 @@ This guide walks through deploying the live database and connecting the Slack bo
         "im:history",
         "mpim:history",
         "files:read",
+        "files:write",
         "channels:read",
         "groups:read",
         "mpim:read",

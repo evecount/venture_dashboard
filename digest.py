@@ -69,7 +69,7 @@ def _startup_section(s: dict) -> str:
         lines.append(f"• {s['detail']}")
     if lat and s["health"] != "quiet":
         lines.append(f"• {s.get('checkins_7d', 0)} check-in{'s' if s.get('checkins_7d', 0) != 1 else ''} this week · "
-                     f"{lat.get('progress', 0)}% · _{mentor_home._short(lat['digest'], 110)}_")
+                     f"{mentor_home.progress_label(s)} · _{mentor_home._short(lat['digest'], 110)}_")
     if s.get("work"):
         lines.append(f"• 💻 {s['work']}")
     if s.get("goals_total"):

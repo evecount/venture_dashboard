@@ -33,6 +33,15 @@ def relative(ts: str, now: datetime) -> str:
     return f"{days} day{'s' if days != 1 else ''} ago"
 
 
+def progress_label(s: dict) -> str:
+    """The same number the dashboard shows: progress on current milestones, or the check-in % when there are none."""
+    mp = s.get("milestone")
+    if mp and mp.get("counted"):
+        return f"{mp['pct']}% of current milestones" + (f" ({mp['overdue']} overdue)" if mp.get("overdue") else "")
+    lat = s.get("latest") or {}
+    return f"{lat.get('progress', 0)}% (check-in)"
+
+
 def summarize_startups(startups: list, founders: list, subs: list, now: datetime | None = None) -> list:
     """subs: confirmed check-ins (startup_id, founder_id, status, progress, blocker, digest, created_at), any order."""
     now = now or datetime.now(timezone.utc)
@@ -139,7 +148,7 @@ def build_mentor_blocks(summaries: list, today: date | None = None, tasks: list 
         lines = []
         for s in healthy:
             lat = s["latest"]
-            lines.append(f"🟢 *{s['name']}* ({_who(s)}) · {lat['progress']}% · checked in {s['last_seen']}"
+            lines.append(f"🟢 *{s['name']}* ({_who(s)}) · {progress_label(s)} · checked in {s['last_seen']}"
                          f"{NL}> {_short(lat['digest'])}" + (f"{NL}> 💻 {s['work']}" if s.get("work") else "")
                          + (f"{NL}> ⚠️ Checking in but no code activity this week" if s.get("gap") else ""))
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*On track*" + NL + (NL * 2).join(lines)}})
@@ -155,7 +164,8 @@ def build_mentor_blocks(summaries: list, today: date | None = None, tasks: list 
 
     blocks.append({"type": "divider"})
     blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": (
-        "Progress % is how far a startup says it is on this week's deliverable. 🔴 blocked · 🟠 no check-in for "
+        "Progress is measured against each startup's current milestones, as on the dashboard (the check-in % when it has none). "
+        "🔴 blocked · 🟠 no check-in for "
         f"{QUIET_DAYS}+ days · 🟢 on track.{NL}Ask me anything in the *Messages* tab, e.g. _\"What is Auvira working on?\"_, "
         "_\"What's due tomorrow?\"_, _\"Who hasn't checked in?\"_ or _\"Note on SharedOut: needs a technical review.\"_")}]})
     blocks += footer or []

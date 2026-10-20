@@ -63,6 +63,64 @@ def milestone_value(goals: list, milestone: dict | None = None) -> tuple[int, bo
     return round(sum(v for v, _ in vals) / len(vals)), any(e for _, e in vals)
 
 
+HORIZON_DAYS = 7   # milestones due within the next week are in play
+RECENT_DAYS = 21   # finished milestones stay in the picture for three weeks
+
+
+def is_complete(m: dict) -> bool:
+    goals = m.get("goals") or []
+    return m.get("status") == "done" or (bool(goals) and all(g.get("done") for g in goals))
+
+
+def milestone_expected(due, today) -> int:
+    """Expected during a milestone's last week: 0 before it, ramping to 100 on the due day and after."""
+    if not due:
+        return 0
+    if due <= today:
+        return 100
+    into = (today - (due - timedelta(days=6))).days
+    return 0 if into <= 0 else round(into / 6 * 100)
+
+
+def load_milestones(sb) -> list:
+    """Every startup's milestones (not dropped) with their goals, in one query. Uses whichever progress columns exist:
+    milestone-level progress needs supabase/migrations/2026-10-milestone-progress.sql."""
+    for cols in ("id,startup_id,title,due_date,status,progress,est_progress,goals(done,progress,est_progress)",
+                 "id,startup_id,title,due_date,status,goals(done,progress,est_progress)",
+                 "id,startup_id,title,due_date,status,goals(done)"):
+        try:
+            return sb.table("milestones").select(cols).neq("status", "dropped").limit(1000).execute().data or []
+        except Exception:  # noqa: BLE001 - a migration not run yet: try fewer columns
+            continue
+    return []
+
+
+def milestone_progress(milestones: list, today) -> dict | None:
+    """How one startup is doing against its milestones: the same rule as the dashboard (insights.ts milestoneProgress).
+    In play: unfinished ones due within a week or undated, plus ones finished in the last three weeks.
+    {pct, expected, counted, complete, overdue}, or None when there's nothing to measure (fall back to check-ins)."""
+    def due_of(m):
+        try:
+            return datetime.fromisoformat(str(m["due_date"])[:10]).date() if m.get("due_date") else None
+        except ValueError:
+            return None
+    mine = [m for m in milestones if m.get("status") != "dropped"]
+    play = []
+    for m in mine:
+        due = due_of(m)
+        if due and due > today + timedelta(days=HORIZON_DAYS):
+            continue
+        if is_complete(m) and not (due and due >= today - timedelta(days=RECENT_DAYS)):
+            continue
+        play.append((m, due))
+    if not play:
+        return {"pct": 100, "expected": 100, "counted": 0, "complete": 0, "overdue": 0} if mine and all(is_complete(m) for m in mine) else None
+    vals = [100 if is_complete(m) else milestone_value(m.get("goals") or [], m)[0] for m, _ in play]
+    return {"pct": round(sum(vals) / len(vals)), "expected": round(sum(milestone_expected(d, today) for _, d in play) / len(play)),
+            "counted": len(play), "complete": sum(1 for m, _ in play if is_complete(m)),
+            "overdue": sum(1 for m, d in play if not is_complete(m) and d and d < today)}
+
+
 def build_prompt(goals: list, work: list, heading: str = SOURCES["github"][2]) -> str:
     lines = ["OPEN GOALS (ref · milestone · goal · current %):"]
     for ref, g in goals:

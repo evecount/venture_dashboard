@@ -91,6 +91,8 @@ AI_BASE_URL = (
 AI_MODEL = os.environ.get("AI_MODEL") or ("gemini-3.8-flash" if GEMINI_API_KEY else "qwen-plus")
 # Light, fast model for small talk, web research and reading attachments ("" = use AI_MODEL everywhere).
 FAST_AI_MODEL = os.environ.get("AI_FAST_MODEL") or ("gemini-3.5-flash-lite" if GEMINI_API_KEY else "")
+# Meeting recordings: the cheapest model that transcribes well (about US$0.06 per hour of audio on 3.5 Flash-Lite).
+MEETING_MODEL = os.environ.get("MEETING_MODEL") or FAST_AI_MODEL or AI_MODEL
 
 # Initialize AI Client
 ai_client = (
@@ -118,6 +120,7 @@ import announce
 import digest
 import transcribe
 import attachments
+import meeting_capture
 import digest_prefs
 import semantic
 import web_research
@@ -305,7 +308,8 @@ agent = (Agent(ai_client, AI_MODEL, supabase, memory, connect_url=github_link, c
                 repos_changed=lambda row, slack_id: after_repo_choice(row, slack_id),
                 fast_model=FAST_AI_MODEL,
                 research=(lambda q: web_research.research(q, GEMINI_API_KEY, FAST_AI_MODEL or AI_MODEL)) if GEMINI_API_KEY else None,
-                semantic=semantic.Semantic(GEMINI_API_KEY) if GEMINI_API_KEY else None)
+                semantic=semantic.Semantic(GEMINI_API_KEY) if GEMINI_API_KEY else None,
+                notify_developers=lambda text: notify_developers(text))
          if (ai_client and supabase) else None)
 
 # Initialize Slack Bolt App
@@ -601,10 +605,51 @@ def is_registered(slack_user_id: str) -> bool:
     return get_role(slack_user_id) is not None
 
 
+def all_milestones() -> list:
+    """Every startup's milestones (not dropped) with their goals, in one query, for milestone progress."""
+    return progress_estimator.load_milestones(supabase)
+
+
 def cohort_overview() -> list:
-    """Per-startup health summaries (see mentor_home.summarize_startups)."""
+    """Per-startup health summaries (see mentor_home.summarize_startups), with progress on current milestones.
+    One database function call (mentor_home_data) when it exists, else the per-startup Python path."""
     if not supabase:
         return []
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        rpc, ms = pool.submit(_home_rpc), pool.submit(all_milestones)
+        summaries, ms_rows = rpc.result() or _cohort_overview_python(), ms.result()
+    today = _today_sgt()
+    for sm in summaries:
+        sm["milestone"] = progress_estimator.milestone_progress([m for m in ms_rows if m.get("startup_id") == sm["id"]], today)
+    return summaries
+
+
+def _home_rpc() -> list | None:
+    """The Home data in one round trip (supabase/migrations/2026-10-mentor-home-rpc.sql). None when not available."""
+    try:
+        data = supabase.rpc("mentor_home_data", {"p_days": 7, "p_sub_limit": 300}).execute().data
+    except Exception as e:
+        print(f"[Home RPC Warning] falling back to the per-startup queries: {e}")
+        return None
+    if not isinstance(data, dict) or "startups" not in data:
+        return None
+    subs = data.get("submissions") or []
+    summaries = summarize_startups(data["startups"], data.get("founders") or [], subs)
+    now = datetime.now(timezone.utc)
+    zero = integrations.summarize_activity([], set())
+    for sm in summaries:
+        activity = {**zero, **((data.get("activity") or {}).get(sm["id"]) or {})}
+        gh = (data.get("github") or {}).get(sm["id"]) or {}
+        sm["work"] = integrations.activity_line(activity, bool(gh.get("connected")))
+        sm["checkins_7d"] = digest.count_recent(subs, sm["id"], now)
+        sm["gap"] = digest.building_gap(sm["checkins_7d"], bool(gh.get("has_tracked")), activity)
+        goals = (data.get("goals") or {}).get(sm["id"]) or {}
+        sm["goals_total"], sm["goals_done"] = int(goals.get("goals_total") or 0), int(goals.get("goals_done") or 0)
+    return summaries
+
+
+def _cohort_overview_python() -> list:
     startups = supabase.table("startups").select("id,name,stream,lead").execute().data or []
     founders = supabase.table("founders").select("name,startup_id").execute().data or []
     subs = (
@@ -1375,7 +1420,11 @@ HOW_TO = {
             "_\"Who are our competitors in Singapore?\"_  ·  _\"Am I eligible for Startup SG Founder?\"_ (I search the web and link my sources)",
             "_\"Explain what a cap table is\"_ (plain English, with a picture; say _nerd mode_ for the technical version)",
             "_\"Draft my investor update\"_  ·  _\"Help me plan this week\"_  ·  _\"Write me a customer interview script\"_  ·  _\"Help with pricing\"_",
-            "_\"When did I last mention pricing?\"_ (I search your past updates by meaning, not just exact words)"]),
+            "_\"When did I last mention pricing?\"_ (I search your past updates by meaning, not just exact words)",
+            "*Recorded a customer call or meeting?* Send me the audio or video file: I transcribe it, write up the notes and action items, and save them when you say so"]),
+        ("⚙️ Make me yours", [
+            "_\"From now on, keep answers to 3 lines\"_  ·  _\"Always include GitHub activity\"_  ·  _\"Call me Sam\"_ (only changes how I work for you)",
+            "_\"What are my instructions?\"_  ·  _\"Forget the 3-line rule\"_. Ask for something I can't do yet and I'll pass it to the team"]),
         ("🙋 Stuck? Get a mentor", [
             "Tell me what's blocking you; mentors see blockers on their side",
             "_\"Set up a call with Mo tomorrow at 2 PM, virtually\"_ (name the people; I show a card before inviting anyone)",
@@ -1419,6 +1468,13 @@ HOW_TO = {
             "_\"Who has been stuck on payments?\"_ (I search check-ins, notes and facts by meaning)  ·  _\"Has anyone solved a blocker like Auvira's?\"_",
             "_\"What grants could GRC Nexus go for?\"_  ·  _\"Find Auvira's competitors\"_ (web research with sources)",
             "Send me a deck, screenshot, PDF, Word, PowerPoint or Excel file and ask about it"]),
+        ("🎙 Meeting notes", [
+            "After a meeting on the studio calendar I ask its organiser how it went. Send me the recording (phone voice memo, Meet recording, any audio or video file)",
+            "I transcribe it (the full transcript as a file), write the summary, decisions and action items, and on *save* add notes per startup and tasks",
+            "Only send recordings everyone agreed to. I can't join calls myself"]),
+        ("⚙️ Make me yours", [
+            "_\"From now on, always lead with blockers\"_  ·  _\"Include GitHub activity when I ask about a startup\"_  ·  _\"Keep it short\"_ (only for you)",
+            "_\"What are my instructions?\"_  ·  _\"Drop the second one\"_. Ask for something I can't do yet and I'll pass it to Ben as a feature request"]),
         ("💬 In channels", [
             "@mention me in a thread: _\"@Venture Buddy summarise this\"_  ·  _\"turn this thread into tasks\"_. I read the thread first",
             "Replies in channels are public, so I never include private notes there. Ask me in a DM for those"]),
@@ -1767,6 +1823,91 @@ VOICE_COMPARE_MODEL = "" if os.environ.get("VOICE_COMPARE_MODEL", "").lower() ==
     os.environ.get("VOICE_COMPARE_MODEL") or ("gemini-3.5-transcribe" if GEMINI_API_KEY else ""))
 
 
+_awaiting = {}  # slack_id -> (meeting title, expires epoch): I asked them for this meeting's recording
+
+
+def awaiting_recording(slack_id: str):
+    import time as _t
+    hit = _awaiting.get(slack_id)
+    return hit[0] if hit and hit[1] > _t.time() else None
+
+
+def capture_meeting(user_id: str, role: str, f: dict, text: str, say):
+    """A meeting recording -> transcript (attached as a file) and notes, then an offer to save them as notes and tasks."""
+    name = f.get("name") or "the recording"
+    title = awaiting_recording(user_id) or (text.strip()[:80] if text.strip() else name)
+    try:
+        data = meeting_capture.download(f, SLACK_BOT_TOKEN)
+        say(f"🎧 Got *{name}* (about {meeting_capture.minutes(f, data)} min). Transcribing it now: that takes roughly a minute "
+            "per 20 minutes of audio. I'll post the notes here.")
+        transcript = meeting_capture.transcribe(data, meeting_capture.audio_mime(f), GEMINI_API_KEY, MEETING_MODEL, voice_hints())
+    except Exception as e:
+        print(f"[Meeting Capture Error] {e}")
+        say(f"I couldn't transcribe *{name}* ({str(e)[:120]}). Could you try again, or tell me the outcomes in a message?")
+        return
+    if not transcript:
+        say("I couldn't make out any speech in that recording. Is it the right file?")
+        return
+    _awaiting.pop(user_id, None)
+    startups = [r["name"] for r in (supabase.table("startups").select("name").execute().data or [])] if supabase else []
+    try:
+        notes = meeting_capture.summarize(transcript, title, startups, ai_client, FAST_AI_MODEL or AI_MODEL)
+    except Exception as e:
+        print(f"[Meeting Capture Error] summary: {e}")
+        notes = ""
+    try:  # the full transcript as a file they can keep or search (needs the files:write scope)
+        chan = getattr(say, "channel", None) or app.client.conversations_open(users=user_id)["channel"]["id"]
+        app.client.files_upload_v2(channel=chan, filename=f"Transcript - {title[:60]}.txt", title=f"Transcript: {title}",
+                                   content=transcript)
+    except Exception as e:
+        print(f"[Meeting Capture Warning] transcript file: {e}")
+        say("_(I couldn't attach the full transcript file, so here are the notes only.)_")
+    ask = ("Reply *save* and I'll add the action items as tasks and the key points as a note on each startup discussed, "
+           "or tell me what to change." if role == "mentor" else
+           "Reply *save* and I'll add the action items to your tasks and remember the key points, or tell me what to change.")
+    notes = notes or "_I have the transcript but couldn't write the notes. Ask me about it._"
+    body = f"📝 *Notes: {title}*\n{notes}\n\n{ask}"
+    say(body)
+    memory.log(user_id, "assistant", body[:4000])  # so "save" (or "change X") is understood next
+
+
+def send_after_meeting_prompts():
+    """A few minutes after a studio-calendar meeting ends: ask its organiser how it went, and for the recording."""
+    import time as _t
+    studio = studio_row() if supabase else None
+    if not (gcal and studio and SLACK_BOT_TOKEN):
+        return
+    now = datetime.now(timezone.utc)
+    try:
+        events = gcal.events(studio["refresh_token"], now - timedelta(hours=3), now, only_ours=True) or []
+    except Exception as e:
+        print(f"[After Meeting Warning] {e}")
+        return
+    for ev in events:
+        times = meetings.event_times(ev)
+        priv = (ev.get("extendedProperties") or {}).get("private") or {}
+        uid = priv.get("requester")
+        if not (times and uid and ev.get("attendees")) or priv.get("studiowide") == "1":
+            continue  # calendar notes and meetings nobody owns get no follow-up
+        ended = times[1]
+        if not (timedelta(minutes=3) <= now - ended <= timedelta(hours=2)):
+            continue
+        key = f"after:{ev.get('id')}:{ended.isoformat()}"
+        if alert_seen(key):
+            continue
+        title = ev.get("summary") or "your meeting"
+        text = (f"How did *{title}* go? 🎙 If you recorded it (a phone voice memo, a Meet recording or any audio or video file), "
+                "send it here and I'll transcribe it and write up the summary, decisions and action items. "
+                "Or just tell me the outcomes and I'll note them.\n_Please only send recordings everyone in the meeting agreed to._")
+        try:
+            app.client.chat_postMessage(channel=uid, text=text)
+            memory.log(uid, "assistant", text)
+            _awaiting[uid] = (title, _t.time() + 24 * 3600)
+            alert_mark(key)
+        except Exception as e:
+            print(f"[After Meeting Error] {uid}: {e}")
+
+
 def transcribe_voice(audio_files: list, say) -> str:
     """Transcribes Slack voice notes with Gemini and replies with what was heard so mistakes can be spotted. '' on failure."""
     if not (GEMINI_API_KEY and SLACK_BOT_TOKEN):
@@ -1858,6 +1999,11 @@ def process_inbound_message(user_id: str, text: str, files: list, say, in_channe
         role = get_role(user_id)
         # Linked just now by email; welcome DM already sent, carry on.
 
+    # Meeting recordings (long audio, a video file, or the recording I asked for): transcript + notes, in the background.
+    recordings = [f for f in (files or []) if meeting_capture.is_recording(f, text, awaiting_recording(user_id) is not None)]
+    if recordings and GEMINI_API_KEY and SLACK_BOT_TOKEN and not in_channel:
+        threading.Thread(target=capture_meeting, args=(user_id, role, recordings[0], text, say), daemon=True).start()
+        return
     # Voice notes: transcribe, show the founder what I heard, then treat it like a typed update.
     audio = [f for f in (files or []) if transcribe.is_audio(f)]
     if audio:
@@ -3337,6 +3483,16 @@ def link_org_claims():
 DEV_EMAILS = {e.strip().lower() for e in os.environ.get("DEV_EMAILS", "ben@evecount.com").split(",") if e.strip()}
 
 
+def notify_developers(text: str):
+    """DMs every developer (DEV_EMAILS matched against mentors) — feature requests people make in chat."""
+    rows = supabase.table("mentors").select("email,slack_user_id").execute().data or [] if supabase else []
+    ids = [r["slack_user_id"] for r in rows if (r.get("email") or "").lower() in DEV_EMAILS and r.get("slack_user_id")]
+    if not ids:
+        raise RuntimeError("no developer on Slack")
+    for uid in ids:
+        app.client.chat_postMessage(channel=uid, text=text)
+
+
 def is_developer(slack_user_id: str) -> bool:
     if not (supabase and slack_user_id):
         return False
@@ -3885,7 +4041,7 @@ def resume_channel_syncs():
 def handle_other_message_events(event, say):
     """Registered last: catches messages no listener above took (a file shared with no text)."""
     if event.get("channel_type") == "im" and event.get("user") and any(
-            transcribe.is_audio(f) or syllabus_import.looks_like_syllabus(f, "") or attachments.is_readable(f) or attachments.is_office(f)
+            transcribe.is_audio(f) or meeting_capture.is_media(f) or syllabus_import.looks_like_syllabus(f, "") or attachments.is_readable(f) or attachments.is_office(f)
             for f in event.get("files") or []):
         process_inbound_message(event["user"], (event.get("text") or "").strip(), event.get("files") or [], say)  # a voice note on its own
         return
@@ -3917,6 +4073,7 @@ if BackgroundScheduler:
     scheduler.add_job(reconcile_github, "interval", minutes=10, max_instances=1)
     scheduler.add_job(beat, "interval", seconds=30, max_instances=1)
     scheduler.add_job(send_meeting_reminders, "interval", minutes=5, max_instances=1)
+    scheduler.add_job(send_after_meeting_prompts, "interval", minutes=5, max_instances=1)
     scheduler.add_job(notify_new_milestones, "interval", minutes=1, max_instances=1)
     # Copy upcoming studio meetings into studio_events for the dashboard (only the bot's own events).
     scheduler.add_job(lambda: studio_events.sync(supabase, studio_events_fn(studio_events.WINDOW_DAYS, strict=True)),
