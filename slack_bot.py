@@ -4093,7 +4093,7 @@ if BackgroundScheduler:
     scheduler.add_job(process_google_pending, "interval", seconds=10, max_instances=1)
     scheduler.add_job(sync_all_calendars, "interval", minutes=60, max_instances=1)
     scheduler.add_job(lambda: mentor_calendars.sync_all(supabase, gcal), "interval", minutes=10, max_instances=1)
-    scheduler.add_job(run_progress_estimates, "interval", minutes=10, max_instances=1)
+    scheduler.add_job(run_progress_estimates, "interval", minutes=2, max_instances=1)  # goal estimates follow new commits within ~2 min; no AI call without new work
     scheduler.add_job(link_org_claims, "interval", seconds=60, max_instances=1)
     scheduler.add_job(lambda: dev_controls.run_commands(supabase, DEV_COMMANDS), "interval", seconds=5, max_instances=1)
     scheduler.add_job(lambda: dev_controls.flush_logs(supabase, log_tee), "interval", seconds=10, max_instances=1)
