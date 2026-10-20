@@ -140,7 +140,10 @@ npm run build                     # client + SSR bundle
 
 ## 10. Known gaps / ideas
 
-- Weekly Monday digest for mentors; "talking but not building" alert (check-ins but no code activity).
-- Dashboard timeline showing GitHub/meeting signals prominently (coordinate with the dashboard agent).
-- Dashboard role-based sign-in is in progress by the dashboard agent; keep Slack "Open dashboard" links working with whatever it ships.
-- Move heavy Home queries into one RPC if the cohort grows beyond a few dozen people.
+Done (kept here so nobody re-opens them): mentor Monday digest and the "talking but not building" alert; the dashboard timeline with
+commit / pull request / meeting signals, filter chips and a 7-day summary (counts only repos in `monitored_repos`); role-based dashboard
+sign-in (`src/lib/dash-auth.ts`: signed Slack "Open dashboard" links and Sign in with Slack, role looked up in `mentors`/`founders` on every request).
+
+Open:
+- Move the heavy Slack Home queries into one Supabase RPC. Not needed yet (a handful of startups, Home publishes in well under a second);
+  revisit when the cohort grows past a few dozen people. Any RPC must stay service-role only (no public execute).
