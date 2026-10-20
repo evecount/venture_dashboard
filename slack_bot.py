@@ -1212,8 +1212,12 @@ def fit_blocks(blocks: list, limit: int = 100) -> list:
     out = []
     for bl in blocks:
         t = bl.get("text") if isinstance(bl, dict) else None
-        if isinstance(t, dict) and isinstance(t.get("text"), str) and len(t["text"]) > 3000 and bl.get("type") in ("section", "header"):
-            bl = {**bl, "text": {**t, "text": t["text"][:2990] + "…"}}
+        cap = {"section": 3000, "header": 150}.get(bl.get("type")) if isinstance(bl, dict) else None  # Slack's own limits
+        if cap and isinstance(t, dict) and isinstance(t.get("text"), str) and len(t["text"]) > cap:
+            bl = {**bl, "text": {**t, "text": t["text"][:cap - 1] + "…"}}
+        if isinstance(bl, dict) and isinstance(bl.get("fields"), list):  # at most 10 fields per section, 2000 characters each
+            bl = {**bl, "fields": [{**f, "text": f["text"][:1999]} if isinstance(f.get("text"), str) and len(f["text"]) > 2000 else f
+                                   for f in bl["fields"][:10]]}
         out.append(bl)
     if len(out) > limit:
         out = out[:limit - 1] + [{"type": "context", "elements": [{"type": "mrkdwn", "text": "_There is more than fits here: the rest is on the dashboard._"}]}]

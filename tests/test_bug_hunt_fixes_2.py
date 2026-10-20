@@ -370,3 +370,57 @@ class HomeLimitTests(unittest.TestCase):
         with mock.patch.object(b, "brand_block", return_value={"type": "context", "block_id": "brand", "elements": []}):
             self.assertLessEqual(len(b.branded(blocks)), 100)
             self.assertEqual(len(b.branded(blocks[:5])), 6)  # the brand line still goes first on a normal view
+
+
+class TokenCacheTests(unittest.TestCase):
+    def test_access_tokens_are_reused_until_they_lapse(self):
+        import google_calendar as gc
+        calls = []
+
+        def http(method, url, **kw):
+            calls.append(url)
+            return {"access_token": f"tok{len(calls)}", "expires_in": 3600}
+        cal = gc.GoogleCalendar("id", "secret", "https://x/cb", "state-secret", http=http)
+        blob = gc.encrypt_token("refresh", "state-secret")
+        self.assertEqual([cal.access_token(blob), cal.access_token(blob)], ["tok1", "tok1"])
+        self.assertEqual(len(calls), 1)
+        cal._tokens[blob] = ("old", 0)  # expired
+        self.assertEqual(cal.access_token(blob), "tok2")
+        self.assertIsNone(cal.access_token("not-a-valid-blob"))
+
+
+class BigCohortHomeTests(unittest.TestCase):
+    def test_many_startups_split_across_sections_instead_of_overflowing(self):
+        from datetime import date
+        import mentor_home
+        latest = {"created_at": "2026-10-19T03:00:00+00:00", "status": "On Track", "progress": 50, "blocker": "None", "digest": "d" * 150}
+        summaries = [{"id": f"s{i}", "name": f"Startup {i}", "stream": "GTM", "lead": "x", "founders": ["Ann"], "latest": latest,
+                      "recent": [latest], "health": "on_track", "detail": "", "last_seen": "1 day ago", "blocked_days": 0,
+                      "idle_days": 1, "work": "5 commits, 1 PRs opened, 0 PRs merged, 0 issues closed (last 7 days)"} for i in range(40)]
+        blocks = mentor_home.build_mentor_blocks(summaries, today=date(2026, 10, 20))
+        sections = [bl for bl in blocks if bl["type"] == "section"]
+        self.assertGreater(len(sections), 2)
+        self.assertTrue(all(len(bl["text"]["text"]) <= 3000 for bl in sections))
+        shown = " ".join(bl["text"]["text"] for bl in sections)
+        self.assertTrue(all(f"Startup {i}" in shown for i in range(40)))  # nobody is dropped
+
+
+class SlackLimitTests(unittest.TestCase):
+    def test_long_headers_and_field_lists_are_capped(self):
+        long_header = {"type": "header", "text": {"type": "plain_text", "text": "H" * 400}}
+        many_fields = {"type": "section", "fields": [{"type": "mrkdwn", "text": "f" * 2500} for _ in range(14)]}
+        out = b.fit_blocks([long_header, many_fields])
+        self.assertEqual(len(out[0]["text"]["text"]), 150)
+        self.assertEqual(len(out[1]["fields"]), 10)
+        self.assertTrue(all(len(f["text"]) <= 2000 for f in out[1]["fields"]))
+
+    def test_the_static_home_blocks_stay_inside_slacks_limits(self):
+        for role in ("founder", "mentor"):
+            for bl in b.home_features_blocks(role) + b.how_to_blocks(role) + b.how_to_blocks(role, compact=True):
+                if bl.get("type") == "section" and "fields" in bl:
+                    self.assertLessEqual(len(bl["fields"]), 10, role)
+                    self.assertTrue(all(len(f["text"]) <= 2000 for f in bl["fields"]), role)
+                if bl.get("type") == "header":
+                    self.assertLessEqual(len(bl["text"]["text"]), 150)
+                if bl.get("type") == "section" and isinstance(bl.get("text"), dict):
+                    self.assertLessEqual(len(bl["text"]["text"]), 3000)

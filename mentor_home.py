@@ -111,6 +111,20 @@ def coming_up(today: date, meetings: list | None = None, limit: int = 6, cohort_
     return [line for _, line in sorted(items, key=lambda it: it[0])[:limit]]
 
 
+def _sections(title: str, lines: list, limit: int = 2800) -> list:
+    """One section per ~2800 characters: Slack rejects a section over 3000, which a dozen startups would exceed."""
+    blocks, cur = [], []
+    for ln in lines:
+        if cur and len(NL * 2 + ln) + sum(len(x) + 2 for x in cur) + len(title) > limit:
+            blocks.append(cur)
+            cur = []
+        cur.append(ln[:limit])
+    if cur:
+        blocks.append(cur)
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": (f"*{title}*" + NL if i == 0 else "") + (NL * 2).join(chunk)}}
+            for i, chunk in enumerate(blocks)]
+
+
 def build_mentor_blocks(summaries: list, today: date | None = None, tasks: list | None = None,
                         title: str = "Cohort pulse", footer: list | None = None, meetings: list | None = None,
                         cohort_list: list | None = None) -> list:
@@ -140,7 +154,7 @@ def build_mentor_blocks(summaries: list, today: date | None = None, tasks: list 
             if s.get("gap"):
                 head += f"{NL}> ⚠️ Checking in but no code activity this week"
             lines.append(head)
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Needs your attention*" + NL + (NL * 2).join(lines)}})
+        blocks += _sections("Needs your attention", lines)
     else:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "✅ *Nothing needs your attention right now.*"}})
 
@@ -151,7 +165,7 @@ def build_mentor_blocks(summaries: list, today: date | None = None, tasks: list 
             lines.append(f"🟢 *{s['name']}* ({_who(s)}) · {progress_label(s)} · checked in {s['last_seen']}"
                          f"{NL}> {_short(lat['digest'])}" + (f"{NL}> 💻 {s['work']}" if s.get("work") else "")
                          + (f"{NL}> ⚠️ Checking in but no code activity this week" if s.get("gap") else ""))
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*On track*" + NL + (NL * 2).join(lines)}})
+        blocks += _sections("On track", lines)
 
     lines = coming_up(today, meetings, cohort_list=cohort_list)
     if lines:

@@ -93,6 +93,7 @@ class GoogleCalendar:
     def __init__(self, client_id: str, client_secret: str, redirect_uri: str, state_secret: str, http=_default_http):
         self.client_id, self.client_secret, self.redirect_uri = client_id, client_secret, redirect_uri
         self.state_secret, self.http = state_secret, http
+        self._tokens: dict = {}  # encrypted refresh token -> (access token, expires at): refreshed only when it is about to lapse
 
     def exchange_code(self, code: str) -> dict:
         """code -> {refresh_token, access_token, email}."""
@@ -103,12 +104,18 @@ class GoogleCalendar:
         return {"refresh_token": tok.get("refresh_token"), "access_token": tok["access_token"], "email": info.get("email", "")}
 
     def access_token(self, encrypted_refresh: str) -> str | None:
+        import time
+        hit = self._tokens.get(encrypted_refresh)
+        if hit and hit[1] > time.time():
+            return hit[0]
         refresh = decrypt_token(encrypted_refresh, self.state_secret)
         if not refresh:
             return None
         data = self.http("POST", TOKEN_URL, data={
             "client_id": self.client_id, "client_secret": self.client_secret,
             "refresh_token": refresh, "grant_type": "refresh_token"})
+        ttl = int(data.get("expires_in") or 600)  # Google's are an hour; 60 s of margin
+        self._tokens[encrypted_refresh] = (data["access_token"], time.time() + max(30, ttl - 60))
         return data["access_token"]
 
     def create_event(self, encrypted_refresh: str, body: dict) -> dict:
