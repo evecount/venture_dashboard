@@ -8,6 +8,7 @@ minute old, so goals are in and a syllabus upload arrives as one message. Each i
 Email is sent from the studio Google account (Gmail API, gmail.send); replies go to the mentor who set the work.
 """
 
+import html
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -91,7 +92,7 @@ def slack_text(first_name: str, items: list, startup: str) -> str:
 
 
 def email_parts(first_name: str, items: list, startup: str, mentor_emails: dict, dashboard_url: str = "") -> tuple:
-    """(subject, body, from_name, reply_to). The mentor is named in the subject, the sender name and a sign-off line."""
+    """(subject, text body, from_name, reply_to, html body). The mentor is named in the subject, the sender name and a sign-off."""
     who, by_line = _from(items)
     names = list(dict.fromkeys(i["mentor"] for i in items))
     subject = f"{who} set {_what(items)} for {startup}"
@@ -105,7 +106,99 @@ def email_parts(first_name: str, items: list, startup: str, mentor_emails: dict,
                       if any(mentor_emails.get(n) for n in names) else []))
     from_name = f"{names[0] if len(names) == 1 else 'Your mentors'} via Venture Studio"
     reply_to = [mentor_emails[n] for n in names if mentor_emails.get(n)]
-    return subject, body, from_name, reply_to
+    return subject, body, from_name, reply_to, email_html(first_name, items, startup, mentor_emails, dashboard_url)
+
+
+# Email colours: the dashboard's palette (src/styles.css), with the orange darkened for white button text.
+INK, MUTED, LINE, PAGE, SOFT, ORANGE, ORANGE_DARK = "#1D1F24", "#6C727B", "#E1E3E7", "#F7F8F9", "#FFF0E2", "#F76F23", "#C9531A"
+FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
+
+
+def _initials(name: str) -> str:
+    parts = [p for p in re.split(r"\s+", name or "") if p]
+    return "".join(p[0] for p in parts[:2]).upper() or "M"
+
+
+def _pill(text: str) -> str:
+    return (f'<span style="display:inline-block;padding:2px 10px;border-radius:999px;background:{SOFT};color:{ORANGE_DARK};'
+            f'font-size:12px;font-weight:600;white-space:nowrap">{html.escape(text)}</span>')
+
+
+def _item_html(i: dict, by_line: bool) -> str:
+    e = html.escape
+    due = fmt_due(i.get("due_date"))
+    meta = " ".join(x for x in [_pill(f"Due {due}") if due else "",
+                                 f'<span style="color:{MUTED};font-size:12px">from {e(i["mentor"])}</span>' if by_line else ""] if x)
+    goals = "".join(f'<tr><td style="padding:3px 0 0 0;color:{INK};font-size:14px;line-height:20px">'
+                    f'<span style="display:inline-block;width:12px;height:12px;border:1.5px solid #C4C8CF;border-radius:3px;'
+                    f'vertical-align:-1px;margin-right:8px"></span>{e(g["title"])}</td></tr>' for g in (i.get("goals") or [])[:5])
+    accent = ORANGE if i["kind"] == "milestone" else "#C4C8CF"
+    return (f'<tr><td style="padding:0 0 10px 0"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+            f'style="border:1px solid {LINE};border-left:3px solid {accent};border-radius:8px;background:#FFFFFF">'
+            f'<tr><td style="padding:14px 16px">'
+            f'<div style="font-size:15px;line-height:22px;font-weight:600;color:{INK}">{e(i["title"])}</div>'
+            + (f'<div style="padding-top:6px">{meta}</div>' if meta else "")
+            + (f'<table role="presentation" cellspacing="0" cellpadding="0" style="margin-top:8px">{goals}</table>' if goals else "")
+            + '</td></tr></table></td></tr>')
+
+
+def _section_html(title: str, items: list, by_line: bool) -> str:
+    if not items:
+        return ""
+    more = len(items) - MAX_LISTED
+    rows = "".join(_item_html(i, by_line) for i in items[:MAX_LISTED])
+    if more > 0:
+        rows += f'<tr><td style="padding:0 0 10px 2px;color:{MUTED};font-size:13px">…and {more} more {title.lower()}</td></tr>'
+    return (f'<tr><td style="padding:20px 0 10px 0;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;'
+            f'color:{MUTED}">{html.escape(title)}</td></tr><tr><td><table role="presentation" width="100%" cellspacing="0" '
+            f'cellpadding="0">{rows}</table></td></tr>')
+
+
+def email_html(first_name: str, items: list, startup: str, mentor_emails: dict, dashboard_url: str = "") -> str:
+    """A light, table-based HTML email (inline styles only, so Gmail and Outlook render it the same)."""
+    e = html.escape
+    who, by_line = _from(items)
+    names = list(dict.fromkeys(i["mentor"] for i in items))
+    headline = f"{who} set {_what(items)} for {startup}"
+    one = len(names) == 1
+    contact = mentor_emails.get(names[0]) if one else ""
+    badge = _initials(names[0]) if one else f"+{len(names)}"
+    sender = (f'<table role="presentation" cellspacing="0" cellpadding="0" style="margin-top:20px"><tr>'
+              f'<td width="40" height="40" style="width:40px;height:40px;border-radius:20px;background:{SOFT};color:{ORANGE_DARK};'
+              f'font-weight:700;font-size:15px;text-align:center;vertical-align:middle">{e(badge)}</td>'
+              f'<td style="padding-left:12px"><div style="font-size:14px;font-weight:600;color:{INK}">{e(who)}</div>'
+              f'<div style="font-size:13px;color:{MUTED}">{"Your mentor" if one else "Your mentors"}'
+              + (f' · <a href="mailto:{e(contact)}" style="color:{MUTED}">{e(contact)}</a>' if contact else "")
+              + '</div></td></tr></table>')
+    button = (f'<tr><td style="padding:24px 0 4px 0"><a href="{e(dashboard_url)}" style="display:inline-block;background:{ORANGE_DARK};'
+              f'color:#FFFFFF;text-decoration:none;font-weight:600;font-size:15px;padding:12px 22px;border-radius:8px">'
+              f'Open the dashboard</a></td></tr>') if dashboard_url else ""
+    replies = [n for n in names if mentor_emails.get(n)]
+    footer = ("Reply to this email to answer " + (e(names[0]) if one else "your mentors") + " directly. ") if replies else ""
+    milestones = [i for i in items if i["kind"] == "milestone"]
+    tasks = [i for i in items if i["kind"] == "task"]
+    return f"""<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"><title>{e(headline)}</title></head>
+<body style="margin:0;padding:0;background:{PAGE};font-family:{FONT};color:{INK}">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0">{e(headline)}. Tell Venture Buddy on Slack when you finish something.</div>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:{PAGE}"><tr><td align="center" style="padding:32px 16px">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px">
+<tr><td style="padding:0 4px 14px 4px;font-size:13px;font-weight:700;letter-spacing:.06em;color:{INK}">
+<span style="display:inline-block;width:10px;height:10px;border-radius:5px;background:{ORANGE};margin-right:8px"></span>VENTURE STUDIO</td></tr>
+<tr><td style="background:#FFFFFF;border:1px solid {LINE};border-radius:12px;padding:28px 28px 24px 28px">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+<tr><td style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:{ORANGE_DARK}">New for {e(startup)}</td></tr>
+<tr><td style="padding-top:8px;font-size:22px;line-height:30px;font-weight:700;color:{INK}">{e(headline)}</td></tr>
+<tr><td style="padding-top:12px;font-size:15px;line-height:23px;color:{INK}">Hi {e(first_name)}, here's what has been added to your plan.
+When you finish something, just tell Venture Buddy on Slack and it will tick it off.</td></tr>
+<tr><td>{sender}</td></tr>
+{_section_html("Milestones", milestones, by_line)}
+{_section_html("Tasks", tasks, by_line)}
+{button}
+</table></td></tr>
+<tr><td style="padding:18px 4px 0 4px;font-size:12px;line-height:18px;color:{MUTED}">{footer}Sent by {e(who)} via Venture Buddy, the studio's Slack assistant.</td></tr>
+</table></td></tr></table></body></html>"""
 
 
 def slack_email(client, slack_id: str) -> str:
@@ -116,7 +209,7 @@ def slack_email(client, slack_id: str) -> str:
 
 
 def run(sb, client, seen, mark, send_email=None, log=None, now: datetime | None = None, dashboard_url: str = "") -> list:
-    """Announces settled new mentor milestones and tasks. send_email(to, subject, body, from_name, reply_to).
+    """Announces settled new mentor milestones and tasks. send_email(to, subject, body, from_name, reply_to, html).
     Returns [(founder name, channel, count)] for what was sent."""
     now = now or datetime.now(timezone.utc)
     since = (now - LOOKBACK).isoformat()

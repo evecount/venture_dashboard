@@ -104,8 +104,8 @@ class GoogleCalendar:
                          params={"conferenceDataVersion": 1, "sendUpdates": "all"}, json=body)
 
     def send_email(self, encrypted_refresh: str, to: str, subject: str, body: str, from_name: str = "",
-                   from_email: str = "", reply_to: list | None = None) -> dict:
-        """Sends a plain-text email from the connected (studio) Gmail account. Needs the gmail.send permission
+                   from_email: str = "", reply_to: list | None = None, html: str = "") -> dict:
+        """Sends an email (plain text, plus an HTML version when given) from the connected (studio) Gmail account. Needs the gmail.send permission
         (granted by reconnecting the studio calendar); Google answers 403 without it."""
         import base64
         from email.message import EmailMessage
@@ -120,6 +120,8 @@ class GoogleCalendar:
         if reply_to:
             msg["Reply-To"] = ", ".join(reply_to)
         msg.set_content(body)
+        if html:
+            msg.add_alternative(html, subtype="html")  # mail apps show the HTML; the text stays as the fallback
         raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
         return self.http("POST", GMAIL_SEND_URL, headers={"Authorization": f"Bearer {token}"}, json={"raw": raw})
 

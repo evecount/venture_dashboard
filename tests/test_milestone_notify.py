@@ -97,7 +97,7 @@ class MilestoneNotifyTests(unittest.TestCase):
 
     def test_email_says_who_sent_it_and_replies_go_to_them(self):
         self.run_once()
-        to, subject, body, from_name, reply_to = next(m for m in self.mails if m[0] == "bo@example.com")
+        to, subject, body, from_name, reply_to, page = next(m for m in self.mails if m[0] == "bo@example.com")
         self.assertEqual(subject, "Arthur Tan set 2 new milestones and a task for Auvira")
         self.assertEqual(from_name, "Arthur Tan via Venture Studio")
         self.assertEqual(reply_to, ["arthur@studio.example"])
@@ -107,6 +107,9 @@ class MilestoneNotifyTests(unittest.TestCase):
         self.assertIn("MILESTONES", body)
         self.assertIn("TASKS", body)
         self.assertNotIn("*", body)
+        for bit in ("<!doctype html>", "Arthur Tan set 2 new milestones and a task for Auvira", "Milestone a", "Draft script",
+                    "Task t1", "Due Fri Oct 30", "mailto:arthur@studio.example", "Your mentor", ">AT<"):
+            self.assertIn(bit, page)
 
     def test_each_item_is_announced_once(self):
         self.run_once()
@@ -127,7 +130,9 @@ class MilestoneNotifyTests(unittest.TestCase):
         self.assertIn("Arthur Tan and Mo Lim set a new milestone and a task", text)
         self.assertIn("from Arthur Tan", text)
         self.assertIn("from Mo Lim", text)
-        subject, body, from_name, reply_to = mn.email_parts("Ann", items, "Auvira", {"Arthur Tan": "a@x.example", "Mo Lim": ""})
+        subject, body, from_name, reply_to, page = mn.email_parts("Ann", items, "Auvira", {"Arthur Tan": "a@x.example", "Mo Lim": ""})
+        self.assertIn("from Mo Lim", page)
+        self.assertIn("Your mentors", page)
         self.assertEqual(from_name, "Your mentors via Venture Studio")
         self.assertEqual(reply_to, ["a@x.example"])
         self.assertIn("Sent by: Arthur Tan (a@x.example), Mo Lim", body)
@@ -137,6 +142,14 @@ class MilestoneNotifyTests(unittest.TestCase):
         text = mn.slack_text("Ann", items, "Auvira")
         self.assertIn("10 new milestones", text)
         self.assertIn("…and 4 more milestones", text)
+
+    def test_html_escapes_what_people_typed(self):
+        items = [dict(milestone("a", ago(minutes=5)), kind="milestone", mentor="Arthur <b>", title="Ship <script>x</script>")]
+        page = mn.email_html("Ann", items, "A&B Co", {})
+        self.assertNotIn("<script>", page)
+        self.assertIn("Ship &lt;script&gt;", page)
+        self.assertIn("A&amp;B Co", page)
+        self.assertNotIn("Open the dashboard", page)  # no link without a dashboard url
 
 
 if __name__ == "__main__":

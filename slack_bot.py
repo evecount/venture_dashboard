@@ -2528,13 +2528,13 @@ def run_mentor_alerts(dry_run: bool = False) -> list:
 MILESTONE_NOTIFY = os.environ.get("MILESTONE_NOTIFY", "on").lower() != "off"
 
 
-def studio_mail(to: str, subject: str, body: str, from_name: str, reply_to: list):
+def studio_mail(to: str, subject: str, body: str, from_name: str, reply_to: list, html: str = ""):
     """Email from the studio Google account (the one connected for the studio calendar)."""
     row = studio_row()
     if not (gcal and row):
         raise RuntimeError("the studio Google account isn't connected")
     gcal.send_email(row["refresh_token"], to, subject, body, from_name=from_name, from_email=row.get("account") or "",
-                    reply_to=reply_to)
+                    reply_to=reply_to, html=html)
 
 
 def notify_new_milestones():
