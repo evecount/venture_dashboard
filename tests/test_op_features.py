@@ -408,6 +408,18 @@ class MeetHostTests(unittest.TestCase):
                                  "file_id": "drive123"}])
 
 
+class SaveButtonTests(unittest.TestCase):
+    def test_notes_come_with_save_buttons_and_the_click_carries_the_notes(self):
+        import slack_bot as b
+        blocks = b.notes_blocks("📝 *Notes: Sprint*\n- Takshma · send draft · Thu", "Save adds tasks.")
+        ids = [e["action_id"] for e in blocks[-1]["elements"]]
+        self.assertEqual(ids, ["meeting_notes_save", "meeting_notes_skip"])
+        chan, ts, notes, kept = b._notes_message_parts({"channel": {"id": "D1"}, "message": {"ts": "1.2", "blocks": blocks}})
+        self.assertEqual((chan, ts), ("D1", "1.2"))
+        self.assertIn("send draft", notes)
+        self.assertFalse(any(k["type"] == "actions" for k in kept))  # buttons go once pressed, so it can't save twice
+
+
 class MilestoneProgressTests(unittest.TestCase):
     """Same rule as the dashboard's milestoneProgress (src/components/dashboard/insights.ts)."""
 
