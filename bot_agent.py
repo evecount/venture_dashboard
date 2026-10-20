@@ -198,6 +198,11 @@ def build_tools(role: str) -> list:
             "lead": {"type": "string", "description": "Lead advisor title or name"}}, ["startup_id"]),
         *_milestone_tools("mentor"),
         *_meeting_tools("mentor"),
+        _tool("set_repos", ("Choose which of a startup's GitHub repositories are tracked, from the ones its founder shared with the app. "
+                            "Use for 'track X for Auvira', 'only watch the Bazi repo for Scripting Destiny', 'track all of Takshma's repos'."), {
+            "startup_id": {"type": "string"},
+            "repos": {"type": "array", "items": {"type": "string"}, "description": "Repository names or parts of names"},
+            "all": {"type": "boolean", "description": "true to track every shared repository"}}, ["startup_id"]),
         _tool("announce", ("Propose sending a message to a group (founders, mentors, a startup, or named people). The mentor sees "
                            "who will receive it and confirms before anything is sent."), {
             "message": {"type": "string", "description": "The announcement text, written clearly for the recipients"},
@@ -362,6 +367,9 @@ class Agent:
             if not lat:
                 lines.append("    · no check-ins yet")
             if self.sb:
+                for row in integrations.github_connections(self.sb, s["id"]):
+                    lines.append(f"    · GitHub ({row.get('account') or 'connected'}): tracking {', '.join(integrations.monitored_repos(row)) or 'nothing yet'}"
+                                 f" · shared with the app: {', '.join(row.get('repos') or []) or 'none'}")
                 lines.append("    · work signals: " + integrations.activity_line(
                     integrations.activity_summary(self.sb, s["id"]), "github" in integrations.connections(self.sb, s["id"])))
         lines += self._milestone_lines(None, True)
@@ -582,6 +590,10 @@ class Agent:
                 return self._announce(ident, args, out)
             if name == "choose_repos" and role == "founder":
                 return self._choose_repos(ident, args)
+            if name == "set_repos" and role == "mentor":
+                sid = str(args.get("startup_id") or "")
+                return (self._choose_repos(ident, args, startup_id=sid) if sid and self._startup_ok(sid)
+                        else "⚠️ I couldn't tell which startup that is.")
             if name == "connect_github" and role == "founder":
                 url = self.connect_url(ident["context"]["founder_id"], ident["context"]["startup_id"]) if self.connect_url else None
                 mine = self._own_github(ident)
@@ -592,7 +604,7 @@ class Agent:
                             + (f", and I'm tracking {', '.join(tracked)}." if tracked else ", but I'm not tracking any yet.")
                             + f"{chr(10)}To let me see other repositories, <{url}|open the GitHub app settings> and tick them (no need to revoke anything). "
                               "Then tell me which one to track, or pick it on your Home tab.")
-                return (f"🔗 <{url}|Connect GitHub>. GitHub lets you pick all repositories or just your startup's. I only get read access."
+                return (f"🔗 <{url}|Connect GitHub>. When GitHub asks which repositories, choose *All repositories*; then pick the ones that matter on your Home tab. I only get read access."
                         if url else "GitHub connections aren't set up yet. Ask a mentor to finish the setup.")
             if name == "remember":
                 fact = str(args.get("fact", "")).strip()
@@ -630,11 +642,14 @@ class Agent:
             return []
         return [r for r in integrations.github_connections(self.sb, c["startup_id"]) if r.get("founder_id") == c["founder_id"]]
 
-    def _choose_repos(self, ident: dict, args: dict) -> str:
-        c = ident["context"]
-        rows = self._own_github(ident)
-        url = self.connect_url(c["founder_id"], c["startup_id"]) if self.connect_url else None
+    def _choose_repos(self, ident: dict, args: dict, startup_id: str | None = None) -> str:
+        mentor = startup_id is not None  # a mentor choosing for a startup, not a founder for themselves
+        c = ident.get("context") or {}
+        rows = integrations.github_connections(self.sb, startup_id) if mentor else self._own_github(ident)
+        url = None if mentor else (self.connect_url(c["founder_id"], c["startup_id"]) if self.connect_url else None)
         if not rows:
+            if mentor:
+                return "⚠️ That startup hasn't connected GitHub yet, so there's nothing to choose from."
             return (f"🔗 Your GitHub isn't connected yet. <{url}|Connect GitHub> first, then tell me which repository to track."
                     if url else "GitHub connections aren't set up yet. Ask a mentor to finish the setup.")
         granted = sorted({r for row in rows for r in row.get("repos") or []})
@@ -642,7 +657,8 @@ class Agent:
             got = {"chosen": granted, "ambiguous": [], "missing": []}
         else:
             got = integrations.match_repos(args.get("repos") or [], granted)
-        change = f" <{url}|Change repositories on GitHub> to share more, then tell me again." if url else ""
+        change = (f" <{url}|Change repositories on GitHub> to share more, then tell me again." if url else
+                  " The founder needs to share it first: they press *Change repositories* on their Home tab and choose All repositories.")
         if got["ambiguous"]:
             text, hits = got["ambiguous"][0]
             return f"⚠️ \"{text}\" could be {', '.join(hits)}. Which one did you mean?"
@@ -657,7 +673,11 @@ class Agent:
                 continue
             self.sb.table("integrations").update({"selected_repos": mine}).eq("id", row["id"]).execute()
             if self.repos_changed:
-                self.repos_changed({**row, "selected_repos": mine}, ident["slack_id"])
+                who = ident["slack_id"]
+                if mentor:  # the founder's Home tab and backfill note, not the mentor's
+                    found = self.sb.table("founders").select("slack_user_id").eq("id", row["founder_id"]).execute().data
+                    who = (found[0].get("slack_user_id") if found else None) or who
+                self.repos_changed({**row, "selected_repos": mine}, who)
         more = [g for g in granted if g not in got["chosen"]]
         return (f"✅ Now tracking {', '.join(got['chosen'])}."
                 + (f" Not tracking: {', '.join(more)}." if more else "") + " I'll pull in the last two weeks of activity.")

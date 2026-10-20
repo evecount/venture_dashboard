@@ -206,6 +206,51 @@ def match_repos(wanted: list, granted: list) -> dict:
     return {"chosen": chosen, "ambiguous": ambiguous, "missing": missing}
 
 
+NO_REPO = "__none__"
+
+
+def _option(repo: str) -> dict:
+    return {"text": {"type": "plain_text", "text": repo[:75]}, "value": repo[:75]}
+
+
+def empty_slots(row: dict, extra: int = 0) -> int:
+    """How many empty 'Select repo N' rows to show: one to start with, more as the founder presses the plus, never more than there are repos left."""
+    repos = list(row.get("repos") or [])
+    chosen = [r for r in monitored_repos(row) if r in repos]
+    return min(max(extra, 1 if not chosen else 0), len(repos) - len(chosen))
+
+
+def build_repo_slots(row: dict, headline: str, extra: int = 0) -> list:
+    """
+    The headline, then one row per tracked repository ("Repo 1 v", "Repo 2 v") and empty "Select repo N v" rows, each a dropdown
+    of the repositories shared with the app. The last row has a plus button that opens the next row.
+    """
+    repos = list(row.get("repos") or [])
+    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": headline}}]
+    if not repos:
+        return blocks
+    chosen = [r for r in monitored_repos(row) if r in repos]
+    empty = empty_slots(row, extra)
+    total = len(chosen) + empty
+    for i in range(total):
+        current = chosen[i] if i < len(chosen) else None
+        options = [_option(r) for r in repos if r == current or r not in chosen][:98]
+        if current and len(repos) > 1:
+            options.insert(0, {"text": {"type": "plain_text", "text": "✕ Stop tracking this one"}, "value": NO_REPO})
+        if current and current[:75] not in {o["value"] for o in options}:
+            options.insert(0, _option(current))
+        element = {"type": "static_select", "action_id": "repo_slot", "options": options,
+                   "placeholder": {"type": "plain_text", "text": f"Select repo {i + 1}"}}
+        if current:
+            element["initial_option"] = _option(current)
+        elements = [element]
+        if i == total - 1 and len(repos) - len(chosen) > empty:
+            elements.append({"type": "button", "text": {"type": "plain_text", "text": "➕", "emoji": True},
+                             "action_id": "add_repo_slot", "value": row["id"]})
+        blocks.append({"type": "actions", "block_id": f"slot_{row['id']}_{i}", "elements": elements})
+    return blocks
+
+
 def keep_implicit_choice(before: tuple | None, row: dict) -> list | None:
     """
     A founder who shared exactly one repository is tracked without choosing. When they later share more, that one repository

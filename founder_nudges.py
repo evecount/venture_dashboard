@@ -30,7 +30,7 @@ def founder_text(f: dict, has_github: bool, has_calendar: bool, last_checkin_day
             "count as progress without you typing anything:" + NL
             + (f"• *Google Calendar*: press Connect Google Calendar below and allow read-only access. I only count meetings, never read titles." + NL
                if not has_calendar else "")
-            + ("• *GitHub*: press Connect GitHub, pick your startup's repositories (or all), then choose which ones I track on my Home tab. "
+            + ("• *GitHub*: press Connect GitHub and choose *All repositories* when GitHub asks, then pick the ones that matter on my Home tab (➕ adds more). "
                "No code yet, or it's in a company organisation? Tell me and I'll guide you." if not has_github else "")
         )
     if last_checkin_days is None:

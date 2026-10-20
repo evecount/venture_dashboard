@@ -1178,7 +1178,8 @@ def connect_blocks(founder_id: str, startup_id: str) -> list:
         {"type": "section", "text": {"type": "mrkdwn", "text": (
             "*Optional: connect your GitHub* 🔌" + chr(10) +
             "I'll see your commits and pull requests, so your work shows up without you typing it. "
-            "Read-only, and you choose which repositories. Code in a GitHub organisation you don't own? "
+            "Read-only. When GitHub asks which repositories, choose *All repositories*: you then pick the ones that matter for the "
+            "program in your Home tab. Code in a GitHub organisation you don't own? "
             "Use the second button and I'll link it once an owner approves.")}},
         {"type": "actions", "elements": [
             {"type": "button", "style": "primary", "text": {"type": "plain_text", "text": "Connect GitHub"},
@@ -1186,6 +1187,9 @@ def connect_blocks(founder_id: str, startup_id: str) -> list:
             {"type": "button", "text": {"type": "plain_text", "text": "My code is in an organisation"},
              "action_id": "claim_org", "value": f"{founder_id}|{startup_id}"}]},
     ] + calendar_connect_blocks(founder_id, startup_id)
+
+
+_repo_slots: dict = {}  # integration id -> extra empty "Select repo N" rows the founder has opened with the plus button
 
 
 def build_connections_blocks(founder_id: str, startup_id: str, rows: list) -> list:
@@ -1198,14 +1202,15 @@ def build_connections_blocks(founder_id: str, startup_id: str, rows: list) -> li
         if repos:
             head = f"✅ *{who}*{where} · tracking " + ", ".join(f"*{r}*" for r in repos)
         elif len(row.get("repos") or []) > 1:
-            head = f"🟡 *{who}*{where} · connected. *Pick the repository to track below.*"
+            head = f"🟡 *{who}*{where} · connected. *Pick the repositories that matter for the program below*, and press ➕ to add more."
         else:
             head = f"🟡 *{who}*{where} · connected, but no repositories were shared with me."
         own = row.get("founder_id") == founder_id and github_link(founder_id, startup_id)
-        if own and len(row.get("repos") or []) < 2:
-            head += (chr(10) + "_Want a different repository? Press *Change repositories*, tick it on GitHub, then pick it here "
-                     "or tell me which one to track._")
-        blocks += integrations.build_repo_selector(row, head, compact=True)
+        if len(row.get("repos") or []) > 1:
+            head += chr(10) + "_Only these count toward your progress. Press ➕ to track another._"
+        elif own:
+            head += (chr(10) + "_I can only see this one. When you connect GitHub, choose *All repositories* so you can pick any of them here._")
+        blocks += integrations.build_repo_slots(row, head, _repo_slots.get(row["id"], 0))
         if own:
             blocks.append({"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": "Change repositories"},
                                                           "url": github_link(founder_id, startup_id), "action_id": "connect_github_home"}]})
@@ -1213,7 +1218,8 @@ def build_connections_blocks(founder_id: str, startup_id: str, rows: list) -> li
     url = github_link(founder_id, startup_id)
     if url and not mine:
         text = ("*GitHub*" + chr(10) if not rows else "") + (
-            "Not connected yet, so I can only see what you tell me." if not rows
+            "Not connected yet, so I can only see what you tell me. When GitHub asks, choose *All repositories*, then pick the ones "
+            "that matter here." if not rows
             else "Your own GitHub isn't connected yet. Connect it so your work counts too.")
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text}})
         blocks.append({"type": "actions", "elements": [
@@ -1268,7 +1274,8 @@ HOW_TO = {
             "_\"Set up a call with Mo tomorrow at 2 PM, virtually\"_ (name the people; I show a card before inviting anyone)",
             "_\"Move our Thursday meeting to 4 PM\"_  ·  _\"Cancel it\"_ (meetings you set up)"]),
         ("🔌 Connect your work (optional)", [
-            "_\"Connect my GitHub\"_ so your commits and pull requests count without typing them",
+            "_\"Connect my GitHub\"_ (choose *All repositories* when GitHub asks), then pick the ones that matter in your Home tab. "
+            "Press ➕ there to track more than one. Or just say _\"track the Bazi repo\"_",
             "_\"Connect my Google Calendar\"_ so customer meetings count (only counts are stored)",
             "_\"Rename my startup to Acme\"_"]),
         ("🤖 What I do on my own", [
@@ -1285,7 +1292,8 @@ HOW_TO = {
             "_\"Add a task for Auvira: send the deck by Friday\"_  ·  _\"Mark the deck task done\"_",
             "_\"Set a milestone for Auvira: Landing page live by Oct 20. Goals: copy approved, page published\"_ "
             "(add _\"by Arthur\"_ to credit another mentor; founders can only tick its goals)",
-            "_\"Assign Auvira to the GTM stream\"_  ·  _\"Rename SharedOut to Acme\"_ (I show a card first)"]),
+            "_\"Assign Auvira to the GTM stream\"_  ·  _\"Rename SharedOut to Acme\"_ (I show a card first)",
+            "_\"Track the Bazi repo for Scripting Destiny\"_  ·  _\"Track all of Takshma's repos\"_ (picks from what the founder shared with the GitHub app)"]),
         ("📄 Custom syllabus for a participant", [
             "*1.* Attach the syllabus PDF in a DM to me. The file name or your message should say _syllabus_ or _curriculum_",
             "*2.* I read it, work out whose it is (or ask you to pick the startup) and show a preview of what I'd add",
@@ -2730,8 +2738,8 @@ def poll_new_connections():
             slack_id = founder[0]["slack_user_id"] if founder else None
             if slack_id:
                 headline = integrations.connected_headline(row, (founder[0].get("startups") or {}).get("name", "your startup"))
-                app.client.chat_postMessage(channel=slack_id, text="GitHub connected",
-                                            blocks=integrations.build_repo_selector(row, headline))
+                app.client.chat_postMessage(channel=slack_id, text="GitHub connected", blocks=[
+                    {"type": "section", "text": {"type": "mrkdwn", "text": headline + chr(10) + "_Choose which repositories count in the *Home* tab, under *Connected work*._"}}])
                 publish_home(slack_id, app.client)
                 if len(row.get("repos") or []) == 1:
                     backfill_in_background(row, slack_id)  # one repo: nothing to choose, so start right away
@@ -2741,10 +2749,12 @@ def poll_new_connections():
 
 
 def _owns_integration(user_id: str, integration_id: str):
-    """The integration row if this Slack user is a founder of its startup, else None."""
+    """The integration row if this Slack user is a founder of its startup (or a mentor), else None."""
     rows = supabase.table("integrations").select("*").eq("id", integration_id).execute().data
     if not rows:
         return None
+    if get_role(user_id) == "mentor":
+        return rows[0]
     mine = supabase.table("founders").select("id").eq("slack_user_id", user_id).eq("startup_id", rows[0]["startup_id"]).execute().data
     return rows[0] if mine else None
 
@@ -2782,6 +2792,60 @@ def handle_select_repos(ack, body, client):
             backfill_soon(row, user_id)
     except Exception as e:
         print(f"[Repo Select Error] {e}")
+
+
+@app.action("repo_slot")
+def handle_repo_slot(ack, body, client):
+    """One 'Select repo N' dropdown on the Home tab: set, replace or stop tracking that row's repository."""
+    ack()
+    user_id = body["user"]["id"]
+    action = body["actions"][0]
+    try:
+        _, integration_id, index = action["block_id"].split("_")
+        row = _owns_integration(user_id, integration_id)
+        if not row:
+            _stale_connection(client, user_id)
+            return
+        repos = list(row.get("repos") or [])
+        picked = action["selected_option"]["value"]
+        chosen = [r for r in integrations.monitored_repos(row) if r in repos]
+        i = int(index)
+        repo = next((r for r in repos if r[:75] == picked), None)
+        if picked == integrations.NO_REPO:
+            if i < len(chosen):
+                chosen.pop(i)
+        elif repo and repo not in chosen:
+            if i < len(chosen):
+                chosen[i] = repo
+            else:
+                chosen.append(repo)
+                _repo_slots[integration_id] = max(0, _repo_slots.get(integration_id, 0) - 1)
+        else:
+            publish_home(user_id, client)
+            return
+        supabase.table("integrations").update({"selected_repos": chosen or None}).eq("id", integration_id).execute()
+        row["selected_repos"] = chosen or None
+        publish_home(user_id, client)
+        founder = (supabase.table("founders").select("slack_user_id").eq("id", row["founder_id"]).execute().data or [{}])[0]
+        if chosen:
+            backfill_soon(row, founder.get("slack_user_id") or user_id)
+    except Exception as e:
+        print(f"[Repo Slot Error] {e}")
+
+
+@app.action("add_repo_slot")
+def handle_add_repo_slot(ack, body, client):
+    ack()
+    user_id = body["user"]["id"]
+    try:
+        row = _owns_integration(user_id, body["actions"][0]["value"])
+        if not row:
+            _stale_connection(client, user_id)
+            return
+        _repo_slots[row["id"]] = integrations.empty_slots(row, _repo_slots.get(row["id"], 0)) + 1
+        publish_home(user_id, client)
+    except Exception as e:
+        print(f"[Add Repo Slot Error] {e}")
 
 
 @app.action("change_repos")
