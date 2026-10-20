@@ -170,6 +170,7 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
     >
       {/* A knob in a recessed well. The knob (grip ridge + red mark) turns; the well and the lighting on top
           stay still, like a real knob under a lamp. */}
+      <span className="knob-ticks" aria-hidden="true" />
       <span className="knob" aria-hidden="true">
         <span className="knob-face">
           <span className="knob-ridge" />
