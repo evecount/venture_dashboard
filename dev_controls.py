@@ -17,6 +17,8 @@ DEFAULTS = {
     "channel_context": True,      # use channel memory when answering
     "wednesday_nudge": True,      # Wed 2 PM founder nudge (connections / check-in / sprint tomorrow)
     "ai_model": "",               # overrides AI_MODEL when set
+    "ai_reasoning": "none",       # model thinking for chat: none (fastest) / low / medium / high / "" = provider default; skills may ask for more
+    "fast_model": "",             # overrides the small-talk model (thanks, hi) when set; "off" uses the main model
     "extra_instructions": "",     # appended to the system prompt
 }
 

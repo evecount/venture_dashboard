@@ -134,6 +134,33 @@ def activity_summary(sb, startup_id: str, days: int = 7, now: datetime | None = 
         print(f"[Activity Warning] {e}")
         rows = []
     watched = set(monitored_for_startup(sb, startup_id) if monitored is None else monitored)
+    return summarize_activity(rows, watched)
+
+
+def recent_signals(sb, days: int = 7, now: datetime | None = None) -> list:
+    """Every startup's work signals of the last `days` days in one query (newest first), for activity_from_rows."""
+    now = now or datetime.now(timezone.utc)
+    try:
+        return (sb.table("signals").select("startup_id,type,meta,created_at").in_("type", list(SIGNAL_TYPES))
+                .gte("created_at", (now - timedelta(days=days)).isoformat())
+                .order("created_at", desc=True).limit(5000).execute().data) or []
+    except Exception as e:  # noqa: BLE001
+        print(f"[Activity Warning] {e}")
+        return []
+
+
+def activity_from_rows(signals: list, github_rows: list) -> dict:
+    """{startup_id: activity_summary} from recent_signals and every GitHub integration row, with no further queries."""
+    watched, by = {}, {}
+    for g in github_rows:
+        watched.setdefault(g.get("startup_id"), set()).update(monitored_repos(g))
+    for r in signals:
+        by.setdefault(r.get("startup_id"), []).append(r)
+    return {sid: summarize_activity(rows, watched.get(sid, set())) for sid, rows in by.items()}
+
+
+def summarize_activity(rows: list, watched: set) -> dict:
+    """Counts from signal rows (newest first); GitHub rows only count for watched repos."""
     rows = [r for r in rows if r["type"] not in GITHUB_TYPES or (r.get("meta") or {}).get("repo") in watched]
     out = {"commits": 0, "prs_opened": 0, "prs_merged": 0, "issues_closed": 0, "meetings": 0, "external_meetings": 0,
            "last_activity": None, "signals": len(rows)}

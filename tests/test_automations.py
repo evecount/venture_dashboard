@@ -133,7 +133,8 @@ class LookupAnswerTest(unittest.TestCase):
             def log(self, *a): pass
 
         agent = Agent(NS(chat=NS(completions=Completions())), "m", None, memory=Mem())
-        agent._system = lambda ident: "system"
+        agent._system = lambda ident, *a, **k: "system"
+        agent._context_parts = lambda ident: {}
         agent._run_tool = lambda ident, name, args, out: "RAW CALENDAR DUMP"
         return agent, calls
 
@@ -142,7 +143,7 @@ class LookupAnswerTest(unittest.TestCase):
         out = agent.respond({"role": "mentor", "slack_id": "U1", "name": "Ben"}, "any sprint gaps?")
         self.assertEqual(out["text"], "MVP#2's first sprint isn't on the calendar yet.")
         self.assertEqual(calls[1]["messages"][-1], {"role": "tool", "tool_call_id": "c1", "content": "RAW CALENDAR DUMP"})
-        self.assertNotIn("tools", calls[1])
+        self.assertIn("tools", calls[1])  # after looking something up it may still act (check availability, then schedule)
 
     def test_actions_keep_a_single_pass(self):
         agent, calls = self.make("add_task")

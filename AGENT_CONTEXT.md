@@ -1,7 +1,7 @@
 # AGENT CONTEXT & DEVELOPER HANDOVER MANUAL
 **VentureOS (repo: `venture_dashboard`) · Slack-first progress tracking for a venture studio program**
 
-> **Audience:** any AI agent or engineer picking up this codebase. Read this before changing architecture. Last revised 2026-10-14.
+> **Audience:** any AI agent or engineer picking up this codebase. Read this before changing architecture. Last revised 2026-10-20.
 
 ---
 
@@ -48,7 +48,8 @@ Founder/Mentor in Slack ──► Venture Buddy (Python, Socket Mode, always on)
 | `custom_schedule.py` | A participant's own schedule, read from their syllabus-imported milestones (`Week N (Sprint M): ...`). Founder context, Home tab, agent answers and the 5 PM prompts/nudges follow it (weekdays inside it, pause weeks skipped); everyone else follows the standard 12 weeks. Check-ins keep a valid standard deliverable id (`del-wkNN`, capped at 12). |
 | `syllabus_import.py` | Mentor uploads a participant's syllabus PDF in a DM: Gemini reads it into weeks, a preview card shows what will be added, confirm writes one milestone per week. Existing milestones/goals always win over matching syllabus items (and new ones replace overlapping syllabus goals via `supersede`); `replace` removes only untouched earlier imports. |
 | `scripts/import_syllabus.py` | Loads a participant's custom syllabus (`syllabi/<name>.json`, git-ignored) as one mentor-issued milestone per week, deliverables as goals. Preview by default, `--apply` to write; re-runnable. |
-| `bot_agent.py` | The brain: one tool-calling LLM turn per message, role-gated tools, context building, server-side validation. |
+| `bot_agent.py` | The brain: a tool loop per message (up to 5 model calls; look-up results go back to the model, plain actions finish in one), role-gated tools, parallel context building, server-side validation, look-up tools (`startup_detail`, `search_records`, `github_activity`). |
+| `bot_skills.py`, `skills/*.md` | Skills: instructions loaded only when a message needs them (regex `triggers` pre-load them, or the model calls `use_skill`), plus the tools that need them (hidden until loaded). A skill never grants a permission; roles still gate every tool in code. Add a skill by adding a markdown file with a `---` header (`name`, `description`, `roles`, `tools`, `triggers`, optional `effort`). `elid` and `gtm` are adapted from the ELID project and CybrDeck's GTM skill. |
 | `bot_memory.py` | Persistent memory and CRM data access (history, facts, notes, tasks, milestones, goals, pending meetings). Never raises. |
 | `mentor_home.py` | Per-startup health rules and the mentor Slack view (pure functions). |
 | `profile_rules.py` | Double-entry rules for profile setup (name+email matching, claiming invited records). |
@@ -88,6 +89,8 @@ Health rules (Slack and dashboard must stay in sync): **blocked** = latest check
 - **Roles.** Mentors are verified with a mentor code (or pre-registered by email); founders are matched by Slack email or set up via the founder profile form. Duplicate/double entry is blocked by `profile_rules.py`.
 - **Founder messages** become answers, tasks, milestones/goals or a **check-in proposal** (confirm card). Founders cannot edit mentor-issued milestones (they can tick goals).
 - **Mentor messages** get cohort answers, notes, tasks, milestone issuing, stream/lead assignment, renames, meeting scheduling. `pulse` shows the cohort card.
+- **Speed.** Context pieces are fetched in parallel, one query per table for the whole cohort (never per startup). Chat runs with Gemini thinking off (`ai_reasoning` setting, default `none`; skills with `effort: low` think a little); pure thanks/greetings go to `AI_FAST_MODEL` (default `gemini-3.5-flash-lite`). Each reply logs `[Agent Timing]` (context / model / tools ms). A "Thinking…" message appears after 1.2 s and is edited into the reply. Tool calls must be echoed back with Gemini's `thought_signature` (`_assistant_message`), or the second call fails with a 400.
+- **Cards.** One turn can carry several confirm cards (`out["meetings"]`, e.g. a meeting and its announcement); `out["meeting"]` is the first, kept for older callers.
 - **Memory.** Short-term: last 12 messages per user (`bot_messages`). Long-term: `memories` facts (`audience` all/mentors). Channels: the last 7 days of channels enabled in the Developer page, shown to the agent only for channels the asker is a member of in Slack. Needs bot scopes `channels:read`, `channels:history`, `groups:read`, `groups:history`, `users:read` (+ `channels:join`) and bot events `message.channels`, `message.groups`.
 - **Daily rhythm.** 17:00 SGT on program days it asks each linked founder what they did (mentioning open goals); 09:30 next day one nudge if no reply; 09:00 blocker audit.
 - **First run (founders).** One shared welcome (`founder_welcome_blocks`) explains how it works, who sees what, the current week and one next step. A bare "hi" gets a next step, "help" the how-to (greetings only match a whole message, DMs only). Check-in cards are written to the founder ("Look right?", Save / Edit); Edit can change status and locks the original card. A blocked founder gets one 09:00 follow-up per blocker (latest check-in only).

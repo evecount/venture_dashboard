@@ -131,7 +131,7 @@ import integrations
 from profile_rules import match_person, looks_like_email, norm_name
 import daily_checkin
 from daily_checkin import send_daily_prompts, send_nudges
-from bot_agent import Agent
+from bot_agent import Agent, gather as agent_gather
 from bot_memory import Memory
 from channel_memory import ChannelMemory, NEEDED_SCOPES
 import dev_controls
@@ -296,7 +296,8 @@ agent = (Agent(ai_client, AI_MODEL, supabase, memory, connect_url=github_link, c
                 studio_connected=studio_connected, studio_events=studio_events_fn,
                 settings=settings, channel_context=channels.context_for,
                 awareness=lambda ident: awareness_text(ident), routines=routine_store,
-                repos_changed=lambda row, slack_id: after_repo_choice(row, slack_id))
+                repos_changed=lambda row, slack_id: after_repo_choice(row, slack_id),
+                fast_model=os.environ.get("AI_FAST_MODEL") or ("gemini-3.5-flash-lite" if GEMINI_API_KEY else ""))
          if (ai_client and supabase) else None)
 
 # Initialize Slack Bolt App
@@ -1741,6 +1742,52 @@ def transcribe_voice(audio_files: list, say) -> str:
     return heard
 
 
+class ThinkingNote:
+    """Posts "Thinking…" when a reply takes more than a moment, then edits that message into the reply."""
+    DELAY = 1.2  # seconds; quick replies never show it
+
+    def __init__(self, say):
+        self.say, self.posted, self.done = say, None, False
+        self.lock = threading.Lock()
+        self.timer = threading.Timer(self.DELAY, self._post)
+        self.timer.daemon = True
+        self.timer.start()
+
+    def _post(self):
+        with self.lock:
+            if self.done:
+                return
+            try:
+                self.posted = self.say(text="💭 _Thinking…_")
+            except Exception as e:
+                print(f"[Thinking Warning] {e}")
+
+    def _stop(self):
+        with self.lock:
+            self.done = True
+            self.timer.cancel()
+            p = self.posted
+        return (p.get("channel"), p.get("ts")) if p and p.get("ts") else (None, None)
+
+    def finish(self, text: str):
+        channel, ts = self._stop()
+        if ts:
+            try:
+                app.client.chat_update(channel=channel, ts=ts, text=text)
+                return
+            except Exception as e:
+                print(f"[Thinking Warning] update: {e}")
+        self.say(text)
+
+    def drop(self):
+        channel, ts = self._stop()
+        if ts:
+            try:
+                app.client.chat_delete(channel=channel, ts=ts)
+            except Exception as e:
+                print(f"[Thinking Warning] delete: {e}")
+
+
 def process_inbound_message(user_id: str, text: str, files: list, say):
     """
     Core pipeline: resolve role, then hand the message to the conversational agent
@@ -1781,21 +1828,23 @@ def process_inbound_message(user_id: str, text: str, files: list, say):
         return
 
     if agent is not None:
+        note = ThinkingNote(say)
         try:
             ident = build_identity(user_id, role)
             result = agent.respond(ident, text)
-            say(result["text"])
-            if result.get("announce_now"):
-                say(send_announcement(app.client, result["announce_now"]))
+            note.finish(result["text"])
+            for a in result.get("announcements") or ([result["announce_now"]] if result.get("announce_now") else []):
+                say(send_announcement(app.client, a))
             if result["checkin"]:
                 say(blocks=build_confirmation_card(ident["context"], result["checkin"], text),
                     text="Please confirm your dashboard update.")
             if result["rename"]:
                 say(blocks=build_rename_card(result["rename"]), text="Confirm startup rename")
-            if result.get("meeting"):
-                say(blocks=build_meeting_card(result["meeting"]), text="Confirm meeting")
+            for m in result.get("meetings") or ([result["meeting"]] if result.get("meeting") else []):
+                say(blocks=build_meeting_card(m), text="Confirm meeting")
             return
         except Exception as e:
+            note.drop()
             print(f"[Agent Error] {e}. Falling back to basic handling.")
 
     if role == "mentor":
@@ -3148,7 +3197,7 @@ def dev_ask(args, by) -> str:
     if agent is None or role is None:
         return "The agent is off, or that Slack id isn't a mentor or founder."
     result = agent.respond(build_identity(who, role), str(args.get("text") or "")[:4000])
-    cards = [k for k in ("checkin", "rename", "meeting") if result.get(k)]
+    cards = [k for k in ("checkin", "rename") if result.get(k)] + [m.get("kind") or "meeting" for m in result.get("meetings") or []]
     if result.get("announce_now"):
         result["text"] += "\n\n(In Slack this would also send the announcement straight away.)"
     return result["text"] + (f"\n\n(In Slack this would also show a {', '.join(cards)} card to confirm.)" if cards else "")
@@ -3439,19 +3488,24 @@ def awareness_text(ident: dict) -> str:
     """Cohorts, sprint sessions, connections and the automatic messages the bot sends, for the agent's context."""
     today = datetime.now(SGT_TZ).date()
     own = (ident.get("context") or {}).get("startup_id") if ident["role"] == "founder" else None
-    lines = ["=== COHORTS (data) ===", *cohorts.summary_lines(cohorts.load(supabase), today, studio_event_rows(), own)]
+    mentor = ident["role"] == "mentor"
+    got = agent_gather(  # all at the same time: each is a separate round trip to the database
+        cohorts=lambda: cohorts.load(supabase), events=studio_event_rows,
+        routines=lambda: routine_store.active() if mentor else [],
+        conns=lambda: founder_connections() if mentor else {},
+        founders=lambda: (supabase.table("founders").select("id,name,slack_user_id").execute().data or []) if mentor else [])
+    lines = ["=== COHORTS (data) ===", *cohorts.summary_lines(got["cohorts"] or [], today, got["events"] or [], own)]
     lines += ["", "=== AUTOMATIC MESSAGES YOU SEND (data) ===", routines.BUILTIN_NOTE]
     if not settings.get("wednesday_nudge"):
         lines.append("(The Wednesday founder nudge is currently switched OFF.)")
     if not settings.get("daily_checkin"):
         lines.append("(The 5 PM check-in prompts are currently switched OFF.)")
-    if ident["role"] == "mentor":
-        rows = routine_store.active()
+    if mentor:
+        rows = got["routines"] or []
         lines += [f"- [{r['id'][:6]}] routine by {r.get('created_by_name') or 'a mentor'}: {routines.describe(r)}" for r in rows] \
             or ["No standing routines set up by mentors yet."]
         try:
-            conns = founder_connections()
-            founders = supabase.table("founders").select("id,name,slack_user_id").execute().data or []
+            conns, founders = got["conns"] or {}, got["founders"] or []
             lines.append("Founder connections: " + "; ".join(
                 f"{f['name']}: calendar {'✓' if conns.get(f['id'], {}).get('google') else '✗'}, GitHub "
                 f"{'✓' if conns.get(f['id'], {}).get('github') else '✗'}" + ("" if f.get("slack_user_id") else " (not on Slack yet)")
