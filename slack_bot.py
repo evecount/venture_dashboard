@@ -2108,7 +2108,8 @@ def send_after_meeting_prompts():
         if alert_seen(key):
             continue
         title = ev.get("summary") or "your meeting"
-        if meethost_row() and "meet.google.com" in json.dumps(ev):
+        host, room = meethost_row(), re.search(r"meet\.google\.com/([a-z]{3}-[a-z]{4}-[a-z]{3})", json.dumps(ev))
+        if host and room and gcal.auto_records(host["refresh_token"], room.group(1)):  # only promise notes Google will record
             text = (f"How did *{title}* go? 🎥 If it was recorded in Meet, I'll send the notes here as soon as Google saves the "
                     "recording. Otherwise, tell me the outcomes, or send me any recording you made, and I'll write them up.")
             try:
@@ -2781,6 +2782,9 @@ def handle_confirm_meeting(ack, body, client):
         if meetings.is_virtual(m["where"]) and not only:
             host = meethost_row()  # the paid account hosts the room, so its recording lands in that Drive
             open_link = gcal.create_open_meet(host["refresh_token"], auto_record=True) if host else None
+            if host and not open_link:
+                notify_developers(f"⚠️ The Meet host account couldn't create the room for *{m['title']}*, so it uses the "
+                                  "studio's own room and won't be recorded automatically. Reconnect the paid account on my Home tab.")
             open_link = open_link or gcal.create_open_meet(studio["refresh_token"])
         event = gcal.create_event(studio["refresh_token"], meetings.build_event_body(
             m["title"], begin, end, m["where"], m["attendees"], description, m.get("repeat"), m.get("requester_slack"),

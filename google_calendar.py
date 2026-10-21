@@ -175,6 +175,20 @@ class GoogleCalendar:
                     break  # a permission problem won't fix itself by retrying
         return None
 
+    def auto_records(self, encrypted_refresh: str, meeting_code: str) -> bool:
+        """Is this Meet room one this account owns with automatic recording on? Rooms made by another account, or before
+        this account was connected, are not, and no recording of them will reach this Drive."""
+        token = self.access_token(encrypted_refresh)
+        if not (token and meeting_code):
+            return False
+        try:
+            space = self.http("GET", f"{MEET_V2}/spaces/{meeting_code}", headers={"Authorization": f"Bearer {token}"})
+        except Exception as e:  # noqa: BLE001
+            print(f"[Meet Recording Warning] room {meeting_code}: {e}")
+            return False
+        rec = (((space.get("config") or {}).get("artifactConfig") or {}).get("recordingConfig") or {})
+        return rec.get("autoRecordingGeneration") == "ON"
+
     def meet_recordings(self, encrypted_refresh: str, since) -> list:
         """Recordings Google has finished saving for rooms this account created, for meetings that ended after `since`:
         [{record, meeting_code, start, end, file_id}]. [] when nothing (or no permission)."""
