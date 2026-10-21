@@ -14,12 +14,15 @@ Rules
 
 
 def first_name(name: str | None) -> str:
-    """What to call someone: the first word, except that a hyphenated given name after it usually means surname-first
-    ('Leung Wai-Leng'), so that stays whole. Blank or missing gives 'there'."""
+    """What to call someone, informally: their first name ('Takshma Patel' -> 'Takshma', 'james' -> 'James'). A hyphenated
+    word after the first usually means a surname-first name, so that is the given name ('Leung Wai-Leng' -> 'Wai Leng').
+    Blank or missing gives 'there'."""
     parts = (name or "").split()
     if not parts:
         return "there"
-    return " ".join(parts) if any("-" in p for p in parts[1:]) else parts[0]
+    hyphenated = [p for p in parts[1:] if "-" in p]
+    word = hyphenated[0].replace("-", " ") if hyphenated else parts[0]
+    return word.title() if word.islower() else word
 
 
 def norm_name(name: str) -> str:

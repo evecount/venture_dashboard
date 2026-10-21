@@ -67,7 +67,7 @@ class NudgeTest(unittest.TestCase):
 
     def test_first_name(self):
         self.assertEqual(founder_nudges.first_name("Takshma Patel"), "Takshma")
-        self.assertEqual(founder_nudges.first_name("Leung Wai-Leng"), "Leung Wai-Leng")
+        self.assertEqual(founder_nudges.first_name("Leung Wai-Leng"), "Wai Leng")
 
     def test_no_sprint_line_on_off_weeks(self):
         got = founder_nudges.plan(self.founders[:1], {}, {}, [MVP1, MVP2], [], date(2026, 10, 21))

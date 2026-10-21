@@ -307,7 +307,7 @@ class FirstNameTests(unittest.TestCase):
     def test_one_rule_for_greetings_everywhere(self):
         from profile_rules import first_name
         import daily_checkin, founder_nudges
-        for name, want in (("Takshma Patel", "Takshma"), ("Leung Wai-Leng", "Leung Wai-Leng"), ("James Sun", "James"),
+        for name, want in (("Takshma Patel", "Takshma"), ("Leung Wai-Leng", "Wai Leng"), ("James Sun", "James"), ("arthur andre", "Arthur"), ("wai-leng", "Wai-Leng"),
                            ("Madonna", "Madonna"), ("", "there"), (None, "there"), ("   ", "there")):
             self.assertEqual(first_name(name), want)
             self.assertEqual(daily_checkin._first_name(name), want)

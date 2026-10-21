@@ -26,6 +26,7 @@ import custom_schedule
 import digest_prefs
 import personal
 from bot_memory import Memory
+from profile_rules import first_name
 from mentor_home import summarize_startups
 
 SGT = timezone(timedelta(hours=8))
@@ -464,7 +465,7 @@ class Agent:
         )
         d = c.get("deliverable", {})
         lines = [
-            f"Founder: {c['name']} · Startup: {c['startup_name']} (stream: {c.get('stream')})",
+            f"Founder: {c['name']} (call them {first_name(c['name'])}: first name only, informal) · Startup: {c['startup_name']} (stream: {c.get('stream')})",
             f"Active deliverable: {d.get('week', '')} {d.get('title', '')} (due {str(d.get('due_date', ''))[:10]})",
         ]
         subs = got["subs"] or []
@@ -512,7 +513,7 @@ class Agent:
             facts=lambda: [f for f in self.memory.recent_facts() if not (ident.get("in_channel") and f.get("audience") == "mentors")],
         )
         startups = got["startups"] or []
-        lines = [f"Mentor: {ident['name']}"]
+        lines = [f"Mentor: {ident['name']} (call them {first_name(ident['name'])}: first name only, informal)"]
         names = {s["id"]: s["name"] for s in startups}
         for sid, wk in (got["schedules"] or {}).items():
             w = custom_schedule.current(wk, datetime.now(SGT).date())

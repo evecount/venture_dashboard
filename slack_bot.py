@@ -941,7 +941,7 @@ def onboard_member(slack_user_id: str, client=None):
     if mentor:
         client.chat_postMessage(
             channel=slack_user_id,
-            text=f"Welcome, {mentor['name']}! You're signed in as a mentor. Ask me for the cohort pulse any time.",
+            text=f"Welcome, {first_name(mentor['name'])}! You're signed in as a mentor. Ask me for the cohort pulse any time.",
             blocks=fit_blocks(build_mentor_blocks(safe_snapshot(), slack_user_id=slack_user_id), 50),
         )
         publish_home(slack_user_id, client)
@@ -952,7 +952,7 @@ def onboard_member(slack_user_id: str, client=None):
         startup = (founder.get("startups") or {}).get("name", "your startup")
         client.chat_postMessage(
             channel=slack_user_id,
-            text=f"Welcome, {founder['name']}! You're set up with {startup}.",
+            text=f"Welcome, {first_name(founder['name'])}! You're set up with {startup}.",
             blocks=founder_welcome_blocks(founder["name"], startup, founder["id"], founder["startup_id"]),
         )
         publish_home(slack_user_id, client)
@@ -1123,7 +1123,7 @@ def handle_founder_submit(ack, body, client, view):
             st_name, ids = startup["name"], (f"founder-{user_id.lower()}", startup["id"])
             intro = (f"✅ You're in, {first_name(name)}! You're set up with *{st_name}*"
                      + (" (no name yet? just say _\"rename my startup to ...\"_ when you have one)." if not new_name and not picked else "."))
-        msg = f"Welcome, {name}! You're set up with {st_name}."
+        msg = f"Welcome, {first_name(name)}! You're set up with {st_name}."
         blocks = founder_welcome_blocks(name, st_name, *ids, intro=intro)
     except Exception as e:
         print(f"[Onboarding Error] {e}")
@@ -1170,7 +1170,7 @@ def handle_mentor_submit(ack, body, client, view):
         else:
             supabase.table("mentors").insert({"id": f"mentor-{user_id.lower()}", "slack_user_id": user_id,
                                               "name": name, "email": email.lower()}).execute()
-        msg = (f"✅ Welcome, {name}! You're verified as a *mentor*. Message me any time for the cohort pulse; "
+        msg = (f"✅ Welcome, {first_name(name)}! You're verified as a *mentor*. Message me any time for the cohort pulse; "
                "your Home tab shows it too.")
     except Exception as e:
         print(f"[Onboarding Error] {e}")
