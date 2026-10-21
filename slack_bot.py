@@ -2776,7 +2776,7 @@ def handle_confirm_meeting(ack, body, client):
             _studio_cache["at"] = 0.0
             return
         begin, end = parse_ts(m["begin"]), parse_ts(m["end"])
-        description = (f"Requested by {m['requester']} through VentureOS. Join with the Google account this invitation was sent to.")
+        description = f"Requested by {m['requester']} through VentureOS."  # the rooms are open: any account joins without waiting
         only = bool(m.get("calendar_only"))
         open_link = None
         if meetings.is_virtual(m["where"]) and not only:
