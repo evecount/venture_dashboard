@@ -51,3 +51,18 @@ describe("dashboard sign-in", () => {
     expect(await identityFromRequest(request)).toBeNull();
   });
 });
+
+describe("sign-in browser binding", () => {
+  it("scopes the flow cookie to the sign-in routes, HttpOnly and Lax", async () => {
+    const { oidcCookie, readCookie, OIDC_COOKIE } = await import("@/lib/dash-auth");
+    const set = oidcCookie(new Request("https://dash.example/api/auth/slack"), "nonce-1");
+    expect(set).toContain("vd_oidc=nonce-1");
+    expect(set).toContain("Path=/api/auth/slack");
+    expect(set).toMatch(/HttpOnly/);
+    expect(set).toMatch(/SameSite=Lax/);
+    expect(set).toMatch(/Secure/);
+    const back = new Request("https://dash.example/api/auth/slack/callback", { headers: { cookie: `a=1; ${OIDC_COOKIE}=nonce-1` } });
+    expect(readCookie(back, OIDC_COOKIE)).toBe("nonce-1");
+    expect(readCookie(new Request("https://dash.example/x"), OIDC_COOKIE)).toBeNull(); // another browser: no cookie, no sign-in
+  });
+});

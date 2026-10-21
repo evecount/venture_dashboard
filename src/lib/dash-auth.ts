@@ -65,6 +65,13 @@ export async function sessionCookie(request: Request, slackUserId: string) {
 
 export const clearSessionCookie = (request: Request) => cookie(request, "", 0);
 
+/** The browser that starts Sign in with Slack gets this short-lived cookie; only that browser can finish it. */
+export const OIDC_COOKIE = "vd_oidc";
+export function oidcCookie(request: Request, nonce: string, maxAge = 600) {
+  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  return `${OIDC_COOKIE}=${nonce}; Path=/api/auth/slack; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`;
+}
+
 const SLACK_ID = /^[UW][A-Z0-9]{2,24}$/;
 
 /** Looks the person up on every request, so removing someone from the tables locks them out straight away. */

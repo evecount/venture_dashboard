@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { signToken } from "@/lib/dash-auth";
+import { oidcCookie, signToken } from "@/lib/dash-auth";
 
 // Starts Sign in with Slack (OpenID Connect). Slack proves who the person is; the callback checks the roster.
 export const Route = createFileRoute("/api/auth/slack/")({
@@ -21,7 +21,15 @@ export const Route = createFileRoute("/api/auth/slack/")({
         });
         const team = process.env["SLACK_TEAM_ID"];
         if (team) params.set("team", team);
-        return Response.redirect(`https://slack.com/openid/connect/authorize?${params}`, 302);
+        // Bind the flow to this browser: a callback link handed to someone else's browser carries no matching cookie.
+        return new Response(null, {
+          status: 302,
+          headers: {
+            location: `https://slack.com/openid/connect/authorize?${params}`,
+            "set-cookie": oidcCookie(request, nonce),
+            "cache-control": "no-store",
+          },
+        });
       },
     },
   },

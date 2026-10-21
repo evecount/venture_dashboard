@@ -364,7 +364,12 @@ function Dashboard({
         now={now}
         snapshot={snapshot}
         isMentor
-        onBack={() => window.history.back()}
+        // Back goes to the list the startup was opened from; on a direct link there is nothing behind it, so close instead.
+        onBack={() =>
+          (window.history.state?.__TSR_index ?? 0) > 0
+            ? window.history.back()
+            : onOpenStartup?.(undefined)
+        }
       />
     );
   } else if (tab === "today") {

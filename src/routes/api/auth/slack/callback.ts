@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { lookupIdentity, readToken, sessionCookie } from "@/lib/dash-auth";
+import { OIDC_COOKIE, lookupIdentity, oidcCookie, readCookie, readToken, sessionCookie } from "@/lib/dash-auth";
 
 const redirect = (to: string, headers: Record<string, string> = {}) =>
   new Response(null, {
@@ -27,6 +27,8 @@ export const Route = createFileRoute("/api/auth/slack/callback")({
         const state = await readToken<{ n: string }>("oidc", url.searchParams.get("state"));
         const code = url.searchParams.get("code");
         if (!state || !code) return redirect(`${origin}/?signin=cancelled`);
+        // The browser that finishes the sign-in must be the one that started it (stops a planted callback link).
+        if (readCookie(request, OIDC_COOKIE) !== state.n) return redirect(`${origin}/?signin=failed`);
 
         const clientId = process.env["SLACK_CLIENT_ID"] ?? "";
         const res = await fetch("https://slack.com/api/openid.connect.token", {
@@ -51,9 +53,10 @@ export const Route = createFileRoute("/api/auth/slack/callback")({
 
         const identity = await lookupIdentity(String(claims["https://slack.com/user_id"] ?? ""));
         if (!identity) return redirect(`${origin}/?signin=denied`);
-        return redirect(`${origin}/`, {
-          "set-cookie": await sessionCookie(request, identity.slackUserId),
-        });
+        const headers = new Headers({ location: `${origin}/`, "cache-control": "no-store" });
+        headers.append("set-cookie", await sessionCookie(request, identity.slackUserId));
+        headers.append("set-cookie", oidcCookie(request, "", 0)); // the flow is done
+        return new Response(null, { status: 302, headers });
       },
     },
   },

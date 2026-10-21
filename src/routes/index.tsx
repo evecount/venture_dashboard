@@ -7,7 +7,9 @@ function IndexPage() {
   return (
     <CommandCenter
       initialPerspective={parsePerspective(as)}
-      onPerspectiveChange={(value) => navigate({ search: { as: value }, replace: true })}
+      onPerspectiveChange={(value) =>
+        navigate({ search: (prev) => ({ ...prev, as: value }), replace: true })
+      }
       openStartupId={s}
       // Opening a startup pushes a history entry, so the browser's back button returns to the list.
       onOpenStartup={(id) => navigate({ search: (prev) => ({ ...prev, s: id }) })}
