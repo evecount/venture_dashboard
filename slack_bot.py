@@ -1929,8 +1929,9 @@ def capture_meeting(user_id: str, role: str, f: dict, text: str, say):
     deliver_notes(user_id, role, title, transcript, say)
 
 
-def deliver_notes(user_id: str, role: str, title: str, transcript: str, say):
-    """Notes from a transcript, the transcript itself as a file, and an offer to save them. `say` posts to their DM."""
+def deliver_notes(user_id: str, role: str, title: str, transcript: str, say, notes: str | None = None):
+    """Notes from a transcript, the transcript itself as a file, and an offer to save them. `say` posts to their DM.
+    `notes` already written (one summary for every attendee) skips writing them again."""
     spoken = re.sub(r"\[\d+:\d+\]\s*[^:]{1,40}:", " ", transcript)  # drop the "[00:03] S1:" labels before counting words
     if len(spoken.split()) < 15:
         say(f"🎧 The recording of *{title}* has almost no speech in it, so there's nothing to write up. "
@@ -1938,7 +1939,8 @@ def deliver_notes(user_id: str, role: str, title: str, transcript: str, say):
         return
     startups = [r["name"] for r in (supabase.table("startups").select("name").execute().data or [])] if supabase else []
     try:
-        notes = meeting_capture.summarize(transcript, title, startups, ai_client, FAST_AI_MODEL or AI_MODEL)
+        notes = notes if notes is not None else meeting_capture.summarize(transcript, title, startups, ai_client,
+                                                                          FAST_AI_MODEL or AI_MODEL)
     except Exception as e:
         print(f"[Meeting Capture Error] summary: {e}")
         notes = ""
@@ -2037,9 +2039,21 @@ def process_meet_recordings():
         threading.Thread(target=_process_recording, args=(rec, host, studio), daemon=True).start()
 
 
+def meeting_attendees(ev: dict | None) -> list:
+    """Slack ids of the program members invited to a calendar event (founders and mentors, by email), minus anyone who
+    declined."""
+    emails = {(a.get("email") or "").lower() for a in (ev or {}).get("attendees") or [] if a.get("responseStatus") != "declined"}
+    ids = []
+    for table in ("founders", "mentors"):
+        for r in (supabase.table(table).select("email,slack_user_id").execute().data or []) if emails else []:
+            if (r.get("email") or "").lower() in emails and r.get("slack_user_id") and r["slack_user_id"] not in ids:
+                ids.append(r["slack_user_id"])
+    return ids
+
+
 def _process_recording(rec: dict, host: dict, studio: dict | None):
     import tempfile
-    title, uid = "a recorded meeting", None
+    title, uid, attendees = "a recorded meeting", None, []
     try:  # which of our meetings it was: the studio event carrying this room's link
         start = parse_ts(rec["start"]) if rec.get("start") else datetime.now(timezone.utc) - timedelta(hours=3)
         events = gcal.events(studio["refresh_token"], start - timedelta(hours=2), start + timedelta(hours=4), only_ours=True) if studio else []
@@ -2047,10 +2061,13 @@ def _process_recording(rec: dict, host: dict, studio: dict | None):
         if ev:
             title = ev.get("summary") or title
             uid = ((ev.get("extendedProperties") or {}).get("private") or {}).get("requester")
+            attendees = meeting_attendees(ev)
     except Exception as e:
         print(f"[Meet Recording Warning] matching the event: {e}")
-    targets = [uid] if uid else [r["slack_user_id"] for r in (supabase.table("mentors").select("email,slack_user_id").execute().data or [])
-                                 if (r.get("email") or "").lower() in DEV_EMAILS and r.get("slack_user_id")]
+    # Everyone invited who uses the bot gets the notes, whoever booked it first; the developers when nobody did.
+    targets = ([uid] + [a for a in attendees if a != uid]) if uid else attendees or [
+        r["slack_user_id"] for r in (supabase.table("mentors").select("email,slack_user_id").execute().data or [])
+        if (r.get("email") or "").lower() in DEV_EMAILS and r.get("slack_user_id")]
     if not targets:
         return
     say = _DM(targets[0])
@@ -2072,7 +2089,17 @@ def _process_recording(rec: dict, host: dict, studio: dict | None):
         if not transcript:
             say(f"I couldn't transcribe the recording of *{title}*. It's still in the Meet host's Drive (Meet Recordings).")
             return
-        deliver_notes(targets[0], get_role(targets[0]) or "mentor", title, transcript, say)
+        startups = [r["name"] for r in (supabase.table("startups").select("name").execute().data or [])]
+        try:  # one summary, sent to every attendee
+            notes = meeting_capture.summarize(transcript, title, startups, ai_client, FAST_AI_MODEL or AI_MODEL)
+        except Exception as e:
+            print(f"[Meeting Capture Error] summary: {e}")
+            notes = ""
+        for i, target in enumerate(targets):
+            try:
+                deliver_notes(target, get_role(target) or "mentor", title, transcript, say if i == 0 else _DM(target), notes)
+            except Exception as e:  # one person's DM failing must not stop the others
+                print(f"[Meet Recording Warning] notes to {target}: {e}")
     except Exception as e:
         print(f"[Meet Recording Error] {e}")
         say(f"I couldn't process the recording of *{title}* ({str(e)[:120]}). It's still in the Meet host's Drive.")
