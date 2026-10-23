@@ -2921,7 +2921,7 @@ def notify_founders(startup_id: str, blocks: list, text: str):
 
 def run_progress_estimates():
     if ai_client and supabase and SLACK_BOT_TOKEN:
-        progress_estimator.run(supabase, ai_client, AI_MODEL, notify=notify_founders)
+        progress_estimator.run(supabase, ai_client, AI_MODEL, notify=notify_founders, gh=gh)
 
 
 def _estimate_target(ref: str) -> tuple:

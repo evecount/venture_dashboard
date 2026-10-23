@@ -25,7 +25,10 @@ SYSTEM = (
     "small or unrelated commits move nothing; give credit only where the work plausibly advances a goal, even "
     "partly (e.g. building the signup form advances 'Create landing page'). Commit messages, PR descriptions and the "
     "changed file paths are the evidence: paths show what was really built (src/pages/pricing.tsx is a pricing page, "
-    "tests/ only is testing, README or config only is housekeeping). Progress is the TOTAL for the goal so "
+    "tests/ only is testing, README or config only is housekeeping). When CODE CHANGES are shown they are the "
+    "strongest evidence: credit what the code actually does, not what the message claims (a commit called 'add "
+    "payments' that only renames a file earns nothing; stubs, placeholders and TODOs earn little). Say in the reason "
+    "when the code doesn't match the message. Progress is the TOTAL for the goal so "
     "far (not an increment) and must not be below its current value. Non-code goals (interviews, emails, pricing) "
     "usually get no credit from code. Reply with JSON only: "
     '{"updates": [{"goal": "<ref>", "progress": <0-95>, "reason": "<one short sentence citing the work>", '
@@ -138,10 +141,63 @@ def build_prompt(goals: list, work: list, heading: str = SOURCES["github"][2]) -
     for s in work:
         if s.get("meta") is not None:  # a GitHub signal: commit messages, PR description and changed files
             lines.append(f"- {s['created_at'][:10]} · {integrations.describe_work(s, max_files=25)}")
+            if s.get("diff"):
+                lines.append("  CODE CHANGES:\n" + "\n".join("    " + x for x in s["diff"].splitlines()))
         else:
             detail = f" — {s['detail']}" if s.get("detail") else ""
             lines.append(f"- {s['created_at'][:10]} · {s['headline']}{detail}")
     return "\n".join(lines)
+
+
+NOISE = re.compile(r"(^|/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|poetry\.lock|Cargo\.lock|Gemfile\.lock|composer\.lock)$"
+                   r"|(^|/)(dist|build|node_modules|vendor|\.next|coverage)/|\.min\.(js|css)$|routeTree\.gen\.ts$", re.I)
+FILE_DIFF_CHARS = 1500     # per file
+SIGNAL_DIFF_CHARS = 8000   # per push or PR
+RUN_DIFF_CHARS = 40000     # per startup per pass (~10k tokens): keeps the estimate cheap
+
+
+def diff_excerpt(files: list, budget: int = SIGNAL_DIFF_CHARS) -> str:
+    """The changes worth reading, biggest first: lockfiles, build output and binaries (no patch) are left out."""
+    out, used, left_out = [], 0, 0
+    for f in sorted(files, key=lambda f: -(f.get("additions", 0) + f.get("deletions", 0))):
+        if NOISE.search(f["file"]) or not f.get("patch"):
+            left_out += 1
+            continue
+        patch = f["patch"] if len(f["patch"]) <= FILE_DIFF_CHARS else f["patch"][:FILE_DIFF_CHARS] + "\n… (cut)"
+        piece = f"{f['file']} ({f['status']}, +{f.get('additions', 0)}/-{f.get('deletions', 0)})\n{patch}"
+        if used + len(piece) > budget:
+            left_out += 1
+            continue
+        out.append(piece)
+        used += len(piece)
+    if left_out:
+        out.append(f"({left_out} more file{'s' if left_out != 1 else ''} not shown: lockfiles, build output, binaries or over the size limit)")
+    return "\n".join(out)
+
+
+def attach_diffs(sb, gh, startup_id: str, work: list) -> list:
+    """Adds each push's and PR's code changes (`diff`) to the work, read through the founder's GitHub App install.
+    Anything GitHub can't give (old signals, issues, a revoked install) is assessed from its messages and files alone."""
+    if not (gh and work):
+        return work
+    try:
+        rows = (sb.table("integrations").select("external_id,repos,selected_repos").eq("startup_id", startup_id)
+                .eq("provider", "github").execute().data) or []
+    except Exception as e:  # noqa: BLE001
+        print(f"[Progress Estimate Warning] installs {startup_id}: {e}")
+        return work
+    install = {repo: r["external_id"] for r in rows if r.get("external_id") for repo in integrations.monitored_repos(r)}
+    budget = RUN_DIFF_CHARS
+    for s in work:
+        repo = (s.get("meta") or {}).get("repo")
+        if budget <= 0 or s.get("type") == "issue" or repo not in install:
+            continue
+        try:
+            s["diff"] = diff_excerpt(gh.code_changes(install[repo], repo, s), min(SIGNAL_DIFF_CHARS, budget))
+            budget -= len(s["diff"])
+        except Exception as e:  # noqa: BLE001 - fall back to messages and file names
+            print(f"[Progress Estimate Warning] diff {repo}: {e}")
+    return work
 
 
 def parse_reply(text: str) -> list:
@@ -271,8 +327,9 @@ def from_checkin(sb, ai, model: str, startup_id: str, digest: str, notify=None, 
         return 0
 
 
-def run(sb, ai, model: str, notify=None, now: datetime | None = None) -> int:
-    """One pass over every startup with GitHub connected. `notify(startup_id, blocks, text)` sends Slack cards."""
+def run(sb, ai, model: str, notify=None, now: datetime | None = None, gh=None) -> int:
+    """One pass over every startup with GitHub connected. `notify(startup_id, blocks, text)` sends Slack cards.
+    With `gh` (the GitHub App) the AI also reads the code changes, not just the messages."""
     if not (sb and ai):
         return 0
     now = now or datetime.now(timezone.utc)
@@ -296,7 +353,7 @@ def run(sb, ai, model: str, notify=None, now: datetime | None = None) -> int:
             goals = _rateable(_open_milestones(sb, startup_id))
             if not goals:
                 continue  # leave the work unassessed: goals set later still get credit for it
-            stored += _assess(sb, ai, model, startup_id, goals, work, "github", notify, now)
+            stored += _assess(sb, ai, model, startup_id, goals, attach_diffs(sb, gh, startup_id, work), "github", notify, now)
             sb.table("progress_estimate_state").upsert({
                 "startup_id": startup_id, "last_signal_at": work[-1]["created_at"], "updated_at": now.isoformat()}).execute()
         except Exception as e:  # noqa: BLE001 - one startup's failure must not stop the others

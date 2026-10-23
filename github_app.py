@@ -104,6 +104,24 @@ class GitHubApp:
                         {"state": "closed", "sort": "updated", "direction": "desc", "per_page": 50})
         return [p for p in prs if p.get("merged_at") and parse_ts(p["merged_at"]) >= since]
 
+    def code_changes(self, installation_id: str, repo: str, signal: dict) -> list:
+        """The files a work signal changed, with their diffs: [{file, status, additions, deletions, patch}].
+        A PR by number, a live push by its before...after range, a backfilled day by its commits. [] if unknown."""
+        meta, h = signal.get("meta") or {}, self._headers(self.installation_token(installation_id))
+        get = lambda path, params=None: self.http("GET", f"{API}/repos/{repo}/{path}", h, params)  # noqa: E731
+        if signal.get("type") == "pull_request" and meta.get("number"):
+            files = get(f"pulls/{meta['number']}/files", {"per_page": 100})
+        elif signal.get("type") == "commit" and meta.get("after"):
+            before = str(meta.get("before") or "")
+            new_branch = not before.strip("0")  # a new branch's push has no "before" to compare with
+            files = (get(f"commits/{meta['after']}") if new_branch else get(f"compare/{before}...{meta['after']}")).get("files") or []
+        elif signal.get("type") == "commit" and meta.get("shas"):
+            files = [f for sha in meta["shas"][:5] for f in (get(f"commits/{sha}").get("files") or [])]
+        else:
+            return []
+        return [{"file": f["filename"], "status": f.get("status", ""), "additions": f.get("additions", 0),
+                 "deletions": f.get("deletions", 0), "patch": f.get("patch") or ""} for f in files or [] if f.get("filename")]
+
 
 def backfill_signals(gh: GitHubApp, sb, integration: dict, now: datetime | None = None) -> int:
     """
@@ -144,6 +162,7 @@ def backfill_signals(gh: GitHubApp, sb, integration: dict, now: datetime | None 
                 "detail": str(((items[0].get("commit") or {}).get("message") or "")).split(chr(10))[0][:140],
                 "created_at": f"{day}T12:00:00+00:00",
                 "meta": {"commits": n, "repo": repo, "backfill": True,  # every message: what the estimates and answers read
+                         "shas": [c["sha"] for c in items if c.get("sha")][:15],  # so the estimate can read the code
                          "messages": [str(((c.get("commit") or {}).get("message") or "")).split(chr(10))[0][:120] for c in items][:15]},
             })
         for pr in gh.merged_prs(installation_id, repo, since):

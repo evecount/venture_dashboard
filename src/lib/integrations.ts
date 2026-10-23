@@ -71,7 +71,12 @@ export function mapGithubEvent(event: string, payload: any, startupId: string): 
       startup_id: startupId, type: "commit", stream: "Tech", actor,
       headline: `${actor} pushed ${n} commit${n === 1 ? "" : "s"} to ${repo}`,
       detail: clip(String(commits[commits.length - 1]?.message ?? "").split("\n")[0] ?? ""),
-      meta: { commits: n, repo, messages, files, branch: String(payload.ref ?? "").replace("refs/heads/", "") || undefined },
+      meta: {
+        commits: n, repo, messages, files, branch: String(payload.ref ?? "").replace("refs/heads/", "") || undefined,
+        // The pushed range, so the bot's progress estimate can read the actual code changes.
+        before: typeof payload.before === "string" ? payload.before : undefined,
+        after: typeof payload.after === "string" ? payload.after : undefined,
+      },
     };
   }
   if (event === "pull_request") {
