@@ -134,6 +134,24 @@ def is_virtual(where: str) -> bool:
     return (where or "virtual").strip().lower() in ("virtual", "virtually", "online", "remote", "zoom", "meet", "google meet")
 
 
+def event_where(ev: dict) -> str:
+    """"Google Meet" for an online meeting, else the place on the event ('' when none)."""
+    loc = ev.get("location") or ""
+    return "Google Meet" if "meet.google.com" in loc or (not loc and ev.get("hangoutLink")) else loc
+
+
+def location_patch(ev: dict, new_where: str, meet_link: str | None) -> dict:
+    """The event fields that move a meeting to `new_where`: a Meet link (online) or the place. The old "Join: <link>" line
+    leaves the description either way, so nobody follows a stale link."""
+    desc = re.sub(r"\s*Join: https://meet\.google\.com/\S+", "", ev.get("description") or "").strip()
+    if meet_link:
+        return {"location": meet_link, "description": (desc + " Join: " + meet_link).strip()[:1000]}
+    patch = {"location": new_where[:200], "description": desc[:1000]}
+    if ev.get("conferenceData"):
+        patch["conferenceData"] = None  # an old-style Meet attached by Calendar: drop it for an in-person meeting
+    return patch
+
+
 def describe_event(ev: dict, show_attendees: bool) -> str:
     """One line for an event on the studio calendar: when (12-hour), title, where, and who (mentors only see names)."""
     start = ev.get("start", {})

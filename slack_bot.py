@@ -2018,6 +2018,17 @@ class _DM:
         return res
 
 
+def new_meet_room(studio: dict, title: str) -> str | None:
+    """An open Meet room for a meeting: the paid host account's (auto-recorded, so the notes come by themselves), else the
+    studio's own. None if neither could make one."""
+    host = meethost_row()  # the paid account hosts the room, so its recording lands in that Drive
+    link = gcal.create_open_meet(host["refresh_token"], auto_record=True) if host else None
+    if host and not link:
+        notify_developers(f"⚠️ The Meet host account couldn't create the room for *{title}*, so it uses the "
+                          "studio's own room and won't be recorded automatically. Reconnect the paid account on my Home tab.")
+    return link or gcal.create_open_meet(studio["refresh_token"])
+
+
 def process_meet_recordings():
     """Every few minutes: recordings the Meet host account saved for rooms it created -> transcript and notes for whoever
     set the meeting up (the developers when nobody did). Each recording is handled once."""
@@ -2685,9 +2696,14 @@ def build_meeting_card(m: dict) -> list:
             body = (f"I'll *cancel* {m['title']} ({m['old']}). The {m['attendee_count']} people invited will be told.")
             yes, no = "Cancel meeting & notify", "Keep it"
         else:
-            body = (f"I'll *move* {m['title']}{nl}From: {m['old']}{nl}To: *{m['new']}*{nl}"
-                    f"The {m['attendee_count']} people invited get an updated invitation.")
-            yes, no = "Reschedule & notify", "Keep as is"
+            place = lambda w: "Online (a new Google Meet link)" if meetings.is_virtual(w) else w  # noqa: E731
+            lines = [f"I'll *{'move' if m.get('new') else 'change the place of'}* {m['title']}"]
+            if m.get("new"):
+                lines += [f"From: {m['old']}", f"To: *{m['new']}*"]
+            if m.get("new_where"):
+                lines += [f"📍 From: {m['old_where']}", f"📍 To: *{place(m['new_where'])}*"]
+            body = nl.join(lines + [f"The {m['attendee_count']} people invited get an updated invitation."])
+            yes, no = ("Reschedule & notify" if m.get("new") else "Change place & notify"), "Keep as is"
         if m.get("series"):
             body += nl + "_This is one date of a repeating meeting: the other dates stay as they are._"
         return [
@@ -2795,10 +2811,22 @@ def handle_confirm_meeting(ack, body, client):
                 gcal.delete_event(studio["refresh_token"], m["event_id"])
                 finish(f"🗑 *{m['title']}* ({m['old']}) is cancelled" + (" (this date only)" if m.get("series") else "") + ". Everyone invited was told.")
             else:
-                gcal.update_event(studio["refresh_token"], m["event_id"], {
-                    "start": {"dateTime": m["new_begin"], "timeZone": "Asia/Singapore"},
-                    "end": {"dateTime": m["new_end"], "timeZone": "Asia/Singapore"}})
-                finish(f"✅ *{m['title']}* moved to *{m['new']}*" + (" (this date only)" if m.get("series") else "") + ". Everyone invited got an updated invitation.")
+                patch = {}
+                if m.get("new_begin"):
+                    patch.update(start={"dateTime": m["new_begin"], "timeZone": "Asia/Singapore"},
+                                 end={"dateTime": m["new_end"], "timeZone": "Asia/Singapore"})
+                if m.get("new_where"):
+                    ev = gcal.get_event(studio["refresh_token"], m["event_id"])
+                    link = new_meet_room(studio, m["title"]) if meetings.is_virtual(m["new_where"]) else None
+                    if meetings.is_virtual(m["new_where"]) and not link:
+                        finish("⚠️ I couldn't create a Google Meet room just now, so nothing was changed. Please try again.")
+                        return
+                    patch.update(meetings.location_patch(ev, m["new_where"], link))
+                gcal.update_event(studio["refresh_token"], m["event_id"], patch)
+                what = " and ".join(x for x in (f"moved to *{m['new']}*" if m.get("new") else "",
+                                                ("now online (new Google Meet link)" if meetings.is_virtual(m["new_where"])
+                                                 else f"now at *{m['new_where']}*") if m.get("new_where") else "") if x)
+                finish(f"✅ *{m['title']}* is {what}" + (" (this date only)" if m.get("series") else "") + ". Everyone invited got an updated invitation.")
             memory.delete_meeting(row["id"])
             _studio_cache["at"] = 0.0
             return
@@ -2807,12 +2835,7 @@ def handle_confirm_meeting(ack, body, client):
         only = bool(m.get("calendar_only"))
         open_link = None
         if meetings.is_virtual(m["where"]) and not only:
-            host = meethost_row()  # the paid account hosts the room, so its recording lands in that Drive
-            open_link = gcal.create_open_meet(host["refresh_token"], auto_record=True) if host else None
-            if host and not open_link:
-                notify_developers(f"⚠️ The Meet host account couldn't create the room for *{m['title']}*, so it uses the "
-                                  "studio's own room and won't be recorded automatically. Reconnect the paid account on my Home tab.")
-            open_link = open_link or gcal.create_open_meet(studio["refresh_token"])
+            open_link = new_meet_room(studio, m["title"])
         event = gcal.create_event(studio["refresh_token"], meetings.build_event_body(
             m["title"], begin, end, m["where"], m["attendees"], description, m.get("repeat"), m.get("requester_slack"),
             meet_link=open_link, studio_wide=only))

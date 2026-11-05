@@ -165,10 +165,14 @@ def _meeting_tools(role: str) -> list:
         "calendar_only": {"type": "boolean", "description": "true to just note it on the studio calendar for everyone to see, with NO invitations or emails (use for 'note it down', 'mark it on the calendar', 'add it to the calendar'). attendees can then be empty."},
     }, ["title", "date", "start_time", "where"])]
     tools.append(_tool("change_meeting", (
-        "Propose rescheduling or cancelling an existing meeting on the studio calendar. The person confirms before anyone is notified. "
+        "Propose rescheduling, moving to another place (or online / in person), or cancelling an existing meeting on the studio "
+        "calendar. The person confirms before anyone is notified. "
         "Mentors can change any meeting; others only meetings they asked for."), {
         "title": {"type": "string", "description": "Part of the meeting's title, to find it"},
-        "action": {"type": "string", "enum": ["reschedule", "cancel"]},
+        "action": {"type": "string", "enum": ["reschedule", "change_location", "cancel"],
+                   "description": "change_location for a new place only; reschedule for a new time (it can take new_where too)"},
+        "new_where": {"type": "string", "description": "The new place exactly as given, or 'virtual' to make it an online "
+                      "meeting with a Google Meet link (change_location, or reschedule when the place changes too)"},
         "new_date": {"type": "string", "description": "YYYY-MM-DD (reschedule only)"},
         "new_start_time": {"type": "string", "description": "24-hour HH:MM converted from the user's 12-hour time (reschedule only)"},
         "duration_minutes": {"type": "integer", "description": "Keep the old length unless they say otherwise"},
@@ -1189,6 +1193,14 @@ class Agent:
                    "old": meetings.format_when(old_begin, old_end), "requester": ident["name"], "requester_slack": me,
                    "mentor": role == "mentor", "attendee_count": max(0, len(ev.get("attendees") or []) - 1),
                    "series": bool(ev.get("recurringEventId"))}  # a change to one occurrence of a repeating meeting
+        new_where = str(args.get("new_where") or "").strip()[:200]
+        if args.get("action") == "change_location" and not new_where:
+            return "⚠️ Where should it move to? A place, or \"online\" for a Google Meet link."
+        if new_where and args.get("action") != "cancel":
+            old_where = meetings.event_where(ev)
+            if meetings.is_virtual(new_where) and old_where == "Google Meet":
+                return "📍 It's already an online meeting with a Google Meet link."
+            payload.update(new_where=new_where, old_where=old_where or "no place set")
         if args.get("action") == "reschedule":
             minutes = int(args.get("duration_minutes") or (old_end - old_begin).total_seconds() / 60)
             when = meetings.parse_when(args.get("new_date"), args.get("new_start_time"), minutes)
@@ -1197,7 +1209,7 @@ class Agent:
             if when[0] < datetime.now(SGT):
                 return "⚠️ That new time is in the past. Which day did you mean?"
             payload.update(new_begin=when[0].isoformat(), new_end=when[1].isoformat(), new=meetings.format_when(*when))
-        elif args.get("action") != "cancel":
+        elif args.get("action") not in ("cancel", "change_location"):
             return ""
         meeting_id = self.memory.save_meeting(me, payload)
         if not meeting_id:

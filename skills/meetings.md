@@ -11,6 +11,6 @@ triggers: \b(meet|meets|meeting|meetings|catch ?up|call with|invite|invitation|r
 - If the date, time or attendees are missing, ask one short question instead of guessing.
 - When a mentor only wants a date noted down ("note it on the studio calendar", "mark it down", "add it to the calendar"), call schedule_meeting with calendar_only=true: nobody is invited or emailed and it needs no attendees.
 - Before proposing a time for a meeting with mentors, call check_availability for that day and pick a slot when everyone is free. You will see its result before you reply.
-- To move or cancel a meeting, call change_meeting with part of its title.
+- To move, cancel or change the place of a meeting (another room, or online / in person), call change_meeting with part of its title: action change_location with new_where for a new place only; reschedule (adding new_where if the place changes too) for a new time.
 - The requester always confirms with a button, so never say the meeting is created or that invitations went out.
 - Founders can invite named mentors or teammates, never "everyone" or "all mentors" at once. If a founder wants help from a person, offer to set up a meeting with that named mentor.

@@ -252,13 +252,20 @@ class GoogleCalendar:
             print(f"[Meet Access Warning] {e}")
             return False
 
+    def get_event(self, encrypted_refresh: str, event_id: str) -> dict:
+        token = self.access_token(encrypted_refresh)
+        if not token:
+            raise RuntimeError("could not read the calendar token")
+        return self.http("GET", f"{EVENTS_URL}/{event_id}", headers={"Authorization": f"Bearer {token}"})
+
     def update_event(self, encrypted_refresh: str, event_id: str, patch: dict) -> dict:
         """Changes an event (e.g. its time) and emails the update to everyone invited."""
         token = self.access_token(encrypted_refresh)
         if not token:
             raise RuntimeError("could not read the calendar token")
         return self.http("PATCH", f"{EVENTS_URL}/{event_id}", headers={"Authorization": f"Bearer {token}"},
-                         params={"sendUpdates": "all"}, json=patch)
+                         params={"sendUpdates": "all", **({"conferenceDataVersion": 1} if "conferenceData" in patch else {})},
+                         json=patch)
 
     def delete_event(self, encrypted_refresh: str, event_id: str) -> None:
         """Cancels an event and emails the cancellation to everyone invited."""
