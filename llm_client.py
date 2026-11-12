@@ -1,6 +1,6 @@
 """
-A chat client that uses the configured model first (say a locally hosted OpenAI-compatible server) and falls back to
-Gemini when that server can't answer: unreachable, timed out, overloaded, or the model is missing.
+A chat client that uses the local model first (a locally hosted OpenAI-compatible server) and falls back to
+the regular (Gemini) client when that server can't answer: unreachable, timed out, overloaded, or the model is missing.
 
 It looks like the OpenAI client to the rest of the bot (`client.chat.completions.create(**kwargs)`), so nothing else
 changes. Problems with the request itself (HTTP 400/422) are NOT retried elsewhere: they are the caller's to handle.
@@ -24,24 +24,26 @@ def should_fall_back(error: Exception) -> bool:
 
 
 class WithFallback:
-    def __init__(self, primary, fallback, fast_model: str = "", gemini_model: str = "", gemini_fast_model: str = "", clock=time.monotonic):
+    def __init__(self, primary, fallback, primary_model: str, primary_fast_model: str = "", fast_model: str = "", clock=time.monotonic):
+        """Callers keep passing the fallback's model names (AI_MODEL / AI_FAST_MODEL); the primary gets its own: `primary_model`,
+        or `primary_fast_model` for the calls made with the fallback's fast model (`fast_model`)."""
         self.primary, self.fallback, self.clock = primary, fallback, clock
-        self.fast_model, self.gemini_model, self.gemini_fast_model = fast_model, gemini_model, gemini_fast_model
+        self.primary_model, self.primary_fast_model, self.fast_model = primary_model, primary_fast_model, fast_model
         self.down_until = 0.0
         self.chat = SimpleNamespace(completions=self)  # `client.chat.completions.create(...)`
 
-    def _gemini_kwargs(self, kw: dict) -> dict:
+    def _primary_kwargs(self, kw: dict) -> dict:
         fast = bool(self.fast_model) and kw.get("model") == self.fast_model
-        return {**kw, "model": (self.gemini_fast_model if fast else self.gemini_model) or kw.get("model")}
+        return {**kw, "model": (self.primary_fast_model if fast and self.primary_fast_model else self.primary_model)}
 
     def create(self, **kw):
-        if self.fallback is None or self.clock() < self.down_until:
-            return (self.fallback or self.primary).chat.completions.create(**self._gemini_kwargs(kw) if self.fallback else kw)
+        if self.fallback is not None and self.clock() < self.down_until:
+            return self.fallback.chat.completions.create(**kw)
         try:
-            return self.primary.chat.completions.create(**kw)
+            return self.primary.chat.completions.create(**self._primary_kwargs(kw))
         except Exception as e:  # noqa: BLE001
-            if not should_fall_back(e):
+            if self.fallback is None or not should_fall_back(e):
                 raise
             self.down_until = self.clock() + DOWN_FOR
-            print(f"[LLM Fallback] {type(e).__name__}: {str(e)[:160]} -> using Gemini for the next {DOWN_FOR}s")
-            return self.fallback.chat.completions.create(**self._gemini_kwargs(kw))
+            print(f"[LLM Fallback] {type(e).__name__}: {str(e)[:160]} -> using the fallback model for the next {DOWN_FOR}s")
+            return self.fallback.chat.completions.create(**kw)

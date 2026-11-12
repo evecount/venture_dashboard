@@ -448,39 +448,47 @@ class MeetLinkSafetyTests(unittest.TestCase):
         self.assertIsNone(se._meet_url({"hangoutLink": "http://meet.google.com/abc"}))
 
 
-class OwnChatModelConfigTests(unittest.TestCase):
-    """A custom OpenAI-compatible chat endpoint (a locally hosted model) must never receive the Gemini key or Gemini model names,
-    and Gemini-only jobs must keep Gemini model names."""
+class LocalModelConfigTests(unittest.TestCase):
+    """The locally hosted chat model has its own LOCAL_LLM_* settings: nothing about Gemini (AI_*, GEMINI_*) changes, the local
+    server never receives the Gemini key, and Gemini is the fallback."""
 
     def settings(self, **env):
         import subprocess, json as _json
-        base = {k: v for k, v in os.environ.items() if not k.startswith(("AI_", "GEMINI", "QWEN", "OPENAI"))}
-        blank = {k: "" for k in ("GEMINI_API_KEY", "QWEN_API_KEY", "OPENAI_API_KEY", "AI_API_KEY", "AI_BASE_URL", "QWEN_BASE_URL", "AI_MODEL", "AI_FAST_MODEL")}  # so a real .env can't leak in
+        base = {k: v for k, v in os.environ.items() if not k.startswith(("AI_", "GEMINI", "QWEN", "OPENAI", "LOCAL_LLM"))}
+        blank = {k: "" for k in ("GEMINI_API_KEY", "QWEN_API_KEY", "OPENAI_API_KEY", "AI_BASE_URL", "QWEN_BASE_URL", "AI_MODEL",
+                                 "AI_FAST_MODEL", "LOCAL_LLM_BASE_URL", "LOCAL_LLM_MODEL", "LOCAL_LLM_API_KEY", "LOCAL_LLM_FAST_MODEL")}  # a real .env can't leak in
         base.update({"SUPABASE_URL": "", "VITE_SUPABASE_URL": "", "SUPABASE_KEY": "", "SUPABASE_SERVICE_ROLE_KEY": "", **blank, **env})
-        code = ("import slack_bot as b, json;print('@@'+json.dumps({k: getattr(b,k) for k in "
-                "('OWN_CHAT_MODEL','AI_API_KEY','AI_BASE_URL','AI_MODEL','FAST_AI_MODEL','GEMINI_MODEL','GEMINI_FAST_MODEL','MEETING_MODEL')} | {'CLIENT': type(b.ai_client).__name__}))")
+        code = ("import slack_bot as b, json;c=b.ai_client;print('@@'+json.dumps({'AI_API_KEY': b.AI_API_KEY, 'AI_BASE_URL': b.AI_BASE_URL, "
+                "'AI_MODEL': b.AI_MODEL, 'FAST_AI_MODEL': b.FAST_AI_MODEL, 'MEETING_MODEL': b.MEETING_MODEL, 'CLIENT': type(c).__name__, "
+                "'PRIMARY_KEY': getattr(getattr(c,'primary',None),'api_key',None), 'PRIMARY_URL': str(getattr(getattr(c,'primary',None),'base_url','')), "
+                "'FALLBACK_KEY': getattr(getattr(c,'fallback',None),'api_key',None)}))")
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         out = subprocess.run([sys.executable, "-c", code], cwd=root, env=base, capture_output=True, text=True, timeout=60).stdout
         return _json.loads(out.split("@@")[-1])
 
-    def test_a_local_endpoint_gets_its_own_key_and_model_but_gemini_jobs_keep_gemini_names(self):
-        s = self.settings(AI_BASE_URL="https://pgx.example.ts.net/v1", AI_MODEL="Org/Qwen-27B", AI_API_KEY="local-key", GEMINI_API_KEY="gem-secret")
-        self.assertTrue(s["OWN_CHAT_MODEL"])
-        self.assertEqual((s["AI_API_KEY"], s["AI_MODEL"], s["FAST_AI_MODEL"]), ("local-key", "Org/Qwen-27B", ""))
-        self.assertTrue(s["GEMINI_MODEL"].startswith("gemini") and s["GEMINI_FAST_MODEL"].startswith("gemini"))
-        self.assertTrue(s["MEETING_MODEL"].startswith("gemini"))
-        self.assertEqual(s["CLIENT"], "WithFallback")  # Gemini stays on as the fallback for chat
+    LOCAL = {"LOCAL_LLM_BASE_URL": "https://pgx.example.ts.net/v1", "LOCAL_LLM_MODEL": "Org/Qwen-27B", "LOCAL_LLM_API_KEY": "tailscale-access"}
 
-    def test_without_an_ai_key_the_gemini_key_is_still_never_sent_to_the_custom_endpoint(self):
-        s = self.settings(AI_BASE_URL="https://pgx.example.ts.net/v1", AI_MODEL="m", GEMINI_API_KEY="gem-secret")
-        self.assertNotEqual(s["AI_API_KEY"], "gem-secret")
-        self.assertEqual(self.settings(AI_BASE_URL="https://pgx.example.ts.net/v1", AI_MODEL="m")["CLIENT"], "OpenAI")  # no Gemini key: no fallback
-
-    def test_the_default_gemini_setup_is_unchanged(self):
-        s = self.settings(GEMINI_API_KEY="gem-secret")
-        self.assertFalse(s["OWN_CHAT_MODEL"])
+    def test_local_model_first_gemini_fallback_and_the_gemini_settings_untouched(self):
+        s = self.settings(GEMINI_API_KEY="gem-secret", **self.LOCAL)
+        self.assertEqual(s["CLIENT"], "WithFallback")
+        self.assertEqual((s["PRIMARY_KEY"], s["FALLBACK_KEY"]), ("tailscale-access", "gem-secret"))  # each server gets only its own key
+        self.assertIn("pgx.example.ts.net", s["PRIMARY_URL"])
         self.assertEqual(s["AI_API_KEY"], "gem-secret")
-        self.assertEqual((s["GEMINI_MODEL"], s["GEMINI_FAST_MODEL"]), (s["AI_MODEL"], s["FAST_AI_MODEL"]))
+        self.assertIn("generativelanguage.googleapis.com", s["AI_BASE_URL"])
+        self.assertTrue(s["AI_MODEL"].startswith("gemini") and s["FAST_AI_MODEL"].startswith("gemini") and s["MEETING_MODEL"].startswith("gemini"))
+
+    def test_without_the_local_settings_nothing_changes(self):
+        s = self.settings(GEMINI_API_KEY="gem-secret")
+        self.assertEqual((s["CLIENT"], s["AI_API_KEY"]), ("OpenAI", "gem-secret"))
+
+    def test_the_old_generic_names_no_longer_switch_anything(self):
+        s = self.settings(GEMINI_API_KEY="gem-secret", AI_BASE_URL="https://pgx.example.ts.net/v1")
+        self.assertEqual(s["CLIENT"], "OpenAI")  # only LOCAL_LLM_* turns the local model on
+
+    def test_local_model_without_a_gemini_key_has_no_fallback_but_still_works(self):
+        s = self.settings(**self.LOCAL)
+        self.assertEqual(s["CLIENT"], "WithFallback")
+        self.assertIsNone(s["FALLBACK_KEY"])
 
 
 class ChatFallbackTests(unittest.TestCase):
@@ -500,25 +508,25 @@ class ChatFallbackTests(unittest.TestCase):
             super().__init__(f"http {status}")
             self.status_code = status
 
-    def client(self, primary_error=None, clock=None):
+    def client(self, primary_error=None, clock=None, with_fallback=True):
         import llm_client
         primary, gem = self.Fake("local", primary_error), self.Fake("gemini")
-        wf = llm_client.WithFallback(primary, gem, fast_model="local-small", gemini_model="gemini-main", gemini_fast_model="gemini-fast",
-                                     **({"clock": clock} if clock else {}))
+        wf = llm_client.WithFallback(primary, gem if with_fallback else None, primary_model="local-big", primary_fast_model="local-small",
+                                     fast_model="gemini-fast", **({"clock": clock} if clock else {}))
         return wf, primary, gem
 
-    def test_a_healthy_primary_answers_and_gemini_is_untouched(self):
+    def test_the_primary_gets_its_own_model_names_and_gemini_is_untouched_when_it_answers(self):
         wf, primary, gem = self.client()
-        self.assertEqual(wf.chat.completions.create(model="local-big", messages=[]), "answer from local")
+        self.assertEqual(wf.chat.completions.create(model="gemini-main", messages=[]), "answer from local")
+        self.assertEqual(primary.calls[0]["model"], "local-big")
+        wf.chat.completions.create(model="gemini-fast", messages=[])
+        self.assertEqual(primary.calls[1]["model"], "local-small")  # small talk maps to the local light model
         self.assertEqual(gem.calls, [])
 
-    def test_an_unreachable_primary_falls_back_to_gemini_with_gemini_model_names(self):
+    def test_an_unreachable_primary_falls_back_with_the_callers_own_model_and_arguments(self):
         wf, primary, gem = self.client(ConnectionError("tailscale down"))
-        self.assertEqual(wf.chat.completions.create(model="local-big", messages=[1]), "answer from gemini")
-        self.assertEqual(gem.calls[0]["model"], "gemini-main")
-        self.assertEqual(gem.calls[0]["messages"], [1])  # everything else is passed through
-        wf.chat.completions.create(model="local-small", messages=[])
-        self.assertEqual(gem.calls[-1]["model"], "gemini-fast")  # small-talk model maps to the fast Gemini one
+        self.assertEqual(wf.chat.completions.create(model="gemini-main", messages=[1], tools=["t"]), "answer from gemini")
+        self.assertEqual((gem.calls[0]["model"], gem.calls[0]["messages"], gem.calls[0]["tools"]), ("gemini-main", [1], ["t"]))
 
     def test_a_server_error_or_missing_model_falls_back_but_a_bad_request_does_not(self):
         for status in (500, 503, 404, 429, 401):
@@ -538,6 +546,12 @@ class ChatFallbackTests(unittest.TestCase):
         now[0] = 61.0
         wf.chat.completions.create(model="m", messages=[])
         self.assertEqual(len(primary.calls), 2)
+
+    def test_with_no_fallback_the_error_reaches_the_caller(self):
+        wf, _, _ = self.client(ConnectionError("down"), with_fallback=False)
+        with self.assertRaises(ConnectionError):
+            wf.chat.completions.create(model="m", messages=[])
+
 
 
 class MemoriesConstraintTests(unittest.TestCase):
