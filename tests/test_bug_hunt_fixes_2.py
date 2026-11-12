@@ -538,3 +538,17 @@ class ChatFallbackTests(unittest.TestCase):
         now[0] = 61.0
         wf.chat.completions.create(model="m", messages=[])
         self.assertEqual(len(primary.calls), 2)
+
+
+class MemoriesConstraintTests(unittest.TestCase):
+    def test_every_subject_type_the_code_stores_is_allowed_by_the_latest_migration(self):
+        import glob, re, personal
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        allowed = None
+        for path in sorted(glob.glob(os.path.join(root, "supabase", "migrations", "*.sql"))):
+            sql = open(path, encoding="utf-8").read()
+            for m in re.finditer(r"subject_type\s+in\s*\(([^)]*)\)", sql):
+                allowed = set(re.findall(r"'([a-z_]+)'", m.group(1)))
+        self.assertIsNotNone(allowed)
+        stored = {"startup", "founder", "mentor", *personal.PRIVATE_KINDS}
+        self.assertEqual(stored - allowed, set(), "run/extend a migration: memories.subject_type refuses these")
