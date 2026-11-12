@@ -323,3 +323,15 @@ class MemoryLayerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class QuietWhenTableMissingTests(unittest.TestCase):
+    def test_the_minute_job_warns_once_not_every_minute(self):
+        from bot_memory import Memory
+        sb = mock.MagicMock()
+        sb.table.return_value.select.return_value.is_.return_value.lte.return_value.order.return_value.limit.return_value.execute.side_effect = RuntimeError("relation does not exist")
+        mem = Memory(sb)
+        with mock.patch("builtins.print") as printed:
+            self_results = [mem.due_reminders("2026-11-12T00:00:00+00:00") for _ in range(5)]
+        self.assertEqual(self_results, [[]] * 5)
+        self.assertEqual(printed.call_count, 1)

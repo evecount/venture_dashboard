@@ -200,8 +200,16 @@ class Memory:
                                                            .eq("slack_user_id", slack_id).execute().data), False)
 
     def due_reminders(self, now_iso: str, limit: int = 50) -> list:
-        return self._guard("due_reminders", lambda: self.sb.table("bot_reminders").select("id,slack_user_id,text,remind_at")
-                           .is_("sent_at", "null").lte("remind_at", now_iso).order("remind_at").limit(limit).execute().data or [], [])
+        if not self.sb:
+            return []
+        try:
+            return (self.sb.table("bot_reminders").select("id,slack_user_id,text,remind_at")
+                    .is_("sent_at", "null").lte("remind_at", now_iso).order("remind_at").limit(limit).execute().data or [])
+        except Exception as e:  # noqa: BLE001 - runs every minute: say once if the table isn't created yet, not 1,440 times a day
+            if not getattr(self, "_reminders_warned", False):
+                self._reminders_warned = True
+                print(f"[Memory Warning] reminders unavailable (run supabase/migrations/2026-11-bot-reminders.sql): {e}")
+            return []
 
     def claim_reminder(self, reminder_id: str, now_iso: str) -> bool:
         """Marks it sent, only if nobody else did first (so a restart or overlap never sends it twice)."""
