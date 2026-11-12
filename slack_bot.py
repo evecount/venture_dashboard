@@ -78,7 +78,12 @@ DASHBOARD_URL = os.environ.get("DASHBOARD_URL")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 QWEN_API_KEY = os.environ.get("QWEN_API_KEY") or os.environ.get("OPENAI_API_KEY")
 # Gemini is used when GEMINI_API_KEY is set (via Google's OpenAI-compatible endpoint); otherwise Qwen/OpenAI.
-AI_API_KEY = GEMINI_API_KEY or QWEN_API_KEY
+# AI_BASE_URL points the chat model at any OpenAI-compatible server (a locally hosted model, say).
+_EXPLICIT_BASE = os.environ.get("AI_BASE_URL") or os.environ.get("QWEN_BASE_URL")
+OWN_CHAT_MODEL = bool(_EXPLICIT_BASE) and "generativelanguage.googleapis.com" not in _EXPLICIT_BASE
+# The chat model has its own key: with a custom endpoint the Gemini key is never sent there (it stays for Gemini-only jobs).
+AI_API_KEY = os.environ.get("AI_API_KEY") or (
+    (QWEN_API_KEY or "local") if OWN_CHAT_MODEL else (GEMINI_API_KEY or QWEN_API_KEY))
 AI_BASE_URL = (
     os.environ.get("AI_BASE_URL")
     or os.environ.get("QWEN_BASE_URL")
@@ -90,19 +95,30 @@ AI_BASE_URL = (
 )
 AI_MODEL = os.environ.get("AI_MODEL") or ("gemini-3.8-flash" if GEMINI_API_KEY else "qwen-plus")
 # Light, fast model for small talk, web research and reading attachments ("" = use AI_MODEL everywhere).
-FAST_AI_MODEL = os.environ.get("AI_FAST_MODEL") or ("gemini-3.5-flash-lite" if GEMINI_API_KEY else "")
+FAST_AI_MODEL = os.environ.get("AI_FAST_MODEL") or ("gemini-3.5-flash-lite" if GEMINI_API_KEY and not OWN_CHAT_MODEL else "")
+# Jobs that call Gemini directly (voice notes, PDFs and screenshots, web research, recordings) always use Gemini model names,
+# even when the chat model is a different server's.
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL") or ("gemini-3.8-flash" if OWN_CHAT_MODEL else AI_MODEL)
+GEMINI_FAST_MODEL = os.environ.get("GEMINI_FAST_MODEL") or ("gemini-3.5-flash-lite" if OWN_CHAT_MODEL else (FAST_AI_MODEL or AI_MODEL))
 # Meeting recordings: the cheapest model that transcribes well (about US$0.06 per hour of audio on 3.5 Flash-Lite).
-MEETING_MODEL = os.environ.get("MEETING_MODEL") or FAST_AI_MODEL or AI_MODEL
+MEETING_MODEL = os.environ.get("MEETING_MODEL") or GEMINI_FAST_MODEL
 # Preferred for meeting recordings when set: Speechmatics batch (Melia 1, US$0.24/hour, real speaker labels).
 SPEECHMATICS_API_KEY = os.environ.get("SPEECHMATICS_API_KEY", "")
 SPEECHMATICS_MODEL = os.environ.get("SPEECHMATICS_MODEL") or "melia-1"
 
 # Initialize AI Client
 ai_client = (
-    OpenAI(api_key=AI_API_KEY, base_url=AI_BASE_URL)
+    OpenAI(api_key=AI_API_KEY, base_url=AI_BASE_URL,
+           **({"timeout": float(os.environ.get("AI_TIMEOUT", "60")), "max_retries": 1} if OWN_CHAT_MODEL and GEMINI_API_KEY else {}))
     if (OpenAI and AI_API_KEY)
     else None
 )
+if ai_client and OWN_CHAT_MODEL and GEMINI_API_KEY:
+    # Gemini stays on as the fallback for the chat model: if the custom server can't answer, the message still gets a reply.
+    import llm_client
+    ai_client = llm_client.WithFallback(
+        ai_client, OpenAI(api_key=GEMINI_API_KEY, base_url="https://generativelanguage.googleapis.com/v1beta/openai/"),
+        fast_model=FAST_AI_MODEL, gemini_model=GEMINI_MODEL, gemini_fast_model=GEMINI_FAST_MODEL)
 
 # Initialize Supabase Client (retrying requests whose idle connection the server closed)
 try:
@@ -320,7 +336,7 @@ agent = (Agent(ai_client, AI_MODEL, supabase, memory, connect_url=github_link, c
                 awareness=lambda ident: awareness_text(ident), routines=routine_store,
                 repos_changed=lambda row, slack_id: after_repo_choice(row, slack_id),
                 fast_model=FAST_AI_MODEL,
-                research=(lambda q: web_research.research(q, GEMINI_API_KEY, FAST_AI_MODEL or AI_MODEL)) if GEMINI_API_KEY else None,
+                research=(lambda q: web_research.research(q, GEMINI_API_KEY, GEMINI_FAST_MODEL)) if GEMINI_API_KEY else None,
                 semantic=semantic.Semantic(GEMINI_API_KEY) if GEMINI_API_KEY else None,
                 notify_developers=lambda text: notify_developers(text))
          if (ai_client and supabase) else None)
@@ -2179,7 +2195,7 @@ def transcribe_voice(audio_files: list, say) -> str:
         try:
             data = transcribe.download(f, SLACK_BOT_TOKEN)
             mime, started = transcribe.gemini_mime(f), time.monotonic()
-            parts.append(transcribe.transcribe_audio(data, mime, GEMINI_API_KEY, AI_MODEL, hints=hints))
+            parts.append(transcribe.transcribe_audio(data, mime, GEMINI_API_KEY, GEMINI_MODEL, hints=hints))
             if VOICE_COMPARE_MODEL and supabase:  # trial only: founders never see the candidate's text
                 voice_compare.compare_in_background(
                     supabase, data, mime, parts[-1], int((time.monotonic() - started) * 1000),
@@ -2283,7 +2299,7 @@ def process_inbound_message(user_id: str, text: str, files: list, say, in_channe
     others = [f for f in files or [] if f not in audio]
     if others and GEMINI_API_KEY and SLACK_BOT_TOKEN:
         say("📎 Reading " + ", ".join(f"*{f.get('name') or 'file'}*" for f in others[:attachments.MAX_FILES]) + "…")
-        content, notes = attachments.read_all(others, SLACK_BOT_TOKEN, GEMINI_API_KEY, FAST_AI_MODEL or AI_MODEL)
+        content, notes = attachments.read_all(others, SLACK_BOT_TOKEN, GEMINI_API_KEY, GEMINI_FAST_MODEL)
         for note in notes:
             say(note)
         text = (text + "\n\n" + content).strip()
@@ -2599,7 +2615,7 @@ def handle_syllabus_upload(user_id: str, f: dict, text: str, say):
     say(f"📄 Reading *{f.get('name', 'the syllabus')}*… this takes a few seconds.")
     try:
         data = transcribe.download(f, SLACK_BOT_TOKEN)
-        spec = syllabus_import.extract(data, f, GEMINI_API_KEY, AI_MODEL, datetime.now(meetings.SGT).date(), transcribe._default_http)
+        spec = syllabus_import.extract(data, f, GEMINI_API_KEY, GEMINI_MODEL, datetime.now(meetings.SGT).date(), transcribe._default_http)
     except ValueError as e:
         say(f"⚠️ {e}. Is it a week-by-week syllabus?")
         return
@@ -3330,7 +3346,7 @@ def briefing_news(slack_ids: list, profile_of, who: str) -> dict:
         prefs = digest_prefs.get(supabase, uid)
         try:
             return uid, web_research.briefing(who, profile_of(uid), prefs["topics"], prefs["avoid"], GEMINI_API_KEY,
-                                              FAST_AI_MODEL or AI_MODEL)
+                                              GEMINI_FAST_MODEL)
         except Exception as e:
             print(f"[Briefing Warning] {uid}: {e}")
             return uid, ""

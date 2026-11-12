@@ -446,3 +446,95 @@ class MeetLinkSafetyTests(unittest.TestCase):
         self.assertIsNone(se._meet_url({"location": "javascript:alert(1)//meet.google.com/x"}))
         self.assertIsNone(se._meet_url({"location": "111 Somerset"}))
         self.assertIsNone(se._meet_url({"hangoutLink": "http://meet.google.com/abc"}))
+
+
+class OwnChatModelConfigTests(unittest.TestCase):
+    """A custom OpenAI-compatible chat endpoint (a locally hosted model) must never receive the Gemini key or Gemini model names,
+    and Gemini-only jobs must keep Gemini model names."""
+
+    def settings(self, **env):
+        import subprocess, json as _json
+        base = {k: v for k, v in os.environ.items() if not k.startswith(("AI_", "GEMINI", "QWEN", "OPENAI"))}
+        blank = {k: "" for k in ("GEMINI_API_KEY", "QWEN_API_KEY", "OPENAI_API_KEY", "AI_API_KEY", "AI_BASE_URL", "QWEN_BASE_URL", "AI_MODEL", "AI_FAST_MODEL")}  # so a real .env can't leak in
+        base.update({"SUPABASE_URL": "", "VITE_SUPABASE_URL": "", "SUPABASE_KEY": "", "SUPABASE_SERVICE_ROLE_KEY": "", **blank, **env})
+        code = ("import slack_bot as b, json;print('@@'+json.dumps({k: getattr(b,k) for k in "
+                "('OWN_CHAT_MODEL','AI_API_KEY','AI_BASE_URL','AI_MODEL','FAST_AI_MODEL','GEMINI_MODEL','GEMINI_FAST_MODEL','MEETING_MODEL')} | {'CLIENT': type(b.ai_client).__name__}))")
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        out = subprocess.run([sys.executable, "-c", code], cwd=root, env=base, capture_output=True, text=True, timeout=60).stdout
+        return _json.loads(out.split("@@")[-1])
+
+    def test_a_local_endpoint_gets_its_own_key_and_model_but_gemini_jobs_keep_gemini_names(self):
+        s = self.settings(AI_BASE_URL="https://pgx.example.ts.net/v1", AI_MODEL="Org/Qwen-27B", AI_API_KEY="local-key", GEMINI_API_KEY="gem-secret")
+        self.assertTrue(s["OWN_CHAT_MODEL"])
+        self.assertEqual((s["AI_API_KEY"], s["AI_MODEL"], s["FAST_AI_MODEL"]), ("local-key", "Org/Qwen-27B", ""))
+        self.assertTrue(s["GEMINI_MODEL"].startswith("gemini") and s["GEMINI_FAST_MODEL"].startswith("gemini"))
+        self.assertTrue(s["MEETING_MODEL"].startswith("gemini"))
+        self.assertEqual(s["CLIENT"], "WithFallback")  # Gemini stays on as the fallback for chat
+
+    def test_without_an_ai_key_the_gemini_key_is_still_never_sent_to_the_custom_endpoint(self):
+        s = self.settings(AI_BASE_URL="https://pgx.example.ts.net/v1", AI_MODEL="m", GEMINI_API_KEY="gem-secret")
+        self.assertNotEqual(s["AI_API_KEY"], "gem-secret")
+        self.assertEqual(self.settings(AI_BASE_URL="https://pgx.example.ts.net/v1", AI_MODEL="m")["CLIENT"], "OpenAI")  # no Gemini key: no fallback
+
+    def test_the_default_gemini_setup_is_unchanged(self):
+        s = self.settings(GEMINI_API_KEY="gem-secret")
+        self.assertFalse(s["OWN_CHAT_MODEL"])
+        self.assertEqual(s["AI_API_KEY"], "gem-secret")
+        self.assertEqual((s["GEMINI_MODEL"], s["GEMINI_FAST_MODEL"]), (s["AI_MODEL"], s["FAST_AI_MODEL"]))
+
+
+class ChatFallbackTests(unittest.TestCase):
+    class Fake:
+        def __init__(self, name, error=None):
+            self.name, self.error, self.calls = name, error, []
+            self.chat = type("C", (), {"completions": self})()
+
+        def create(self, **kw):
+            self.calls.append(kw)
+            if self.error:
+                raise self.error
+            return f"answer from {self.name}"
+
+    class HTTPError(Exception):
+        def __init__(self, status):
+            super().__init__(f"http {status}")
+            self.status_code = status
+
+    def client(self, primary_error=None, clock=None):
+        import llm_client
+        primary, gem = self.Fake("local", primary_error), self.Fake("gemini")
+        wf = llm_client.WithFallback(primary, gem, fast_model="local-small", gemini_model="gemini-main", gemini_fast_model="gemini-fast",
+                                     **({"clock": clock} if clock else {}))
+        return wf, primary, gem
+
+    def test_a_healthy_primary_answers_and_gemini_is_untouched(self):
+        wf, primary, gem = self.client()
+        self.assertEqual(wf.chat.completions.create(model="local-big", messages=[]), "answer from local")
+        self.assertEqual(gem.calls, [])
+
+    def test_an_unreachable_primary_falls_back_to_gemini_with_gemini_model_names(self):
+        wf, primary, gem = self.client(ConnectionError("tailscale down"))
+        self.assertEqual(wf.chat.completions.create(model="local-big", messages=[1]), "answer from gemini")
+        self.assertEqual(gem.calls[0]["model"], "gemini-main")
+        self.assertEqual(gem.calls[0]["messages"], [1])  # everything else is passed through
+        wf.chat.completions.create(model="local-small", messages=[])
+        self.assertEqual(gem.calls[-1]["model"], "gemini-fast")  # small-talk model maps to the fast Gemini one
+
+    def test_a_server_error_or_missing_model_falls_back_but_a_bad_request_does_not(self):
+        for status in (500, 503, 404, 429, 401):
+            wf, _, gem = self.client(self.HTTPError(status))
+            self.assertEqual(wf.chat.completions.create(model="m", messages=[]), "answer from gemini", status)
+        wf, _, gem = self.client(self.HTTPError(400))
+        with self.assertRaises(self.HTTPError):  # e.g. reasoning_effort refused: the agent handles that itself
+            wf.chat.completions.create(model="m", messages=[])
+        self.assertEqual(gem.calls, [])
+
+    def test_a_failing_primary_is_skipped_for_a_minute_then_tried_again(self):
+        now = [0.0]
+        wf, primary, gem = self.client(ConnectionError("x"), clock=lambda: now[0])
+        wf.chat.completions.create(model="m", messages=[])
+        wf.chat.completions.create(model="m", messages=[])
+        self.assertEqual(len(primary.calls), 1)  # the second message did not wait for another timeout
+        now[0] = 61.0
+        wf.chat.completions.create(model="m", messages=[])
+        self.assertEqual(len(primary.calls), 2)
