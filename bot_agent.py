@@ -30,11 +30,12 @@ from profile_rules import first_name
 from mentor_home import summarize_startups
 
 SGT = timezone(timedelta(hours=8))
+NL = chr(10)
 STREAMS = ["Tech", "GTM", "Marketing"]
 # Look-up tools: their results go back to the model, which then answers (or acts) with them.
 READ_TOOLS = {"upcoming_meetings", "check_availability", "my_calendar", "list_routines",
               "startup_detail", "search_records", "github_activity", "web_research", "similar_blockers", "use_skill",
-              "list_feature_requests"}
+              "list_feature_requests", "list_tasks", "whats_new", "list_reminders", "list_notes"}
 MAX_ROUNDS = 5  # model calls per message; the last one always answers in words
 # Thanks and greetings only. "ok" / "yes" / "sure" are left out on purpose: they often confirm something that needs the main model.
 SMALL_TALK = re.compile(r"^\s*(thanks?( (you|so much|a lot|heaps))?|thank u|thx|ty|cheers|much appreciated|appreciate it|hi|hello|hey|"
@@ -211,6 +212,38 @@ def build_tools(role: str, skills=None) -> list:
             "instruction": {"type": "string", "description": "The instruction, in a short imperative sentence"}}, ["instruction"]),
         _tool("remove_personal_instruction", "Drop one of this person's standing instructions (by its number, some words of it, or 'all').", {
             "which": {"type": "string"}}, ["which"]),
+        _tool("list_tasks", ("List open follow-up tasks with their refs" + (" (all startups, or one)." if role == "mentor" else " for this startup.")
+                             + " Use for 'what's on my list', 'what tasks are open', or before changing one."),
+              {**({"startup": {"type": "string", "description": "Optional: one startup (id or name)"}} if role == "mentor" else {})}, []),
+        _tool("update_task", "Change an open task: its title, its due date (or clear it), or who it is for. Use list_tasks first if you don't have its ref.", {
+            "task_ref": {"type": "string"}, "title": {"type": "string"}, "due_date": {"type": "string", "description": "YYYY-MM-DD"},
+            "clear_due_date": {"type": "boolean"}, "assignee": {"type": "string", "enum": ["me", "startup"]}}, ["task_ref"]),
+        _tool("whats_new", ("What happened lately: check-ins, blockers, goals finished, tasks done, new milestones and code work, "
+                            + ("for the whole cohort or one startup" if role == "mentor" else "for this startup") + ". Use for 'what's new', "
+                            "'catch me up', 'what happened since Monday'."), {
+            **({"startup": {"type": "string", "description": "Optional: one startup (id or name)"}} if role == "mentor" else {}),
+            "days": {"type": "integer", "description": "How many days back, 1-60, default 7"},
+            "since": {"type": "string", "description": "Or a start date YYYY-MM-DD"}}, []),
+        _tool("remind_me", ("Set a one-off reminder: the bot messages THIS person at the time. Use for 'remind me Thursday at 3 PM to send the deck'. "
+                            "(Recurring messages for others are routines.) Needs the date and time; ask if missing."), {
+            "text": {"type": "string", "description": "What to remind them of"}, "date": {"type": "string", "description": "YYYY-MM-DD"},
+            "time": {"type": "string", "description": "24-hour HH:MM Singapore time, converted from 12-hour (3 PM = 15:00)"}}, ["text", "date", "time"]),
+        _tool("list_reminders", "List this person's upcoming one-off reminders.", {}, []),
+        _tool("cancel_reminder", "Cancel one of this person's reminders by its ref (from list_reminders).", {"reminder_ref": {"type": "string"}}, ["reminder_ref"]),
+        *(([
+            _tool("list_notes", "List recent private mentor notes with their refs (all startups, or one).", {
+                "startup": {"type": "string", "description": "Optional: one startup (id or name)"}}, []),
+            _tool("edit_note", "Rewrite a mentor note you wrote, by its ref (from list_notes).", {
+                "note_ref": {"type": "string"}, "note": {"type": "string", "description": "The new text of the note"}}, ["note_ref", "note"]),
+            _tool("delete_note", "Delete a mentor note you wrote, by its ref (from list_notes). Say what was deleted.", {"note_ref": {"type": "string"}}, ["note_ref"]),
+          ]) if role == "mentor" else ([
+            _tool("fix_checkin", ("Change or delete the founder's LAST saved check-in when they say it was wrong ('that last update was wrong', "
+                                  "'delete my last check-in', 'it should say blocked'). The founder confirms a card before anything changes."), {
+                "action": {"type": "string", "enum": ["edit", "delete"]},
+                "status": {"type": "string", "enum": ["In progress", "Blocked", "On Track", "Completed"]},
+                "progress": {"type": "integer", "description": "0-100"}, "blocker": {"type": "string"},
+                "digest": {"type": "string", "description": "The corrected summary"}}, ["action"]),
+          ])),
         _tool("list_feature_requests", (
             "List the feature requests that have been passed on to Ben (mentors see everyone's, founders only their own). Use it when "
             "someone asks what has been requested or whether their request was recorded."), {}, []),
@@ -855,6 +888,22 @@ class Agent:
                 _, msg = (personal.add(self.sb, me, args.get("instruction")) if name == "set_personal_instruction"
                           else personal.remove(self.sb, me, args.get("which")))
                 return msg
+            if name == "list_tasks":
+                return self._list_tasks(ident, args)
+            if name == "update_task":
+                return self._update_task(ident, args)
+            if name == "whats_new":
+                return self._whats_new(ident, args)
+            if name == "remind_me":
+                return self._remind_me(ident, args)
+            if name == "list_reminders":
+                return self._list_reminders(ident)
+            if name == "cancel_reminder":
+                return self._cancel_reminder(ident, args)
+            if name in ("list_notes", "edit_note", "delete_note") and role == "mentor":
+                return self._notes_tool(ident, name, args)
+            if name == "fix_checkin" and role == "founder":
+                return self._fix_checkin(ident, args, out)
             if name == "list_feature_requests":
                 if not self.sb:
                     return "I can't see the request list right now."
@@ -1077,6 +1126,229 @@ class Agent:
         if patch.get("done") is True:
             return f"✅ Goal done: {g['title']}" + (f" That completes the milestone *{g['milestone']['title']}* 🎉" if finished == "done" else "")
         return "✏️ Goal updated."
+
+    # ---------- tasks, notes, catch-ups, reminders, check-in fixes ----------
+    def _task_line(self, t: dict, ident: dict) -> str:
+        owner = "you" if t.get("owner_slack_id") == ident["slack_id"] else ("the startup" if not t.get("owner_slack_id") else "someone else")
+        where = f"{_label(t.get('startups'))} · " if ident["role"] == "mentor" else ""
+        return f"- [{t['id'][:6]}] {where}{t['title']} · due {t.get('due_date') or 'no date'} · for {owner}"
+
+    def _list_tasks(self, ident: dict, args: dict) -> str:
+        tasks = self._visible_tasks(ident)
+        if ident["role"] == "mentor" and args.get("startup"):
+            st, problem = self._resolve_startup(ident, args.get("startup"))
+            if not st:
+                return problem
+            tasks = [t for t in tasks if t.get("startup_id") == st["id"]]
+        if ident.get("in_channel"):
+            tasks = [t for t in tasks if not t.get("owner_slack_id")]  # private follow-ups never go into a channel
+        if not tasks:
+            return "No open tasks."
+        return "Open tasks:" + NL + NL.join(self._task_line(t, ident) for t in tasks[:30])
+
+    def _update_task(self, ident: dict, args: dict) -> str:
+        ref = str(args.get("task_ref", "")).strip("[] ").lower()
+        match = [t for t in self._visible_tasks(ident) if ref and t["id"].lower().startswith(ref)]
+        if len(match) != 1:
+            return "⚠️ I couldn't find that task. Use list_tasks to see the refs."
+        task, me = match[0], ident["slack_id"]
+        if ident["role"] == "mentor" and task.get("owner_slack_id") not in (None, me):
+            return "🔒 That follow-up belongs to someone else, so I can't change it."
+        patch = {}
+        if str(args.get("title") or "").strip():
+            patch["title"] = str(args["title"]).strip()[:300]
+        if args.get("clear_due_date"):
+            patch["due_date"] = None
+        elif args.get("due_date"):
+            due = _parse_due(args["due_date"])
+            if not due:
+                return "⚠️ I couldn't read that date. Which day (YYYY-MM-DD)?"
+            patch["due_date"] = due
+        if args.get("assignee") in ("me", "startup"):
+            patch["owner_slack_id"] = me if args["assignee"] == "me" else None
+        if not patch:
+            return "⚠️ What should I change on that task: the title, the due date or who it's for?"
+        if not self.memory.update_task(task["id"], patch):
+            return "⚠️ I couldn't update that task."
+        bits = [f"title → {patch['title']}" if "title" in patch else "",
+                ("due → " + (patch["due_date"] or "no date")) if "due_date" in patch else "",
+                ("now for " + ("you" if patch["owner_slack_id"] else "the startup")) if "owner_slack_id" in patch else ""]
+        return f"✏️ Task updated ({task['title'][:60]}): " + ", ".join(b for b in bits if b) + "."
+
+    def _notes_tool(self, ident: dict, name: str, args: dict) -> str:
+        if ident.get("in_channel"):
+            return "🔒 Mentor notes are private, so I won't list or change them in a channel. Ask me in a DM."
+        me = ident["slack_id"]
+        if name == "list_notes":
+            sid = None
+            if args.get("startup"):
+                st, problem = self._resolve_startup(ident, args.get("startup"))
+                if not st:
+                    return problem
+                sid = st["id"]
+            notes = self.memory.notes_with_refs(sid, 15)
+            if not notes:
+                return "No mentor notes yet."
+            return "Mentor notes (newest first):" + NL + NL.join(
+                f"- [{n['id'][:6]}] {str(n['created_at'])[:10]} · {_label(n.get('startups'))} · {n.get('author_name')}"
+                + (" (you)" if n.get("author_slack_id") == me else "") + f": {str(n['body'])[:160]}" for n in notes)
+        ref = str(args.get("note_ref", "")).strip("[] ").lower()
+        match = [n for n in self.memory.notes_with_refs(None, 60) if ref and n["id"].lower().startswith(ref)]
+        if len(match) != 1:
+            return "⚠️ I couldn't find that note. Use list_notes to see the refs."
+        note = match[0]
+        if note.get("author_slack_id") != me:
+            return f"🔒 That note was written by {note.get('author_name') or 'another mentor'}, so only they can change it."
+        if name == "delete_note":
+            if not self.memory.delete_note(note["id"]):
+                return "⚠️ I couldn't delete that note."
+            return f"🗑 Deleted your note on {_label(note.get('startups'))}: \"{str(note['body'])[:120]}\""
+        text = str(args.get("note") or "").strip()
+        if not text:
+            return "⚠️ What should the note say now?"
+        return "✏️ Note updated." if self.memory.update_note(note["id"], text) else "⚠️ I couldn't update that note."
+
+    def _whats_new(self, ident: dict, args: dict) -> str:
+        mentor, public, sb = ident["role"] == "mentor", bool(ident.get("in_channel")), self.sb
+        today = datetime.now(SGT).date()
+        if args.get("since"):
+            try:
+                begin = date.fromisoformat(str(args["since"])[:10])
+            except ValueError:
+                return "⚠️ I couldn't read that date. Which day (YYYY-MM-DD)?"
+            days = max(1, min(90, (today - begin).days))
+        else:
+            days = _clamp(args.get("days"), 1, 60, 7)
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        sid = None
+        if mentor and args.get("startup"):
+            st, problem = self._resolve_startup(ident, args.get("startup"))
+            if not st:
+                return problem
+            sid = st["id"]
+        elif not mentor:
+            sid = ident["context"]["startup_id"]
+        mine = lambda q: q.eq("startup_id", sid) if sid else q  # noqa: E731
+        got = gather(
+            names=lambda: {r["id"]: r["name"] for r in self._q(lambda: sb.table("startups").select("id,name").execute().data, [])},
+            subs=lambda: self._q(lambda: mine(sb.table("submissions").select("startup_id,status,progress,blocker,digest,created_at")
+                                              .eq("confirmed", True).gte("created_at", since)).order("created_at", desc=True).limit(200).execute().data, []),
+            goals=lambda: self._q(lambda: sb.table("goals").select("title,done_at,milestones(startup_id)").eq("done", True)
+                                  .gte("done_at", since).limit(200).execute().data, []),
+            tasks=lambda: self._q(lambda: mine(sb.table("tasks").select("startup_id,title,owner_slack_id,completed_at").eq("status", "done")
+                                               .gte("completed_at", since)).limit(100).execute().data, []),
+            milestones=lambda: self._q(lambda: mine(sb.table("milestones").select("startup_id,title,created_by_role,created_at")
+                                                    .gte("created_at", since)).limit(100).execute().data, []),
+            team=lambda: set() if mentor else {f["slack_user_id"] for f in self._q(
+                lambda: sb.table("founders").select("slack_user_id").eq("startup_id", sid).execute().data, []) if f.get("slack_user_id")},
+        )
+        names = got["names"] or {}
+        ids = [sid] if sid else sorted(names, key=lambda i: names[i].lower())
+        work = gather(**{i: (lambda i=i: integrations.activity_summary(sb, i, days)) for i in ids[:15]}) if sb and ids else {}
+        team = (got["team"] or set()) | {ident["slack_id"]}
+        lines = []
+        for i in ids:
+            subs = [s for s in got["subs"] or [] if s["startup_id"] == i]
+            goals = [g["title"] for g in got["goals"] or [] if (g.get("milestones") or {}).get("startup_id") == i]
+            tasks = [t["title"] for t in got["tasks"] or [] if t["startup_id"] == i and not (public and t.get("owner_slack_id"))
+                     and (mentor or not t.get("owner_slack_id") or t["owner_slack_id"] in team)]
+            ms = [f"{m['title']} ({'from a mentor' if m.get('created_by_role') == 'mentor' else 'self-set'})"
+                  for m in got["milestones"] or [] if m["startup_id"] == i]
+            w = work.get(i) or {}
+            code = [f"{w['commits']} commits" if w.get("commits") else "", f"{w['prs_merged']} PRs merged" if w.get("prs_merged") else "",
+                    f"{w['prs_opened']} PRs opened" if w.get("prs_opened") else ""]
+            bits = []
+            if subs:
+                blocked = next((s for s in subs if s["status"] == "Blocked"), None)
+                bits.append(f"{len(subs)} check-in{'s' if len(subs) != 1 else ''}; latest ({subs[0]['created_at'][:10]}): "
+                            f"{subs[0]['status']} {subs[0]['progress']}% · {str(subs[0]['digest'])[:160]}")
+                if blocked:
+                    bits.append(f"blocked on: {str(blocked.get('blocker'))[:120]}")
+            if goals:
+                bits.append("goals finished: " + "; ".join(goals[:5]) + (f" (+{len(goals) - 5} more)" if len(goals) > 5 else ""))
+            if tasks:
+                bits.append("tasks done: " + "; ".join(tasks[:5]))
+            if ms:
+                bits.append("new milestones: " + "; ".join(ms[:4]))
+            if any(code):
+                bits.append("code: " + ", ".join(c for c in code if c))
+            if bits:
+                if not sid:
+                    lines.append(f"*{names.get(i, i)}*")
+                lines += [f"  • {b}" for b in bits]
+        if not lines:
+            return f"Nothing new in the last {days} day{'s' if days != 1 else ''}."
+        return f"What's new in the last {days} day{'s' if days != 1 else ''}:" + NL + NL.join(lines)
+
+    def _remind_me(self, ident: dict, args: dict) -> str:
+        text = " ".join(str(args.get("text") or "").split())[:500]
+        if not text:
+            return "⚠️ What should I remind you about?"
+        when = meetings.parse_when(args.get("date"), args.get("time"), 15)
+        if not when:
+            return "⚠️ I need a valid date and time for the reminder (for example \"Thursday at 3 PM\")."
+        at = when[0]
+        now = datetime.now(SGT)
+        if at <= now:
+            return "⚠️ That time has already passed. When should I remind you?"
+        if at > now + timedelta(days=366):
+            return "⚠️ That's more than a year away. Pick a nearer date."
+        if len(self.memory.my_reminders(ident["slack_id"], 25)) >= 20:
+            return "⚠️ You already have 20 reminders waiting. Cancel one first (list_reminders)."
+        if not self.memory.add_reminder(ident["slack_id"], text, at.astimezone(timezone.utc).isoformat()):
+            return "⚠️ I can't save reminders yet (the bot_reminders table needs creating: ask the developer to run the migration)."
+        return f"⏰ I'll remind you on {at.strftime('%a %b')} {at.day} at {meetings.time_12h(at)} (SGT): {text}"
+
+    def _list_reminders(self, ident: dict) -> str:
+        rows = self.memory.my_reminders(ident["slack_id"])
+        if not rows:
+            return "You have no reminders waiting."
+        out = []
+        for r in rows:
+            at = datetime.fromisoformat(str(r["remind_at"]).replace("Z", "+00:00")).astimezone(SGT)
+            out.append(f"- [{r['id'][:6]}] {at.strftime('%a %b')} {at.day}, {meetings.time_12h(at)}: {r['text']}")
+        return "Your reminders:" + NL + NL.join(out)
+
+    def _cancel_reminder(self, ident: dict, args: dict) -> str:
+        ref = str(args.get("reminder_ref", "")).strip("[] ").lower()
+        match = [r for r in self.memory.my_reminders(ident["slack_id"], 25) if ref and r["id"].lower().startswith(ref)]
+        if len(match) != 1:
+            return "⚠️ I couldn't find that reminder. Use list_reminders to see the refs."
+        if not self.memory.cancel_reminder(ident["slack_id"], match[0]["id"]):
+            return "⚠️ I couldn't cancel that reminder."
+        return f"🗑 Reminder cancelled: {match[0]['text']}"
+
+    def _fix_checkin(self, ident: dict, args: dict, out: dict) -> str:
+        c = ident["context"]
+        rows = self._q(lambda: self.sb.table("submissions").select("id,status,progress,blocker,digest,created_at").eq("founder_id", c["founder_id"])
+                       .eq("confirmed", True).order("created_at", desc=True).limit(1).execute().data, [])
+        if not rows:
+            return "⚠️ You don't have a saved check-in to change."
+        last = rows[0]
+        action = args.get("action")
+        new = None
+        if action == "edit":
+            new = {}
+            if args.get("status") in ("In progress", "Blocked", "On Track", "Completed"):
+                new["status"] = args["status"]
+            if args.get("progress") is not None:
+                new["progress"] = _percent(args.get("progress"), last["progress"] or 0)
+            if args.get("blocker") is not None:
+                new["blocker"] = str(args["blocker"]).strip()[:300] or "None"
+            if str(args.get("digest") or "").strip():
+                new["digest"] = str(args["digest"]).strip()[:400]
+            if not new:
+                return "⚠️ What should the check-in say instead?"
+        elif action != "delete":
+            return ""
+        payload = {"kind": "checkin_fix", "action": action, "submission_id": last["id"], "startup_id": c["startup_id"], "founder_id": c["founder_id"],
+                   "old": {k: last.get(k) for k in ("status", "progress", "blocker", "digest")}, "new": new, "when": str(last["created_at"])[:10],
+                   "requester": ident["name"], "requester_slack": ident["slack_id"]}
+        meeting_id = self.memory.save_meeting(ident["slack_id"], payload)
+        if not meeting_id:
+            return "⚠️ I couldn't prepare that change (is the pending_meetings table created?)."
+        self._propose(out, {"id": meeting_id, **payload})
+        return ""
 
     # ---------- meetings ----------
     def _schedule(self, ident: dict, args: dict, out: dict) -> str:

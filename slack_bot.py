@@ -2683,8 +2683,45 @@ def handle_syllabus_pick(ack, body, client):
                        blocks=build_meeting_card({"id": meeting_id, **payload}))
 
 
+def build_checkin_fix_card(m: dict) -> list:
+    """Before/after for changing or deleting a founder's last saved check-in."""
+    nl = chr(10)
+    old = m["old"]
+    show = lambda c: f"{STATUS_EMOJI.get(c.get('status'), '🟡')} {c.get('status')} · {c.get('progress')}% · blocker: {c.get('blocker') or 'None'}{nl}> _{c.get('digest', '')}_"  # noqa: E731
+    if m["action"] == "delete":
+        text = f"I'll *delete* your check-in from {m['when']}:{nl}{show(old)}{nl}This can't be undone."
+        yes = "Delete check-in"
+    else:
+        new = {**old, **(m.get("new") or {})}
+        text = f"I'll change your check-in from {m['when']}.{nl}*Before:* {show(old)}{nl}*After:* {show(new)}"
+        yes = "Save the change"
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": text[:3000]}},
+            {"type": "actions", "elements": [
+                {"type": "button", "style": "danger" if m["action"] == "delete" else "primary", "text": {"type": "plain_text", "text": yes},
+                 "action_id": "confirm_meeting", "value": m["id"]},
+                {"type": "button", "text": {"type": "plain_text", "text": "Keep it as it is"}, "action_id": "cancel_meeting", "value": m["id"]}]}]
+
+
+def apply_checkin_fix(m: dict, user_id: str) -> str:
+    """Changes or deletes the founder's own check-in (never anyone else's) and says what happened."""
+    sub = supabase.table("submissions").select("id,founder_id").eq("id", m["submission_id"]).execute().data
+    if not sub or sub[0]["founder_id"] != m["founder_id"]:
+        return "⚠️ I couldn't find that check-in any more, so nothing was changed."
+    if m["action"] == "delete":
+        supabase.table("submissions").delete().eq("id", m["submission_id"]).execute()
+        try:  # the ticker line the bot wrote when it was saved
+            supabase.table("signals").delete().eq("startup_id", m["startup_id"]).in_("type", ["checkin", "blocker"]).eq("detail", m["old"]["digest"]).execute()
+        except Exception as e:
+            print(f"[Checkin Fix Warning] signal: {e}")
+        return f"🗑 Deleted your check-in from {m['when']}."
+    supabase.table("submissions").update(m["new"]).eq("id", m["submission_id"]).execute()
+    return f"✅ Your check-in from {m['when']} is updated."
+
+
 def build_meeting_card(m: dict) -> list:
     nl = chr(10)
+    if m.get("kind") == "checkin_fix":
+        return build_checkin_fix_card(m)
     if m.get("kind") == "routine":
         return build_routine_card(m)
     if m.get("kind") == "syllabus":
@@ -2782,6 +2819,20 @@ def handle_confirm_meeting(ack, body, client):
             print("[Confirm] announcement already claimed by an earlier click")
             return  # a second click on the same card
         finish(send_announcement(client, m))
+        return
+    if row["payload"].get("kind") == "checkin_fix":
+        m = row["payload"]
+        if m.get("requester_slack") != user_id or not owns_checkin(user_id, m):
+            client.chat_postEphemeral(channel=channel, user=user_id, text="Only the founder this check-in belongs to can change it.")
+            return
+        if not memory.claim_meeting(row["id"]):
+            return  # a second click on the same card
+        try:
+            finish(apply_checkin_fix(m, user_id))
+        except Exception as e:
+            print(f"[Checkin Fix Error] {e}")
+            finish("⚠️ I couldn't change that check-in just now. Please try again.")
+        publish_home(user_id, client)
         return
     if row["payload"].get("kind") == "routine":
         outcome = confirm_routine(row, user_id)
@@ -3442,6 +3493,23 @@ def run_alerts():
 
 
 # --- MEETING REMINDERS ---
+
+def send_due_reminders():
+    """Every minute: DM the personal reminders that have come due (each claimed first, so it goes out once)."""
+    if not (supabase and SLACK_BOT_TOKEN):
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    for r in memory.due_reminders(now):
+        if not memory.claim_reminder(r["id"], now):
+            continue
+        try:
+            text = f"⏰ *Reminder:* {r['text']}"
+            app.client.chat_postMessage(channel=r["slack_user_id"], text=text)
+            memory.log(r["slack_user_id"], "assistant", text)
+            print(f"[Reminder] sent to {r['slack_user_id']}")
+        except Exception as e:
+            print(f"[Reminder Error] {r['slack_user_id']}: {e}")
+
 
 def send_meeting_reminders():
     """About an hour before a studio-calendar meeting, DM each invited person who is in Slack (once per person per meeting)."""
@@ -4462,6 +4530,7 @@ if BackgroundScheduler:
     scheduler.add_job(reconcile_github, "interval", minutes=10, max_instances=1)
     scheduler.add_job(beat, "interval", seconds=30, max_instances=1)
     scheduler.add_job(send_meeting_reminders, "interval", minutes=5, max_instances=1)
+    scheduler.add_job(send_due_reminders, "interval", minutes=1, max_instances=1)
     scheduler.add_job(send_after_meeting_prompts, "interval", minutes=5, max_instances=1)
     scheduler.add_job(process_meet_recordings, "interval", minutes=2, max_instances=1)  # a cheap list call when there's nothing new
     scheduler.add_job(notify_new_milestones, "interval", minutes=1, max_instances=1)

@@ -80,6 +80,21 @@ class Memory:
             return q.order("created_at", desc=True).limit(limit).execute().data or []
         return self._guard("recent_notes", run, [])
 
+    def notes_with_refs(self, startup_id: str | None = None, limit: int = 15) -> list:
+        """Notes with their ids and authors, for listing and editing (recent_notes is for reading)."""
+        def run():
+            q = self.sb.table("notes").select("id,startup_id,author_slack_id,author_name,body,created_at,startups(name)")
+            if startup_id:
+                q = q.eq("startup_id", startup_id)
+            return q.order("created_at", desc=True).limit(limit).execute().data or []
+        return self._guard("notes_with_refs", run, [])
+
+    def update_note(self, note_id: str, body: str) -> bool:
+        return self._guard("update_note", lambda: bool(self.sb.table("notes").update({"body": body[:2000]}).eq("id", note_id).execute().data), False)
+
+    def delete_note(self, note_id: str) -> bool:
+        return self._guard("delete_note", lambda: bool(self.sb.table("notes").delete().eq("id", note_id).execute().data), False)
+
     # --- CRM: tasks ---
     def add_task(self, startup_id: str | None, owner_slack_id: str | None, title: str,
                  due_date: str | None, created_by: str) -> bool:
@@ -103,6 +118,9 @@ class Memory:
         team = {f["slack_user_id"] for f in self._guard("team", lambda: self.sb.table("founders").select("slack_user_id")
                 .eq("startup_id", startup_id).execute().data or [], []) if f.get("slack_user_id")}
         return [t for t in tasks if not t.get("owner_slack_id") or t["owner_slack_id"] in team]
+
+    def update_task(self, task_id: str, patch: dict) -> bool:
+        return self._guard("update_task", lambda: bool(self.sb.table("tasks").update(patch).eq("id", task_id).execute().data), False)
 
     def complete_task(self, task_id: str) -> bool:
         return self._guard("complete_task", lambda: bool(self.sb.table("tasks").update({
@@ -167,6 +185,28 @@ class Memory:
     def remove_goal(self, goal_id: str) -> bool:
         return self._guard("remove_goal", lambda: bool(
             self.sb.table("goals").delete().eq("id", goal_id).execute()), False)
+
+    # --- one-off personal reminders (bot_reminders; needs supabase/migrations/2026-11-bot-reminders.sql) ---
+    def add_reminder(self, slack_id: str, text: str, remind_at_iso: str) -> bool:
+        return self._guard("add_reminder", lambda: bool(self.sb.table("bot_reminders").insert(
+            {"slack_user_id": slack_id, "text": text[:500], "remind_at": remind_at_iso}).execute().data), False)
+
+    def my_reminders(self, slack_id: str, limit: int = 20) -> list:
+        return self._guard("my_reminders", lambda: self.sb.table("bot_reminders").select("id,text,remind_at").eq("slack_user_id", slack_id)
+                           .is_("sent_at", "null").order("remind_at").limit(limit).execute().data or [], [])
+
+    def cancel_reminder(self, slack_id: str, reminder_id: str) -> bool:
+        return self._guard("cancel_reminder", lambda: bool(self.sb.table("bot_reminders").delete().eq("id", reminder_id)
+                                                           .eq("slack_user_id", slack_id).execute().data), False)
+
+    def due_reminders(self, now_iso: str, limit: int = 50) -> list:
+        return self._guard("due_reminders", lambda: self.sb.table("bot_reminders").select("id,slack_user_id,text,remind_at")
+                           .is_("sent_at", "null").lte("remind_at", now_iso).order("remind_at").limit(limit).execute().data or [], [])
+
+    def claim_reminder(self, reminder_id: str, now_iso: str) -> bool:
+        """Marks it sent, only if nobody else did first (so a restart or overlap never sends it twice)."""
+        return self._guard("claim_reminder", lambda: bool(self.sb.table("bot_reminders").update({"sent_at": now_iso})
+                                                          .eq("id", reminder_id).is_("sent_at", "null").execute().data), False)
 
     # --- meeting proposals awaiting confirmation ---
     def save_meeting(self, requested_by: str, payload: dict) -> str | None:
