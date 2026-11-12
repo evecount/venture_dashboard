@@ -33,7 +33,8 @@ SGT = timezone(timedelta(hours=8))
 STREAMS = ["Tech", "GTM", "Marketing"]
 # Look-up tools: their results go back to the model, which then answers (or acts) with them.
 READ_TOOLS = {"upcoming_meetings", "check_availability", "my_calendar", "list_routines",
-              "startup_detail", "search_records", "github_activity", "web_research", "similar_blockers", "use_skill"}
+              "startup_detail", "search_records", "github_activity", "web_research", "similar_blockers", "use_skill",
+              "list_feature_requests"}
 MAX_ROUNDS = 5  # model calls per message; the last one always answers in words
 # Thanks and greetings only. "ok" / "yes" / "sure" are left out on purpose: they often confirm something that needs the main model.
 SMALL_TALK = re.compile(r"^\s*(thanks?( (you|so much|a lot|heaps))?|thank u|thx|ty|cheers|much appreciated|appreciate it|hi|hello|hey|"
@@ -210,6 +211,9 @@ def build_tools(role: str, skills=None) -> list:
             "instruction": {"type": "string", "description": "The instruction, in a short imperative sentence"}}, ["instruction"]),
         _tool("remove_personal_instruction", "Drop one of this person's standing instructions (by its number, some words of it, or 'all').", {
             "which": {"type": "string"}}, ["which"]),
+        _tool("list_feature_requests", (
+            "List the feature requests that have been passed on to Ben (mentors see everyone's, founders only their own). Use it when "
+            "someone asks what has been requested or whether their request was recorded."), {}, []),
         _tool("request_feature", (
             "Pass a request for something you CAN'T do yet (a new integration, a new kind of automatic message, a change "
             "to how the program works for everyone) to the developer, Ben. Use instead of pretending you can."), {
@@ -851,6 +855,14 @@ class Agent:
                 _, msg = (personal.add(self.sb, me, args.get("instruction")) if name == "set_personal_instruction"
                           else personal.remove(self.sb, me, args.get("which")))
                 return msg
+            if name == "list_feature_requests":
+                if not self.sb:
+                    return "I can't see the request list right now."
+                rows = personal.list_requests(self.sb, None if role == "mentor" else me)
+                if not rows:
+                    return ("No feature requests are stored yet. (Requests are also sent to Ben as a Slack message when they're made.)")
+                return "Feature requests passed on to Ben (newest first):" + chr(10) + chr(10).join(
+                    f"- {r['date']}" + (f" · {r['by']}" if r["by"] and role == "mentor" else "") + f": {r['text']}" for r in rows[:20])
             if name == "request_feature":
                 text = " ".join(str(args.get("description") or "").split())[:500]
                 if not text:

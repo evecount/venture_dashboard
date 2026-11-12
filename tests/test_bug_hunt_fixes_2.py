@@ -566,3 +566,41 @@ class MemoriesConstraintTests(unittest.TestCase):
         self.assertIsNotNone(allowed)
         stored = {"startup", "founder", "mentor", *personal.PRIVATE_KINDS}
         self.assertEqual(stored - allowed, set(), "run/extend a migration: memories.subject_type refuses these")
+
+
+class FeatureRequestListTests(unittest.TestCase):
+    rows = [{"subject_id": "UF", "fact": "Ann Lee: Remind founders on Fridays", "created_at": "2026-11-12T03:00:00+00:00"},
+            {"subject_id": "UM", "fact": "Ben: Stop sprint invites", "created_at": "2026-11-11T03:00:00+00:00"}]
+
+    def run_tool(self, role):
+        from test_agent_loop import Script, agent_with, call
+        from test_bot_agent import FOUNDER, MENTOR
+        import personal
+        s = Script(("", [call("list_feature_requests", {})]), ("Here you go.", []))
+        a, _ = agent_with(s)
+        seen = {}
+        def fake(sb, slack_id=None, limit=30):
+            seen["slack_id"] = slack_id
+            return personal.list_requests.__wrapped__(self.rows, slack_id) if hasattr(personal.list_requests, "__wrapped__") else [
+                {"by": r["fact"].split(": ")[0], "text": r["fact"].split(": ", 1)[1], "date": r["created_at"][:10]}
+                for r in self.rows if not slack_id or r["subject_id"] == slack_id]
+        with mock.patch.object(personal, "list_requests", fake):
+            a.respond(MENTOR if role == "mentor" else FOUNDER, "any feature requests?")
+        return s.requests[1]["messages"][-1]["content"], seen  # what the model was handed to answer from
+
+    def test_mentors_see_everyones_requests_with_who_asked(self):
+        text, seen = self.run_tool("mentor")
+        self.assertIsNone(seen["slack_id"])
+        self.assertIn("Stop sprint invites", text)
+        self.assertIn("Ann Lee", text)
+
+    def test_founders_only_see_their_own(self):
+        text, seen = self.run_tool("founder")
+        self.assertIsNotNone(seen["slack_id"])
+
+    def test_parsing_a_stored_request(self):
+        import personal
+        sb = mock.MagicMock()
+        sb.table.return_value.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value.data = self.rows
+        got = personal.list_requests(sb)
+        self.assertEqual((got[0]["by"], got[0]["text"], got[0]["date"]), ("Ann Lee", "Remind founders on Fridays", "2026-11-12"))

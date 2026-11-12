@@ -70,6 +70,23 @@ def numbered(items: list) -> str:
     return "\n".join(f"{n}. {i}" for n, i in enumerate(items, 1))
 
 
+def list_requests(sb, slack_id: str | None = None, limit: int = 30) -> list:
+    """Feature requests people have passed on, newest first: [{'by', 'text', 'date'}]. `slack_id` limits it to one person's."""
+    try:
+        q = sb.table("memories").select("subject_id,fact,created_at").eq("subject_type", REQUEST)
+        if slack_id:
+            q = q.eq("subject_id", slack_id)
+        rows = q.order("created_at", desc=True).limit(limit).execute().data or []
+    except Exception as e:  # noqa: BLE001
+        print(f"[Personal Warning] list requests: {e}")
+        return []
+    out = []
+    for r in rows:
+        by, _, text = str(r.get("fact") or "").partition(": ")
+        out.append({"by": by if text else "", "text": text or by, "date": str(r.get("created_at") or "")[:10]})
+    return out
+
+
 def save_request(sb, slack_id: str, name: str, text: str) -> bool:
     try:
         sb.table("memories").insert({"subject_type": REQUEST, "subject_id": slack_id, "fact": f"{name}: {text}"[:500],
