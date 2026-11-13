@@ -333,6 +333,9 @@ agent = (Agent(ai_client, AI_MODEL, supabase, memory, connect_url=github_link, c
                 awareness=lambda ident: awareness_text(ident), routines=routine_store,
                 repos_changed=lambda row, slack_id: after_repo_choice(row, slack_id),
                 fast_model=FAST_AI_MODEL,
+                model_info=(f"Chat replies come from {LOCAL_LLM_MODEL}, a model the studio hosts itself; if it is unavailable Gemini ({AI_MODEL}) answers instead. "
+                            "Images, PDFs, voice notes and web research use Gemini."
+                            if LOCAL_LLM_BASE_URL and LOCAL_LLM_MODEL else f"Chat replies come from {AI_MODEL}."),
                 research=(lambda q: web_research.research(q, GEMINI_API_KEY, FAST_AI_MODEL or AI_MODEL)) if GEMINI_API_KEY else None,
                 semantic=semantic.Semantic(GEMINI_API_KEY) if GEMINI_API_KEY else None,
                 notify_developers=lambda text: notify_developers(text))
@@ -4072,6 +4075,48 @@ DEV_LABELS = {"status": "Status & scopes", "show_context": "What the bot sees", 
               "nudge_preview": "Preview Wednesday nudge", "routines": "Routines & automatic messages"}
 
 
+_model_health = {"at": 0.0, "text": ""}
+
+
+def _probe(url: str, key: str) -> bool:
+    """True when the server answers its model list (any 2xx), within a few seconds."""
+    import requests
+    try:
+        return requests.get(url, headers={"Authorization": f"Bearer {key}"}, timeout=4).ok
+    except Exception:
+        return False
+
+
+def model_health_text() -> str:
+    """'🟢 Qwen (local) up · 🟢 Gemini up · answering: Qwen' for the developer view; checked at most every 30 seconds."""
+    import time as _t
+    if _t.time() - _model_health["at"] < 30 and _model_health["text"]:
+        return _model_health["text"]
+    from concurrent.futures import ThreadPoolExecutor
+    local = bool(LOCAL_LLM_BASE_URL and LOCAL_LLM_MODEL)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        f_local = pool.submit(_probe, LOCAL_LLM_BASE_URL.rstrip("/") + "/models", LOCAL_LLM_API_KEY) if local else None
+        f_gem = pool.submit(_probe, "https://generativelanguage.googleapis.com/v1beta/openai/models", GEMINI_API_KEY) if GEMINI_API_KEY else None
+        local_up = f_local.result() if f_local else None
+        gem_up = f_gem.result() if f_gem else None
+    dot = lambda up: "🟢" if up else "🔴"  # noqa: E731
+    parts = []
+    if local:
+        parts.append(f"{dot(local_up)} Local model `{LOCAL_LLM_MODEL}` {'up' if local_up else 'DOWN'}")
+    if gem_up is not None:
+        parts.append(f"{dot(gem_up)} Gemini `{AI_MODEL}` {'up' if gem_up else 'DOWN'}")
+    skipped = local and getattr(ai_client, "down_until", 0) > getattr(ai_client, "clock", lambda: 0)()
+    if local and local_up and not skipped:
+        answering = "local model"
+    elif gem_up:
+        answering = "Gemini" + (" (fallback)" if local else "")
+    else:
+        answering = "nothing is reachable"
+    text = " · ".join(parts) + f" · answering: {answering}" if parts else "No AI model configured"
+    _model_health.update(at=_t.time(), text=text)
+    return text
+
+
 def dev_home_state(uid: str) -> dict:
     import time as _time
     if _time.time() - _scope_cache["at"] > 3600:
@@ -4080,7 +4125,8 @@ def dev_home_state(uid: str) -> dict:
     connected = bool(_socket_handler and _socket_handler.client.is_connected())
     status = (f"{'🟢 Slack connected' if connected else '🔴 Slack not connected'} · agent {'on' if agent else 'OFF'} · "
               f"model `{settings.get('ai_model') or AI_MODEL}`"
-              + (f" · ⚠️ missing scopes: {', '.join(missing)}" if missing else ""))
+              + (f" · ⚠️ missing scopes: {', '.join(missing)}" if missing else "")
+              + "\n" + model_health_text())
     try:
         chans = supabase.table("bot_channels").select("id,name,is_private,num_members,enabled,status").order("name").execute().data or []
     except Exception as e:
