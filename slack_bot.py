@@ -2799,9 +2799,27 @@ def build_meeting_card(m: dict) -> list:
     ]
 
 
-CONFIRM_RE = re.compile(r"^\W*(yes|yep|yeah|yup|confirm(ed)?|go ahead|do it|send it|send them|create it|book it|ok|okay|sure|please do|"
-                        r"looks good|lgtm|that'?s right|approved?)\b[\s,.!]*(please|thanks|thank you)?[\s.!]*$", re.I)
-CANCEL_RE = re.compile(r"^\W*(no|nope|cancel|never ?mind|don'?t (send|create|do it)|stop|scrap (it|that))\b[\s,.!]*$", re.I)
+_AFFIRM = {"yes", "yep", "yeah", "yup", "yea", "confirm", "confirmed", "ok", "okay", "sure", "approve", "approved", "lgtm", "correct",
+           "perfect", "great", "good", "go", "do", "send", "create", "book", "please", "looks", "sounds", "that's", "thats", "all"}
+_FILLER = {"that", "that's", "thats", "it", "is", "its", "it's", "looks", "sounds", "all", "right", "fine", "ahead", "them", "now", "so", "and",
+           "thanks", "thank", "you", "thx", "ty", "please", "good", "great", "perfect", "yes", "ok", "okay", "this", "one", "the", "go", "send",
+           "create", "book", "do", "i", "confirm", "confirmed", "approve", "approved", "sure", "of", "course"}
+_NEGATE = {"no", "nope", "cancel", "nevermind", "never", "stop", "scrap", "don't", "dont", "discard"}
+_NEG_FILLER = {"it", "that", "this", "mind", "send", "create", "do", "please", "thanks", "thank", "you", "the", "meeting", "invite", "one", "i", "changed", "my"}
+
+
+def is_confirmation(text: str) -> bool:
+    """A short plain yes ("yes", "confirmed", "yes that's good thanks", "go ahead"). Anything that adds a detail ("yes virtual",
+    "ok add Gwen too") is not: that goes to the assistant."""
+    words = re.findall(r"[a-z']+", (text or "").lower())
+    return 0 < len(words) <= 8 and "?" not in (text or "") and words[0] in _AFFIRM and all(w in _AFFIRM or w in _FILLER for w in words)
+
+
+def is_cancellation(text: str) -> bool:
+    words = re.findall(r"[a-z']+", (text or "").lower())
+    return 0 < len(words) <= 5 and "?" not in (text or "") and words[0] in _NEGATE and all(w in _NEGATE or w in _NEG_FILLER for w in words)
+
+
 PROPOSAL_WINDOW = timedelta(minutes=30)  # a typed yes only counts for a card shown this recently
 
 
@@ -2814,7 +2832,7 @@ def confirm_by_text(user_id: str, text: str, say) -> bool:
     """Someone answers a confirmation card by typing "yes" / "confirmed" / "no" instead of pressing its button. Honoured only
     when the card was the bot's last message and is still waiting; otherwise the assistant handles the message as usual.
     (Before this, the assistant would answer "✅ updated" without anything having happened.)"""
-    confirm, cancel = CONFIRM_RE.match(text or ""), CANCEL_RE.match(text or "")
+    confirm, cancel = is_confirmation(text), is_cancellation(text)
     if not (confirm or cancel):
         return False
     last = (memory.history(user_id) or [None])[-1]

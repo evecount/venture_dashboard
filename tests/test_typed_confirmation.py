@@ -28,14 +28,32 @@ def row(title="MVP round off", kind=None, rid="r1"):
 
 class PatternTests(unittest.TestCase):
     def test_plain_confirmations_and_refusals_are_recognised(self):
-        for text in ("yes", "Yes!", "confirmed", "Confirm", "go ahead", "ok", "Yes please", "looks good", "send it", "  yep.  ", "yes, thanks"):
-            self.assertTrue(b.CONFIRM_RE.match(text), text)
-        for text in ("no", "cancel", "never mind", "don't send", "Nope!"):
-            self.assertTrue(b.CANCEL_RE.match(text), text)
+        for text in ("yes", "Yes!", "confirmed", "Confirm", "go ahead", "ok", "Yes please", "looks good", "send it", "  yep.  ", "yes, thanks",
+                     "Yes that's good thanks", "yes that looks good, send it", "perfect thanks", "ok great"):
+            self.assertTrue(b.is_confirmation(text), text)
+        for text in ("no", "cancel", "never mind", "don't send", "Nope!", "no thanks", "no don't send it"):
+            self.assertTrue(b.is_cancellation(text), text)
 
     def test_answers_with_content_are_not_treated_as_confirmations(self):
-        for text in ("yes virtual, google meeting", "yes but make it 11am", "ok add Gwen too", "no, make it Thursday", "confirm the time is 10am?"):
-            self.assertFalse(b.CONFIRM_RE.match(text) or b.CANCEL_RE.match(text), text)
+        for text in ("yes virtual, google meeting", "yes but make it 11am", "ok add Gwen too", "no, make it Thursday", "confirm the time is 10am?",
+                     "yes and invite Sam", "sure, move it to Friday", "yes what time is it?"):
+            self.assertFalse(b.is_confirmation(text) or b.is_cancellation(text), text)
+
+
+class FalseReceiptTests(unittest.TestCase):
+    def test_a_reply_that_opens_like_a_receipt_with_nothing_done_is_caught(self):
+        for text in ("✅ Sent to everyone.", "Done — I've sent it.", "I've scheduled the meeting for 10am.", "📣 Sent!", "Sent to everyone."):
+            self.assertTrue(bot_agent.CLAIMS_DONE.search(text), text)
+        for text in ("Here are your tasks.", "Should I send it?", "Your meeting is at 10am.", "I can send it once you confirm."):
+            self.assertFalse(bot_agent.CLAIMS_DONE.search(text), text)
+
+    def test_the_agent_replaces_an_unbacked_claim_with_an_honest_line(self):
+        from test_agent_loop import Script, agent_with
+        from test_bot_agent import FOUNDER
+        a, _ = agent_with(Script(("✅ Sent to everyone.", [])))
+        out = a.respond(FOUNDER, "Yes that's good thanks")
+        self.assertIn("haven't done that", out["text"])
+        self.assertNotIn("Sent to everyone", out["text"])
 
 
 class ConfirmByTextTests(unittest.TestCase):

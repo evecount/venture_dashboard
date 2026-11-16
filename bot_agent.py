@@ -729,6 +729,10 @@ class Agent:
         default = ("Here's what I captured. Confirm below to sync it to the dashboard." if out["checkin"]
                    else "Please confirm the rename below." if out["rename"]
                    else "Please check the card below and press its button to confirm." if out["meetings"] else "Got it.")
+        if reply and CLAIMS_DONE.search(reply.lstrip()[:160]) and not (
+                receipts or out["meetings"] or out["checkin"] or out["rename"] or out.get("announcements") or out["announce_now"]):
+            print(f"[Agent Warning] reply claimed an action nothing performed: {reply[:100]!r}")
+            parts = [NOT_DONE, *show]
         out["text"] = "\n".join(p for p in parts if p) or default
         self.memory.log(ident["slack_id"], "user", text)
         # The history must show that a card is waiting, or the model later claims it was already confirmed and done.
@@ -1806,6 +1810,15 @@ class Agent:
 _WORD = re.compile(r"[a-z0-9][a-z0-9'-]{2,}")
 _STOP = {"the", "and", "for", "with", "what", "when", "who", "did", "does", "about", "they", "them", "that", "this", "from",
          "have", "has", "any", "anyone", "mention", "mentioned", "say", "said", "ever", "was", "were", "are"}
+
+
+# A reply that opens like an action receipt ("✅ Sent to everyone.", "Done —", "I've scheduled") when no action actually ran this turn.
+# The model sometimes imitates the bot's own receipts: it "previewed" and then "sent" an announcement that never existed.
+CLAIMS_DONE = re.compile(r"^\W{0,3}(?:[\u2705\U0001F3AF\U0001F4DD\U0001F5D1\u270F\u2795\u2714\U0001F4E3\u23F0\U0001F9ED\U0001F4E8\U0001F9E0]|"
+                         r"done\b|sent\b|all set\b|confirmed\b|i(?:'ve| have) (?:sent|created|scheduled|rescheduled|updated|saved|cancel+ed|moved|"
+                         r"added|deleted|removed|booked|set up))", re.I)
+NOT_DONE = ("⚠️ I haven't done that: nothing was actually created, sent or changed. Tell me again what you'd like and I'll set it up "
+            "(I show a card to confirm first).")
 
 
 def _card_note(out: dict) -> str:
