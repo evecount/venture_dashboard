@@ -57,6 +57,9 @@ class FalseReceiptTests(unittest.TestCase):
 
 
 class ConfirmByTextTests(unittest.TestCase):
+    def setUp(self):
+        b._waiting_checkins.clear()
+
     def run_it(self, text, history, rows):
         say = Say()
         with mock.patch.object(b.memory, "history", return_value=history), mock.patch.object(b.memory, "pending_for", return_value=rows), \
@@ -102,6 +105,71 @@ class ConfirmByTextTests(unittest.TestCase):
         handled, _, confirm, _ = self.run_it("yes", self.CARD, [row(kind="syllabus")])
         self.assertFalse(handled)
         confirm.assert_not_called()
+
+
+class CheckinTypedConfirmTests(unittest.TestCase):
+    CTX = {"founder_id": "f1", "name": "Ann Lee", "startup_id": "s1", "startup_name": "Auvira", "stream": "GTM", "lead": "Unassigned",
+           "deliverable": {"id": "del-wk03", "week": "WK 03", "title": "Interview insight repo", "due_date": "2026-10-16"}}
+    PARSED = {"status": "On Track", "progress": 50, "blocker": "None", "digest": "Built the login page", "stream": "Product"}
+    CARD = [{"role": "assistant", "content": "Here's what I captured.\n[A confirmation card for a check-in was shown. It is NOT saved until the founder presses Save or replies yes.]"}]
+
+    def setUp(self):
+        b._waiting_checkins.clear()
+        b._saved_cards.clear()
+        self.blocks = b.build_confirmation_card(self.CTX, self.PARSED, "I built the login page")
+        b.remember_checkin("U1", self.blocks, {"channel": "D1", "ts": "5.5"})
+
+    def tearDown(self):
+        b._waiting_checkins.clear()
+
+    def run_it(self, text, history=None, rows=()):
+        say = Say()
+        app = mock.MagicMock()
+        with mock.patch.object(b.memory, "history", return_value=history or self.CARD), mock.patch.object(b.memory, "pending_for", return_value=list(rows)),                 mock.patch.object(b, "commit_checkin", return_value=True) as commit, mock.patch.object(b, "owns_checkin", return_value=True),                 mock.patch.object(b, "estimate_after_checkin"), mock.patch.object(b, "publish_home"), mock.patch.object(b, "app", app):
+            handled = b.confirm_by_text("U1", text, say)
+        return handled, say, commit, app
+
+    def test_the_card_contents_are_remembered_from_the_button_value(self):
+        self.assertEqual(b._waiting_checkins["U1"]["value"]["digest"], "Built the login page")
+        self.assertEqual(b._waiting_checkins["U1"]["ts"], "5.5")
+
+    def test_a_typed_yes_saves_the_check_in_and_marks_the_card_saved(self):
+        handled, _, commit, app = self.run_it("Yes that's good thanks")
+        self.assertTrue(handled)
+        commit.assert_called_once()
+        self.assertEqual(commit.call_args.args[0]["digest"], "Built the login page")
+        self.assertEqual(app.client.chat_update.call_args.kwargs["ts"], "5.5")
+        self.assertNotIn("U1", b._waiting_checkins)
+
+    def test_a_typed_yes_twice_saves_once(self):
+        self.run_it("yes")
+        handled, _, commit, _ = self.run_it("yes")
+        self.assertFalse(handled)  # nothing waiting any more: the assistant answers
+        commit.assert_not_called()
+
+    def test_a_typed_no_saves_nothing(self):
+        handled, say, commit, _ = self.run_it("no")
+        self.assertTrue(handled)
+        commit.assert_not_called()
+        self.assertIn("won't save", say.said[0])
+        self.assertNotIn("U1", b._waiting_checkins)
+
+    def test_an_old_card_is_not_saved_by_a_late_yes(self):
+        b._waiting_checkins["U1"]["at"] -= 3600
+        handled, _, commit, _ = self.run_it("yes")
+        self.assertFalse(handled)
+        commit.assert_not_called()
+
+    def test_a_check_in_and_a_meeting_waiting_together_are_listed_not_guessed(self):
+        handled, say, commit, _ = self.run_it("yes", rows=[row()])
+        self.assertTrue(handled)
+        commit.assert_not_called()
+        self.assertIn("2 proposals", say.said[0])
+
+    def test_the_history_note_for_a_check_in_names_the_card(self):
+        note = bot_agent._card_note({"meetings": [], "checkin": {"x": 1}, "rename": None})
+        self.assertIn("confirmation card", note)
+        self.assertIn("NOT saved", note)
 
 
 class HistoryNoteTests(unittest.TestCase):

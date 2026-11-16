@@ -2324,8 +2324,8 @@ def process_inbound_message(user_id: str, text: str, files: list, say, in_channe
             for a in result.get("announcements") or ([result["announce_now"]] if result.get("announce_now") else []):
                 say(send_announcement(app.client, a))
             if result["checkin"]:
-                say(blocks=build_confirmation_card(ident["context"], result["checkin"], text),
-                    text="Please confirm your dashboard update.")
+                card = build_confirmation_card(ident["context"], result["checkin"], text)
+                remember_checkin(user_id, card, say(blocks=card, text="Please confirm your dashboard update."))
             if result["rename"]:
                 say(blocks=build_rename_card(result["rename"]), text="Confirm startup rename")
             for m in result.get("meetings") or ([result["meeting"]] if result.get("meeting") else []):
@@ -2478,6 +2478,7 @@ def handle_edit_checkin_submit(ack, body, client, view):
             release_press(card["channel"], card["ts"])
         client.chat_postMessage(channel=user_id, text=CHECKIN_FAILED)
         return
+    _waiting_checkins.pop(user_id, None)
     estimate_after_checkin(action_value)
     blocks = saved_checkin_blocks(action_value)
     try:
@@ -2487,26 +2488,52 @@ def handle_edit_checkin_submit(ack, body, client, view):
     publish_home(user_id, client)
 
 
-@app.action("confirm_checkin")
-def handle_confirm_checkin(ack, body, client):
-    """Founder pressed Save: write the check-in and lock the card so it can't be saved twice."""
-    ack()
-    action_value = json.loads(body["actions"][0]["value"])
-    user_id = body["user"]["id"]
-    channel, ts = body["channel"]["id"], body["message"]["ts"]
+_waiting_checkins: dict = {}  # user id -> the check-in card they were just shown (kept in memory; a restart just means they press the button)
+
+
+def remember_checkin(user_id: str, blocks: list, res) -> None:
+    """Keep the check-in card's contents so a typed "yes" can save it the same way the Save button does."""
+    try:
+        value = next(json.loads(e["value"]) for blk in blocks if blk.get("type") == "actions" for e in blk["elements"]
+                     if e.get("action_id") == "confirm_checkin")
+    except (StopIteration, KeyError, ValueError):
+        return
+    res = res or {}
+    _waiting_checkins[user_id] = {"value": value, "channel": res.get("channel"), "ts": res.get("ts"), "at": time.time()}
+
+
+def waiting_checkin(user_id: str):
+    """The check-in card this person was shown within the proposal window and hasn't saved, or None."""
+    w = _waiting_checkins.get(user_id)
+    if w and time.time() - w["at"] > PROPOSAL_WINDOW.total_seconds():
+        _waiting_checkins.pop(user_id, None)
+        return None
+    return w
+
+
+def save_checkin_card(client, user_id: str, actor: str, channel: str, ts: str, action_value: dict) -> None:
+    """Write the check-in and lock the card so it can't be saved twice (Save button or a typed yes)."""
     if not owns_checkin(user_id, action_value):
         client.chat_postEphemeral(channel=channel, user=user_id, text="Only the founder this check-in belongs to can save it.")
         return
     if not first_press(channel, ts):
         return  # second click on the same card
-    if not commit_checkin(action_value, body["user"]["name"]):
+    if not commit_checkin(action_value, actor):
         release_press(channel, ts)
         client.chat_postMessage(channel=user_id, text=CHECKIN_FAILED)
         return
+    _waiting_checkins.pop(user_id, None)
     estimate_after_checkin(action_value)
-    client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text="Check-in saved",
-                       blocks=saved_checkin_blocks(action_value))
+    client.chat_update(channel=channel, ts=ts, text="Check-in saved", blocks=saved_checkin_blocks(action_value))
     publish_home(user_id, client)
+
+
+@app.action("confirm_checkin")
+def handle_confirm_checkin(ack, body, client):
+    """Founder pressed Save."""
+    ack()
+    save_checkin_card(client, body["user"]["id"], body["user"]["name"], body["channel"]["id"], body["message"]["ts"],
+                      json.loads(body["actions"][0]["value"]))
 
 
 @app.action("edit_checkin")
@@ -2840,12 +2867,26 @@ def confirm_by_text(user_id: str, text: str, say) -> bool:
         return False
     since = (datetime.now(timezone.utc) - PROPOSAL_WINDOW).isoformat()
     rows = [r for r in memory.pending_for(user_id, since) if (r.get("payload") or {}).get("kind") != "syllabus"]
-    if not rows:
-        return False
-    if len(rows) > 1:
-        say("You have " + str(len(rows)) + " proposals waiting: " + "; ".join(proposal_title(r["payload"]) for r in rows[:4])
+    checkin = waiting_checkin(user_id)
+    if len(rows) + (1 if checkin else 0) > 1:
+        say("You have " + str(len(rows) + (1 if checkin else 0)) + " proposals waiting: "
+            + "; ".join([*(proposal_title(r["payload"]) for r in rows[:4]), *(["your check-in"] if checkin else [])])
             + ". Press the button on the one you mean.")
         return True
+    if checkin and not rows:
+        if cancel:
+            _waiting_checkins.pop(user_id, None)
+            say("Okay, I won't save that check-in. Nothing was recorded.")
+            return True
+        try:
+            actor = app.client.users_info(user=user_id)["user"]["name"]
+        except Exception:
+            actor = user_id
+        res = say("⏳ Saving your check-in…")
+        save_checkin_card(app.client, user_id, actor, checkin["channel"] or res.get("channel"), checkin["ts"] or res.get("ts"), checkin["value"])
+        return True
+    if not rows:
+        return False
     row = rows[0]
     if cancel:
         memory.delete_meeting(row["id"])

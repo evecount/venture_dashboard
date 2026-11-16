@@ -1828,7 +1828,7 @@ def _card_note(out: dict) -> str:
         what = m.get("title") or (m.get("routine") or {}).get("title") or ("an announcement" if m.get("kind") == "announce" else "a change")
         notes.append(f"[A confirmation card for '{what}' was shown. It is NOT done until the person presses its button or replies yes.]")
     if out.get("checkin"):
-        notes.append("[A check-in card was shown. It is NOT saved until the founder presses Save.]")
+        notes.append("[A confirmation card for a check-in was shown. It is NOT saved until the founder presses Save or replies yes.]")
     if out.get("rename"):
         notes.append("[A rename card was shown. Nothing is renamed until they press Rename.]")
     return ("\n" + "\n".join(notes)) if notes else ""
