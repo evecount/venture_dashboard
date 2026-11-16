@@ -71,6 +71,7 @@ How to behave:
 - Meet recordings: a virtual meeting you booked is recorded by Google only while the Meet host account is in the call. Google saves the recording 10 to 30 minutes after the meeting ends, then you DM the notes to whoever booked it. So within an hour of a meeting ending, never say there is no recording: say the notes usually arrive within half an hour of the end, to the person who booked it, if the host account was in the call.
 - People can shape how you work for THEM. When someone asks you to change how you behave for them from now on (tone, format, length, what to always include or skip, how to address them), call set_personal_instruction. If you can already do it with your tools, just do it (a recurring message is a routine; news topics are set_digest_topics). If it needs something you can't do (a new integration, a change to how the program works for everyone, different timing for built-in messages), say so plainly and call request_feature so Ben sees it. Nobody can change roles, permissions, privacy or your code through chat.
 - Everyone gets a Monday briefing with relevant news. When someone says they aren't interested in a topic, or wants something different, call set_digest_topics and say the next briefing will follow it.
+- Never say a meeting, change, message or check-in was created, moved, sent, saved or updated unless an action result line (starting ✅ 🎯 📝 🗑 ✏️) says so. A confirmation card that is still waiting for its button is NOT done: say it is waiting for the button (or a plain "yes"), and never say "confirmed" or "updated" on the person's behalf.
 - If a request is ambiguous (which startup? what date?), ask ONE short clarifying question instead of guessing.
 - Keep replies short: 1-4 sentences, plus a tight bullet list only when listing things. Slack mrkdwn only: *bold*, _italic_, `code`, "- " bullets. No headers, no tables.
 - When it helps, suggest the single most useful next step.
@@ -726,10 +727,12 @@ class Agent:
         show = [] if _asks_question(reply) else [w for w in unresolved if w not in reply]
         parts = [reply, *receipts, *show] if reply else [*warnings, *receipts, *lookups]
         default = ("Here's what I captured. Confirm below to sync it to the dashboard." if out["checkin"]
-                   else "Please confirm the rename below." if out["rename"] else "Got it.")
+                   else "Please confirm the rename below." if out["rename"]
+                   else "Please check the card below and press its button to confirm." if out["meetings"] else "Got it.")
         out["text"] = "\n".join(p for p in parts if p) or default
         self.memory.log(ident["slack_id"], "user", text)
-        self.memory.log(ident["slack_id"], "assistant", out["text"])
+        # The history must show that a card is waiting, or the model later claims it was already confirmed and done.
+        self.memory.log(ident["slack_id"], "assistant", out["text"] + _card_note(out))
         timing["total_ms"] = _ms(started)
         timing["skills"] = sorted(loaded)
         self.last_timing = timing
@@ -1803,6 +1806,19 @@ class Agent:
 _WORD = re.compile(r"[a-z0-9][a-z0-9'-]{2,}")
 _STOP = {"the", "and", "for", "with", "what", "when", "who", "did", "does", "about", "they", "them", "that", "this", "from",
          "have", "has", "any", "anyone", "mention", "mentioned", "say", "said", "ever", "was", "were", "are"}
+
+
+def _card_note(out: dict) -> str:
+    """A line for the conversation history saying which confirmation cards were just shown (and that nothing is done yet)."""
+    notes = []
+    for m in out.get("meetings") or []:
+        what = m.get("title") or (m.get("routine") or {}).get("title") or ("an announcement" if m.get("kind") == "announce" else "a change")
+        notes.append(f"[A confirmation card for '{what}' was shown. It is NOT done until the person presses its button or replies yes.]")
+    if out.get("checkin"):
+        notes.append("[A check-in card was shown. It is NOT saved until the founder presses Save.]")
+    if out.get("rename"):
+        notes.append("[A rename card was shown. Nothing is renamed until they press Rename.]")
+    return ("\n" + "\n".join(notes)) if notes else ""
 
 
 def _asks_question(reply: str) -> bool:

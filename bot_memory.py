@@ -223,6 +223,11 @@ class Memory:
             return res.data[0]["id"] if res.data else None
         return self._guard("save_meeting", run, None)
 
+    def pending_for(self, user_id: str, since_iso: str) -> list:
+        """Proposals (meetings, announcements, routines...) this person has waiting for their confirmation, newest first."""
+        return self._guard("pending_for", lambda: self.sb.table("pending_meetings").select("id,requested_by,payload,created_at")
+                           .eq("requested_by", user_id).gte("created_at", since_iso).order("created_at", desc=True).limit(10).execute().data or [], [])
+
     def get_meeting(self, meeting_id: str) -> dict | None:
         def run():
             rows = self.sb.table("pending_meetings").select("*").eq("id", meeting_id).execute().data

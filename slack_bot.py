@@ -2308,6 +2308,9 @@ def process_inbound_message(user_id: str, text: str, files: list, say, in_channe
             text += f"\n[Attachment: {f.get('name')}]"
     text += conversation  # an @mention in a channel: the thread (or recent messages) it was asked in
 
+    if not in_channel and confirm_by_text(user_id, text, say):
+        return
+
     if role == "mentor" and PULSE_RE.match(text):
         say(blocks=fit_blocks(build_mentor_blocks(safe_snapshot()), 50), text="Cohort pulse")
         return
@@ -2794,6 +2797,46 @@ def build_meeting_card(m: dict) -> list:
              "action_id": "confirm_meeting", "value": m["id"]},
             {"type": "button", "text": {"type": "plain_text", "text": "Cancel"}, "action_id": "cancel_meeting", "value": m["id"]}]},
     ]
+
+
+CONFIRM_RE = re.compile(r"^\W*(yes|yep|yeah|yup|confirm(ed)?|go ahead|do it|send it|send them|create it|book it|ok|okay|sure|please do|"
+                        r"looks good|lgtm|that'?s right|approved?)\b[\s,.!]*(please|thanks|thank you)?[\s.!]*$", re.I)
+CANCEL_RE = re.compile(r"^\W*(no|nope|cancel|never ?mind|don'?t (send|create|do it)|stop|scrap (it|that))\b[\s,.!]*$", re.I)
+PROPOSAL_WINDOW = timedelta(minutes=30)  # a typed yes only counts for a card shown this recently
+
+
+def proposal_title(payload: dict) -> str:
+    return payload.get("title") or (payload.get("routine") or {}).get("title") or (
+        "the announcement" if payload.get("kind") == "announce" else "your check-in change" if payload.get("kind") == "checkin_fix" else "that proposal")
+
+
+def confirm_by_text(user_id: str, text: str, say) -> bool:
+    """Someone answers a confirmation card by typing "yes" / "confirmed" / "no" instead of pressing its button. Honoured only
+    when the card was the bot's last message and is still waiting; otherwise the assistant handles the message as usual.
+    (Before this, the assistant would answer "✅ updated" without anything having happened.)"""
+    confirm, cancel = CONFIRM_RE.match(text or ""), CANCEL_RE.match(text or "")
+    if not (confirm or cancel):
+        return False
+    last = (memory.history(user_id) or [None])[-1]
+    if not (last and last.get("role") == "assistant" and "confirmation card" in str(last.get("content"))):
+        return False
+    since = (datetime.now(timezone.utc) - PROPOSAL_WINDOW).isoformat()
+    rows = [r for r in memory.pending_for(user_id, since) if (r.get("payload") or {}).get("kind") != "syllabus"]
+    if not rows:
+        return False
+    if len(rows) > 1:
+        say("You have " + str(len(rows)) + " proposals waiting: " + "; ".join(proposal_title(r["payload"]) for r in rows[:4])
+            + ". Press the button on the one you mean.")
+        return True
+    row = rows[0]
+    if cancel:
+        memory.delete_meeting(row["id"])
+        say(f"Okay, cancelled: {proposal_title(row['payload'])}. Nothing was sent.")
+        return True
+    res = say("⏳ Confirming…")
+    body = {"actions": [{"value": row["id"]}], "user": {"id": user_id}, "channel": {"id": res.get("channel")}, "message": {"ts": res.get("ts")}}
+    handle_confirm_meeting(lambda: None, body, app.client)
+    return True
 
 
 @app.action("confirm_meeting")
