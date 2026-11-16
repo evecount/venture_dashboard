@@ -2327,7 +2327,9 @@ def process_inbound_message(user_id: str, text: str, files: list, say, in_channe
                 card = build_confirmation_card(ident["context"], result["checkin"], text)
                 remember_checkin(user_id, card, say(blocks=card, text="Please confirm your dashboard update."))
             if result["rename"]:
-                say(blocks=build_rename_card(result["rename"]), text="Confirm startup rename")
+                res = say(blocks=build_rename_card(result["rename"]), text="Confirm startup rename")
+                _waiting_renames[user_id] = {"value": result["rename"], "channel": (res or {}).get("channel"), "ts": (res or {}).get("ts"),
+                                             "at": time.time()}
             for m in result.get("meetings") or ([result["meeting"]] if result.get("meeting") else []):
                 say(blocks=build_meeting_card(m), text="Confirm meeting")
             return
@@ -2344,11 +2346,26 @@ def process_inbound_message(user_id: str, text: str, files: list, say, in_channe
     say(blocks=build_confirmation_card(context, extracted, text), text="Please confirm your dashboard update.")
 
 
+_waiting_renames: dict = {}  # user id -> the rename card they were just shown (in memory, like check-ins)
+
+
+def waiting_rename(user_id: str):
+    w = _waiting_renames.get(user_id)
+    if w and time.time() - w["at"] > PROPOSAL_WINDOW.total_seconds():
+        _waiting_renames.pop(user_id, None)
+        return None
+    return w
+
+
 @app.action("confirm_rename")
 def handle_confirm_rename(ack, body, client):
     ack()
-    user_id = body["user"]["id"]
-    proposal = json.loads(body["actions"][0]["value"])
+    apply_rename(client, body["user"]["id"], body["channel"]["id"], body["message"]["ts"], json.loads(body["actions"][0]["value"]))
+
+
+def apply_rename(client, user_id: str, channel: str, ts: str, proposal: dict) -> None:
+    """Rename the startup if this person may (their own startup, or a mentor) and turn the card into the result."""
+    _waiting_renames.pop(user_id, None)
     role = get_role(user_id)
     allowed = role == "mentor"
     if role == "founder":
@@ -2366,14 +2383,14 @@ def handle_confirm_rename(ack, body, client):
         except Exception as e:
             print(f"[Rename Error] {e}")
             text = "⚠️ I couldn't rename it."
-    client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=text,
-                       blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text}}])
+    client.chat_update(channel=channel, ts=ts, text=text, blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text}}])
     publish_home(user_id, client)
 
 
 @app.action("cancel_rename")
 def handle_cancel_rename(ack, body, client):
     ack()
+    _waiting_renames.pop(body["user"]["id"], None)
     client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text="Rename cancelled.",
                        blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": "Rename cancelled."}}])
 
@@ -2867,11 +2884,19 @@ def confirm_by_text(user_id: str, text: str, say) -> bool:
         return False
     since = (datetime.now(timezone.utc) - PROPOSAL_WINDOW).isoformat()
     rows = [r for r in memory.pending_for(user_id, since) if (r.get("payload") or {}).get("kind") != "syllabus"]
-    checkin = waiting_checkin(user_id)
-    if len(rows) + (1 if checkin else 0) > 1:
-        say("You have " + str(len(rows) + (1 if checkin else 0)) + " proposals waiting: "
-            + "; ".join([*(proposal_title(r["payload"]) for r in rows[:4]), *(["your check-in"] if checkin else [])])
-            + ". Press the button on the one you mean.")
+    checkin, rename = waiting_checkin(user_id), waiting_rename(user_id)
+    extras = [n for n, w in (("your check-in", checkin), ("the rename", rename)) if w]
+    if len(rows) + len(extras) > 1:
+        say("You have " + str(len(rows) + len(extras)) + " proposals waiting: "
+            + "; ".join([*(proposal_title(r["payload"]) for r in rows[:4]), *extras]) + ". Press the button on the one you mean.")
+        return True
+    if rename and not rows:
+        if cancel:
+            _waiting_renames.pop(user_id, None)
+            say("Okay, I won't rename it.")
+            return True
+        res = say("⏳ Renaming…")
+        apply_rename(app.client, user_id, rename["channel"] or res.get("channel"), rename["ts"] or res.get("ts"), rename["value"])
         return True
     if checkin and not rows:
         if cancel:

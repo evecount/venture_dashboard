@@ -1830,7 +1830,7 @@ def _card_note(out: dict) -> str:
     if out.get("checkin"):
         notes.append("[A confirmation card for a check-in was shown. It is NOT saved until the founder presses Save or replies yes.]")
     if out.get("rename"):
-        notes.append("[A rename card was shown. Nothing is renamed until they press Rename.]")
+        notes.append("[A confirmation card for a rename was shown. Nothing is renamed until they press Rename or reply yes.]")
     return ("\n" + "\n".join(notes)) if notes else ""
 
 

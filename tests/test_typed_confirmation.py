@@ -2,6 +2,7 @@
 Before: the assistant replied "✅ Meeting updated" while nothing had been created."""
 import os
 import sys
+import time
 import unittest
 from unittest import mock
 
@@ -59,6 +60,7 @@ class FalseReceiptTests(unittest.TestCase):
 class ConfirmByTextTests(unittest.TestCase):
     def setUp(self):
         b._waiting_checkins.clear()
+        b._waiting_renames.clear()
 
     def run_it(self, text, history, rows):
         say = Say()
@@ -167,9 +169,54 @@ class CheckinTypedConfirmTests(unittest.TestCase):
         self.assertIn("2 proposals", say.said[0])
 
     def test_the_history_note_for_a_check_in_names_the_card(self):
+        self.assertIn("confirmation card", bot_agent._card_note({"meetings": [], "checkin": None, "rename": {"x": 1}}))
         note = bot_agent._card_note({"meetings": [], "checkin": {"x": 1}, "rename": None})
         self.assertIn("confirmation card", note)
         self.assertIn("NOT saved", note)
+
+
+class RenameTypedConfirmTests(unittest.TestCase):
+    PROPOSAL = {"startup_id": "s1", "old_name": "Auvira", "new_name": "Auvira Labs"}
+    CARD = [{"role": "assistant", "content": "Please confirm the rename below.\n[A confirmation card for a rename was shown. Nothing is renamed until they press Rename or reply yes.]"}]
+
+    def setUp(self):
+        b._waiting_checkins.clear()
+        b._waiting_renames.clear()
+        b._waiting_renames["U1"] = {"value": dict(self.PROPOSAL), "channel": "D1", "ts": "7.7", "at": time.time()}
+
+    def tearDown(self):
+        b._waiting_renames.clear()
+
+    def run_it(self, text, role="mentor", rows=()):
+        say, app, sb = Say(), mock.MagicMock(), mock.MagicMock()
+        with mock.patch.object(b.memory, "history", return_value=self.CARD), mock.patch.object(b.memory, "pending_for", return_value=list(rows)),                 mock.patch.object(b, "get_role", return_value=role), mock.patch.object(b, "supabase", sb), mock.patch.object(b, "publish_home"),                 mock.patch.object(b, "app", app):
+            handled = b.confirm_by_text("U1", text, say)
+        return handled, say, app, sb
+
+    def test_a_typed_yes_renames_and_updates_the_card(self):
+        handled, _, app, sb = self.run_it("yes please")
+        self.assertTrue(handled)
+        sb.table.return_value.update.assert_called_once_with({"name": "Auvira Labs"})
+        self.assertIn("Renamed", app.client.chat_update.call_args.kwargs["text"])
+        self.assertEqual(app.client.chat_update.call_args.kwargs["ts"], "7.7")
+        self.assertNotIn("U1", b._waiting_renames)
+
+    def test_a_typed_no_renames_nothing(self):
+        handled, say, _, sb = self.run_it("no")
+        self.assertTrue(handled)
+        sb.table.return_value.update.assert_not_called()
+        self.assertIn("won't rename", say.said[0])
+
+    def test_a_founder_still_cannot_rename_someone_elses_startup_by_typing_yes(self):
+        _, _, app, sb = self.run_it("yes", role="founder")
+        sb.table.return_value.update.assert_not_called()
+        self.assertIn("can't rename", app.client.chat_update.call_args.kwargs["text"])
+
+    def test_a_rename_and_a_meeting_waiting_together_are_listed(self):
+        handled, say, _, sb = self.run_it("yes", rows=[row()])
+        self.assertTrue(handled)
+        sb.table.return_value.update.assert_not_called()
+        self.assertIn("2 proposals", say.said[0])
 
 
 class HistoryNoteTests(unittest.TestCase):
