@@ -456,20 +456,28 @@ class LocalModelConfigTests(unittest.TestCase):
         import subprocess, json as _json
         base = {k: v for k, v in os.environ.items() if not k.startswith(("AI_", "GEMINI", "QWEN", "OPENAI", "LOCAL_LLM"))}
         blank = {k: "" for k in ("GEMINI_API_KEY", "QWEN_API_KEY", "OPENAI_API_KEY", "AI_BASE_URL", "QWEN_BASE_URL", "AI_MODEL",
-                                 "AI_FAST_MODEL", "LOCAL_LLM_BASE_URL", "LOCAL_LLM_MODEL", "LOCAL_LLM_API_KEY", "LOCAL_LLM_FAST_MODEL")}  # a real .env can't leak in
+                                 "AI_FAST_MODEL", "LOCAL_LLM_BASE_URL", "LOCAL_LLM_MODEL", "LOCAL_LLM_API_KEY", "LOCAL_LLM_FAST_MODEL", "LOCAL_LLM_FIRST")}  # a real .env can't leak in
         base.update({"SUPABASE_URL": "", "VITE_SUPABASE_URL": "", "SUPABASE_KEY": "", "SUPABASE_SERVICE_ROLE_KEY": "", **blank, **env})
         code = ("import slack_bot as b, json;c=b.ai_client;print('@@'+json.dumps({'AI_API_KEY': b.AI_API_KEY, 'AI_BASE_URL': b.AI_BASE_URL, "
                 "'AI_MODEL': b.AI_MODEL, 'FAST_AI_MODEL': b.FAST_AI_MODEL, 'MEETING_MODEL': b.MEETING_MODEL, 'CLIENT': type(c).__name__, "
                 "'PRIMARY_KEY': getattr(getattr(c,'primary',None),'api_key',None), 'PRIMARY_URL': str(getattr(getattr(c,'primary',None),'base_url','')), "
-                "'FALLBACK_KEY': getattr(getattr(c,'fallback',None),'api_key',None)}))")
+                "'FALLBACK_KEY': getattr(getattr(c,'fallback',None),'api_key',None), "
+                "'FALLBACK_URL': str(getattr(getattr(c,'fallback',None),'base_url',''))}))")
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         out = subprocess.run([sys.executable, "-c", code], cwd=root, env=base, capture_output=True, text=True, timeout=60).stdout
         return _json.loads(out.split("@@")[-1])
 
     LOCAL = {"LOCAL_LLM_BASE_URL": "https://pgx.example.ts.net/v1", "LOCAL_LLM_MODEL": "Org/Qwen-27B", "LOCAL_LLM_API_KEY": "tailscale-access"}
 
-    def test_local_model_first_gemini_fallback_and_the_gemini_settings_untouched(self):
+    def test_gemini_first_local_fallback_and_the_gemini_settings_untouched(self):
         s = self.settings(GEMINI_API_KEY="gem-secret", **self.LOCAL)
+        self.assertEqual(s["CLIENT"], "WithFallback")
+        self.assertEqual((s["PRIMARY_KEY"], s["FALLBACK_KEY"]), ("gem-secret", "tailscale-access"))  # each server gets only its own key
+        self.assertIn("pgx.example.ts.net", s["FALLBACK_URL"])
+        self.assertEqual(s["AI_API_KEY"], "gem-secret")
+
+    def test_local_model_first_when_asked_gemini_fallback(self):
+        s = self.settings(GEMINI_API_KEY="gem-secret", LOCAL_LLM_FIRST="1", **self.LOCAL)
         self.assertEqual(s["CLIENT"], "WithFallback")
         self.assertEqual((s["PRIMARY_KEY"], s["FALLBACK_KEY"]), ("tailscale-access", "gem-secret"))  # each server gets only its own key
         self.assertIn("pgx.example.ts.net", s["PRIMARY_URL"])

@@ -338,7 +338,7 @@ class QuietWhenTableMissingTests(unittest.TestCase):
 
 
 class ModelHealthTests(unittest.TestCase):
-    def run_health(self, local_up, gem_up, down_until=0.0, local=True):
+    def run_health(self, local_up, gem_up, down_until=0.0, local=True, first=True):
         import slack_bot as sb_
         sb_._model_health.update(at=0.0, text="")
         probes = {"local": local_up, "gem": gem_up}
@@ -346,7 +346,7 @@ class ModelHealthTests(unittest.TestCase):
         client = mock.MagicMock(down_until=down_until, clock=lambda: 100.0)
         with mock.patch.object(sb_, "_probe", fake), mock.patch.object(sb_, "LOCAL_LLM_BASE_URL", "https://pgx.example/v1" if local else ""), \
                 mock.patch.object(sb_, "LOCAL_LLM_MODEL", "Org/Qwen" if local else ""), mock.patch.object(sb_, "GEMINI_API_KEY", "g"), \
-                mock.patch.object(sb_, "ai_client", client):
+                mock.patch.object(sb_, "LOCAL_LLM_FIRST", first), mock.patch.object(sb_, "ai_client", client):
             return sb_.model_health_text()
 
     def test_both_up_the_local_model_answers(self):
@@ -362,6 +362,17 @@ class ModelHealthTests(unittest.TestCase):
 
     def test_local_up_but_recently_failing_is_still_answered_by_gemini(self):
         self.assertIn("answering: Gemini (fallback)", self.run_health(True, True, down_until=160.0))
+
+    def test_gemini_first_both_up_gemini_answers(self):
+        text = self.run_health(True, True, first=False)
+        self.assertIn("answering: Gemini", text)
+        self.assertNotIn("(fallback)", text)
+
+    def test_gemini_first_and_gemini_down_the_local_model_is_the_fallback(self):
+        self.assertIn("answering: local model (fallback)", self.run_health(True, False, first=False))
+
+    def test_gemini_first_but_recently_failing_the_local_model_answers(self):
+        self.assertIn("answering: local model (fallback)", self.run_health(True, True, down_until=160.0, first=False))
 
     def test_both_down_is_said_plainly(self):
         self.assertIn("answering: nothing is reachable", self.run_health(False, False))

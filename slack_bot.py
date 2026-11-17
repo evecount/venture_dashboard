@@ -102,6 +102,8 @@ LOCAL_LLM_BASE_URL = os.environ.get("LOCAL_LLM_BASE_URL", "").strip()
 LOCAL_LLM_MODEL = os.environ.get("LOCAL_LLM_MODEL", "").strip()
 LOCAL_LLM_FAST_MODEL = os.environ.get("LOCAL_LLM_FAST_MODEL", "").strip()  # optional lighter model for small talk
 LOCAL_LLM_API_KEY = os.environ.get("LOCAL_LLM_API_KEY", "").strip() or "local"  # sent only to LOCAL_LLM_BASE_URL
+# Which answers first: Gemini (default) with the local model as the fallback, or the local model first (LOCAL_LLM_FIRST=1).
+LOCAL_LLM_FIRST = os.environ.get("LOCAL_LLM_FIRST", "").strip().lower() in ("1", "true", "yes", "on")
 
 # Initialize AI Client
 ai_client = (
@@ -111,11 +113,14 @@ ai_client = (
 )
 if OpenAI and LOCAL_LLM_BASE_URL and LOCAL_LLM_MODEL:
     import llm_client
-    ai_client = llm_client.WithFallback(
-        OpenAI(api_key=LOCAL_LLM_API_KEY, base_url=LOCAL_LLM_BASE_URL,
-               timeout=float(os.environ.get("LOCAL_LLM_TIMEOUT", "60")), max_retries=1),
-        ai_client,  # the Gemini (or other AI_*) client: answers when the local server can't; None = no fallback
-        primary_model=LOCAL_LLM_MODEL, primary_fast_model=LOCAL_LLM_FAST_MODEL, fast_model=FAST_AI_MODEL)
+    _local = OpenAI(api_key=LOCAL_LLM_API_KEY, base_url=LOCAL_LLM_BASE_URL,
+                    timeout=float(os.environ.get("LOCAL_LLM_TIMEOUT", "60")), max_retries=1)
+    if LOCAL_LLM_FIRST or ai_client is None:
+        ai_client = llm_client.WithFallback(_local, ai_client, primary_model=LOCAL_LLM_MODEL, primary_fast_model=LOCAL_LLM_FAST_MODEL,
+                                            fast_model=FAST_AI_MODEL)  # Gemini (if any) answers when the local server can't
+    else:  # Gemini answers; the local model (over Tailscale) takes over when Gemini can't
+        ai_client = llm_client.WithFallback(ai_client, _local, primary_model=LOCAL_LLM_MODEL, primary_fast_model=LOCAL_LLM_FAST_MODEL,
+                                            fast_model=FAST_AI_MODEL, rewrite_fallback=True)
 
 # Initialize Supabase Client (retrying requests whose idle connection the server closed)
 try:
@@ -333,8 +338,10 @@ agent = (Agent(ai_client, AI_MODEL, supabase, memory, connect_url=github_link, c
                 awareness=lambda ident: awareness_text(ident), routines=routine_store,
                 repos_changed=lambda row, slack_id: after_repo_choice(row, slack_id),
                 fast_model=FAST_AI_MODEL,
-                model_info=(f"Chat replies come from {LOCAL_LLM_MODEL}, a model the studio hosts itself; if it is unavailable Gemini ({AI_MODEL}) answers instead. "
-                            "Images, PDFs, voice notes and web research use Gemini."
+                model_info=((f"Chat replies come from {LOCAL_LLM_MODEL}, a model the studio hosts itself; if it is unavailable Gemini ({AI_MODEL}) answers instead. "
+                             if LOCAL_LLM_FIRST else
+                             f"Chat replies come from Gemini ({AI_MODEL}); if Gemini is unavailable, {LOCAL_LLM_MODEL}, a model the studio hosts itself, answers instead. ")
+                            + "Images, PDFs, voice notes and web research always use Gemini."
                             if LOCAL_LLM_BASE_URL and LOCAL_LLM_MODEL else f"Chat replies come from {AI_MODEL}."),
                 research=(lambda q: web_research.research(q, GEMINI_API_KEY, FAST_AI_MODEL or AI_MODEL)) if GEMINI_API_KEY else None,
                 semantic=semantic.Semantic(GEMINI_API_KEY) if GEMINI_API_KEY else None,
@@ -4242,12 +4249,12 @@ def model_health_text() -> str:
     if gem_up is not None:
         parts.append(f"{dot(gem_up)} Gemini `{AI_MODEL}` {'up' if gem_up else 'DOWN'}")
     skipped = local and getattr(ai_client, "down_until", 0) > getattr(ai_client, "clock", lambda: 0)()
-    if local and local_up and not skipped:
-        answering = "local model"
-    elif gem_up:
-        answering = "Gemini" + (" (fallback)" if local else "")
+    if local and LOCAL_LLM_FIRST:
+        answering = "local model" if (local_up and not skipped) else "Gemini (fallback)" if gem_up else "nothing is reachable"
+    elif local:  # Gemini first, the local model is the fallback
+        answering = ("Gemini" if gem_up and not skipped else "local model (fallback)" if local_up else "Gemini" if gem_up else "nothing is reachable")
     else:
-        answering = "nothing is reachable"
+        answering = "Gemini" if gem_up else "nothing is reachable"
     text = " · ".join(parts) + f" · answering: {answering}" if parts else "No AI model configured"
     _model_health.update(at=_t.time(), text=text)
     return text

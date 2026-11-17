@@ -24,10 +24,13 @@ def should_fall_back(error: Exception) -> bool:
 
 
 class WithFallback:
-    def __init__(self, primary, fallback, primary_model: str, primary_fast_model: str = "", fast_model: str = "", clock=time.monotonic):
-        """Callers keep passing the fallback's model names (AI_MODEL / AI_FAST_MODEL); the primary gets its own: `primary_model`,
-        or `primary_fast_model` for the calls made with the fallback's fast model (`fast_model`)."""
+    def __init__(self, primary, fallback, primary_model: str, primary_fast_model: str = "", fast_model: str = "", clock=time.monotonic,
+                 rewrite_fallback: bool = False):
+        """Callers keep passing Gemini's model names (AI_MODEL / AI_FAST_MODEL). By default the primary is the local server and gets
+        its own names: `primary_model`, or `primary_fast_model` for calls made with the fast model (`fast_model`).
+        With `rewrite_fallback` the roles swap: the primary is Gemini (names pass through) and the fallback is the local server."""
         self.primary, self.fallback, self.clock = primary, fallback, clock
+        self.rewrite_fallback = rewrite_fallback
         self.primary_model, self.primary_fast_model, self.fast_model = primary_model, primary_fast_model, fast_model
         self.down_until = 0.0
         self.chat = SimpleNamespace(completions=self)  # `client.chat.completions.create(...)`
@@ -43,12 +46,12 @@ class WithFallback:
 
     def create(self, **kw):
         if self.fallback is not None and self.clock() < self.down_until:
-            return self.fallback.chat.completions.create(**kw)
+            return self.fallback.chat.completions.create(**(self._primary_kwargs(kw) if self.rewrite_fallback else kw))
         try:
-            return self.primary.chat.completions.create(**self._primary_kwargs(kw))
+            return self.primary.chat.completions.create(**(kw if self.rewrite_fallback else self._primary_kwargs(kw)))
         except Exception as e:  # noqa: BLE001
             if self.fallback is None or not should_fall_back(e):
                 raise
             self.down_until = self.clock() + DOWN_FOR
             print(f"[LLM Fallback] {type(e).__name__}: {str(e)[:160]} -> using the fallback model for the next {DOWN_FOR}s")
-            return self.fallback.chat.completions.create(**kw)
+            return self.fallback.chat.completions.create(**(self._primary_kwargs(kw) if self.rewrite_fallback else kw))
