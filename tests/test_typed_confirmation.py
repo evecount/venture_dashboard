@@ -236,15 +236,13 @@ class RenameTypedConfirmTests(unittest.TestCase):
 
 
 class EmptyAnswerTests(unittest.TestCase):
-    def test_a_model_that_says_nothing_is_asked_again_and_the_fallback_is_used(self):
+    def test_a_model_that_says_nothing_is_asked_again(self):
         from test_agent_loop import Script, agent_with
         from test_bot_agent import FOUNDER
-        skipped = []
         s = Script(("", []), ("Which day do you mean?", []))
         a, _ = agent_with(s)
-        a.ai.skip_primary = lambda: skipped.append(1)
         out = a.respond(FOUNDER, "set a meeting tomorrow at 4.30pm")
-        self.assertEqual(skipped, [1])
+        self.assertEqual(len(s.requests), 2)
         self.assertEqual(out["text"], "Which day do you mean?")
 
     def test_still_nothing_is_not_reported_as_got_it(self):
@@ -254,19 +252,6 @@ class EmptyAnswerTests(unittest.TestCase):
         out = a.respond(FOUNDER, "set a meeting tomorrow")
         self.assertNotEqual(out["text"], "Got it.")
         self.assertIn("couldn't act on that", out["text"])
-
-    def test_the_wrapper_skips_the_primary_after_an_empty_answer(self):
-        import llm_client
-        t = [0.0]
-        calls = []
-        mk = lambda name: mock.MagicMock(chat=mock.MagicMock(completions=mock.MagicMock(create=lambda **kw: calls.append(name) or name)))  # noqa: E731
-        w = llm_client.WithFallback(mk("local"), mk("gemini"), "q", clock=lambda: t[0])
-        w.create(model="m")
-        w.skip_primary()
-        w.create(model="m")
-        t[0] = 120
-        w.create(model="m")
-        self.assertEqual(calls, ["local", "gemini", "local"])
 
 
 class HistoryNoteTests(unittest.TestCase):

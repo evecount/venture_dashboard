@@ -1,11 +1,11 @@
 """Does the chat model actually act on typical requests? Sends a few real requests to the real model(s) with the bot's real tools
 and checks that each one produced the right result (a meeting card, a task, a note...). Run it whenever the model changes:
 
-    python scripts/model_check.py                 # both models (Gemini, and the local one when LOCAL_LLM_* is set)
-    python scripts/model_check.py --target local --runs 3
+    python scripts/model_check.py
+    python scripts/model_check.py --runs 3
 
 Nothing real is touched: the people, startups and database are in-memory stand-ins (the same ones the unit tests use), and nobody
-is messaged. It only reads the AI settings from .env (GEMINI_API_KEY, AI_*, LOCAL_LLM_*). Exit code 1 if any check fails."""
+is messaged. It only reads the AI settings from .env (GEMINI_API_KEY, AI_*). Exit code 1 if any check fails."""
 import argparse
 import os
 import sys
@@ -34,17 +34,13 @@ CASES = [
 ]
 
 
-def targets(which: str) -> list:
+def targets() -> list:
     gem_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("QWEN_API_KEY") or os.environ.get("OPENAI_API_KEY")
     found = []
-    if which in ("gemini", "both") and gem_key:
+    if gem_key:
         model = os.environ.get("AI_MODEL") or "gemini-3.8-flash"
         base = os.environ.get("AI_BASE_URL") or "https://generativelanguage.googleapis.com/v1beta/openai/"
         found.append((f"Gemini ({model})", OpenAI(api_key=gem_key, base_url=base), model))
-    local_url, local_model = os.environ.get("LOCAL_LLM_BASE_URL", "").strip(), os.environ.get("LOCAL_LLM_MODEL", "").strip()
-    if which in ("local", "both") and local_url and local_model:
-        found.append((f"Local ({local_model})", OpenAI(api_key=os.environ.get("LOCAL_LLM_API_KEY") or "local", base_url=local_url,
-                                                       timeout=float(os.environ.get("LOCAL_LLM_TIMEOUT", "60")), max_retries=1), local_model))
     return found
 
 
@@ -62,12 +58,11 @@ def run_case(client, model, text):
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--target", choices=["gemini", "local", "both"], default="both")
     ap.add_argument("--runs", type=int, default=1, help="times to try each request (models are not always consistent)")
     args = ap.parse_args()
-    found = targets(args.target)
+    found = targets()
     if not found:
-        print("No model configured: set GEMINI_API_KEY and/or LOCAL_LLM_BASE_URL + LOCAL_LLM_MODEL in .env")
+        print("No model configured: set GEMINI_API_KEY in .env")
         return 2
     failed = 0
     for label, client, model in found:

@@ -338,53 +338,25 @@ class QuietWhenTableMissingTests(unittest.TestCase):
 
 
 class ModelHealthTests(unittest.TestCase):
-    def run_health(self, local_up, gem_up, down_until=0.0, local=True, first=True):
+    def run_health(self, gem_up, key="g"):
         import slack_bot as sb_
         sb_._model_health.update(at=0.0, text="")
-        probes = {"local": local_up, "gem": gem_up}
-        fake = lambda url, key: probes["local"] if "pgx" in url else probes["gem"]  # noqa: E731
-        client = mock.MagicMock(down_until=down_until, clock=lambda: 100.0)
-        with mock.patch.object(sb_, "_probe", fake), mock.patch.object(sb_, "LOCAL_LLM_BASE_URL", "https://pgx.example/v1" if local else ""), \
-                mock.patch.object(sb_, "LOCAL_LLM_MODEL", "Org/Qwen" if local else ""), mock.patch.object(sb_, "GEMINI_API_KEY", "g"), \
-                mock.patch.object(sb_, "LOCAL_LLM_FIRST", first), mock.patch.object(sb_, "ai_client", client):
+        with mock.patch.object(sb_, "_probe", lambda url, k: gem_up), mock.patch.object(sb_, "GEMINI_API_KEY", key):
             return sb_.model_health_text()
 
-    def test_both_up_the_local_model_answers(self):
-        text = self.run_health(True, True)
-        self.assertIn("🟢 Local model `Org/Qwen` up", text)
-        self.assertIn("🟢 Gemini", text)
-        self.assertIn("answering: local model", text)
+    def test_gemini_up(self):
+        self.assertIn("🟢 Gemini", self.run_health(True))
+        self.assertIn(" up", self.run_health(True))
 
-    def test_local_down_means_gemini_is_answering_as_the_fallback(self):
-        text = self.run_health(False, True)
-        self.assertIn("🔴 Local model `Org/Qwen` DOWN", text)
-        self.assertIn("answering: Gemini (fallback)", text)
+    def test_gemini_down_is_said_plainly(self):
+        self.assertIn("🔴 Gemini", self.run_health(False))
+        self.assertIn("DOWN", self.run_health(False))
 
-    def test_local_up_but_recently_failing_is_still_answered_by_gemini(self):
-        self.assertIn("answering: Gemini (fallback)", self.run_health(True, True, down_until=160.0))
-
-    def test_gemini_first_both_up_gemini_answers(self):
-        text = self.run_health(True, True, first=False)
-        self.assertIn("answering: Gemini", text)
-        self.assertNotIn("(fallback)", text)
-
-    def test_gemini_first_and_gemini_down_the_local_model_is_the_fallback(self):
-        self.assertIn("answering: local model (fallback)", self.run_health(True, False, first=False))
-
-    def test_gemini_first_but_recently_failing_the_local_model_answers(self):
-        self.assertIn("answering: local model (fallback)", self.run_health(True, True, down_until=160.0, first=False))
-
-    def test_both_down_is_said_plainly(self):
-        self.assertIn("answering: nothing is reachable", self.run_health(False, False))
-
-    def test_without_a_local_model_only_gemini_is_shown(self):
-        text = self.run_health(None, True, local=False)
-        self.assertNotIn("Local model", text)
-        self.assertIn("answering: Gemini", text)
-        self.assertNotIn("(fallback)", text)
+    def test_no_key_says_no_model(self):
+        self.assertEqual(self.run_health(True, key=""), "No AI model configured")
 
     def test_the_result_is_cached_for_half_a_minute(self):
         import slack_bot as sb_
-        first = self.run_health(True, True)
+        first = self.run_health(True)
         with mock.patch.object(sb_, "_probe", side_effect=AssertionError("should not probe again")):
             self.assertEqual(sb_.model_health_text(), first)

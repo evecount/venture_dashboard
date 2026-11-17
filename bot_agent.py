@@ -687,15 +687,12 @@ class Agent:
             msg = self._chat(model, messages, effort, **kwargs).choices[0].message
             said = (msg.content or "").strip()
             if rnd == 0 and not getattr(msg, "tool_calls", None) and (not said or (wants_action(text) and not _asks_question(said))):
-                # Nothing was done: the model was silent, or just talked when asked to act. Ask once more, from the fallback model
-                # when there is one, instead of dropping the request.
+                # Nothing was done: the model was silent, or just talked when asked to act. Ask once more instead of dropping the request.
                 why = "an empty answer" if not said else "no action for an action request"
                 print(f"[Agent Warning] {model} gave {why}; asking again")
                 if self.alert:
-                    self.alert("model-retry", f"⚠️ The AI model gave {why} for a {ident['role']}'s message, so I asked again on the other model. "
+                    self.alert("model-retry", f"⚠️ The AI model gave {why} for a {ident['role']}'s message, so I asked again. "
                                               "If this repeats, check the model's health on the Developer Home tab.")
-                if hasattr(self.ai, "skip_primary"):
-                    self.ai.skip_primary()
                 msg = self._chat(model, messages, effort, **kwargs).choices[0].message
             timing["llm_ms"] += _ms(t)
             timing["rounds"] += 1

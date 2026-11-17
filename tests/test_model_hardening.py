@@ -1,11 +1,10 @@
-"""A model that talks instead of acting, an alert when the model has to be retried or replaced, and the intent check behind both."""
+"""A model that talks instead of acting, the developer alert when it has to be retried, and the intent check behind both."""
 import os
 import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import bot_agent  # noqa: E402
-import llm_client  # noqa: E402
 from test_agent_loop import Script, agent_with, call  # noqa: E402
 from test_bot_agent import MENTOR  # noqa: E402
 
@@ -27,15 +26,13 @@ class TalkedButDidNothingTests(unittest.TestCase):
     ASK = "Set a meeting tomorrow with Sam at 4.30pm virtual"
 
     def test_a_reply_with_no_action_is_asked_again_and_the_second_answer_is_used(self):
-        alerts, skipped = [], []
+        alerts = []
         card = call("add_note", {"startup_id": "startup-auvira", "note": "x"})
         s = Script(("Sure, I'll set that up.", []), ("", [card]))
         a, mem = agent_with(s)
         a.alert = lambda key, text: alerts.append((key, text))
-        a.ai.skip_primary = lambda: skipped.append(1)
         out = a.respond(MENTOR, self.ASK)
         self.assertEqual(len(s.requests), 2)
-        self.assertEqual(skipped, [1])
         self.assertEqual(len(mem.notes), 1)  # the second model acted
         self.assertEqual(alerts[0][0], "model-retry")
         self.assertIn("no action", alerts[0][1])
@@ -87,24 +84,6 @@ class AlertTests(unittest.TestCase):
         b._alert_last.clear()
         with mock.patch.object(b, "notify_developers", side_effect=RuntimeError("no developer on Slack")):
             b.alert_developers_once("k", "x")
-
-    def test_the_fallback_wrapper_reports_why_it_switched_and_survives_a_broken_notifier(self):
-        seen = []
-
-        class Down:
-            chat = type("C", (), {"completions": type("D", (), {"create": staticmethod(lambda **kw: (_ for _ in ()).throw(ConnectionError("tailscale down")))})})()
-
-        class Up:
-            chat = type("C", (), {"completions": type("D", (), {"create": staticmethod(lambda **kw: "ok")})})()
-
-        w = llm_client.WithFallback(Down(), Up(), "m", notify=lambda why: seen.append(why))
-        self.assertEqual(w.create(model="x"), "ok")
-        self.assertIn("tailscale down", seen[0])
-
-        def boom(why):
-            raise RuntimeError("alert failed")
-        w2 = llm_client.WithFallback(Down(), Up(), "m", notify=boom)
-        self.assertEqual(w2.create(model="x"), "ok")
 
 
 if __name__ == "__main__":
