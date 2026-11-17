@@ -25,12 +25,13 @@ def should_fall_back(error: Exception) -> bool:
 
 class WithFallback:
     def __init__(self, primary, fallback, primary_model: str, primary_fast_model: str = "", fast_model: str = "", clock=time.monotonic,
-                 rewrite_fallback: bool = False):
+                 rewrite_fallback: bool = False, notify=None):
         """Callers keep passing Gemini's model names (AI_MODEL / AI_FAST_MODEL). By default the primary is the local server and gets
         its own names: `primary_model`, or `primary_fast_model` for calls made with the fast model (`fast_model`).
         With `rewrite_fallback` the roles swap: the primary is Gemini (names pass through) and the fallback is the local server."""
         self.primary, self.fallback, self.clock = primary, fallback, clock
         self.rewrite_fallback = rewrite_fallback
+        self.notify = notify  # callable(text) told when the primary fails and the fallback takes over (the caller rate-limits it)
         self.primary_model, self.primary_fast_model, self.fast_model = primary_model, primary_fast_model, fast_model
         self.down_until = 0.0
         self.chat = SimpleNamespace(completions=self)  # `client.chat.completions.create(...)`
@@ -54,4 +55,9 @@ class WithFallback:
                 raise
             self.down_until = self.clock() + DOWN_FOR
             print(f"[LLM Fallback] {type(e).__name__}: {str(e)[:160]} -> using the fallback model for the next {DOWN_FOR}s")
+            if self.notify:
+                try:
+                    self.notify(f"{type(e).__name__}: {str(e)[:120]}")
+                except Exception:  # noqa: BLE001  (an alert must never break an answer)
+                    pass
             return self.fallback.chat.completions.create(**(self._primary_kwargs(kw) if self.rewrite_fallback else kw))

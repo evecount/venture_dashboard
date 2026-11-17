@@ -418,8 +418,9 @@ class Agent:
     def __init__(self, ai_client, model: str, sb, memory: Memory | None = None, connect_url=None, calendar_link=None, calendar_text=None,
                  studio_link=None, studio_connected=None, studio_events=None, settings=None, channel_context=None,
                  awareness=None, routines=None, repos_changed=None, skills=None, fast_model="", research=None, semantic=None,
-                 notify_developers=None, model_info=""):
+                 notify_developers=None, model_info="", alert=None):
         self.ai, self.model, self.sb = ai_client, model, sb
+        self.alert = alert  # callable(key, text): tell the developers something is off (the caller rate-limits it)
         self.model_info = model_info  # which AI model is answering, so "what model are you?" has a true answer
         self.calendar_link, self.calendar_text = calendar_link, calendar_text
         self.studio_events = studio_events  # callable(days) -> events on the shared studio calendar
@@ -684,10 +685,15 @@ class Agent:
             effort = self.skills.effort(loaded, self._setting("ai_reasoning", "none"))
             t = time.perf_counter()
             msg = self._chat(model, messages, effort, **kwargs).choices[0].message
-            if not (msg.content or "").strip() and not getattr(msg, "tool_calls", None):
-                # The model said nothing and did nothing (seen with the local model on "set a meeting..."). Ask again, from the
-                # fallback model when there is one, instead of answering "Got it." to a request nobody handled.
-                print(f"[Agent Warning] {model} returned an empty answer; asking again")
+            said = (msg.content or "").strip()
+            if rnd == 0 and not getattr(msg, "tool_calls", None) and (not said or (wants_action(text) and not _asks_question(said))):
+                # Nothing was done: the model was silent, or just talked when asked to act. Ask once more, from the fallback model
+                # when there is one, instead of dropping the request.
+                why = "an empty answer" if not said else "no action for an action request"
+                print(f"[Agent Warning] {model} gave {why}; asking again")
+                if self.alert:
+                    self.alert("model-retry", f"⚠️ The AI model gave {why} for a {ident['role']}'s message, so I asked again on the other model. "
+                                              "If this repeats, check the model's health on the Developer Home tab.")
                 if hasattr(self.ai, "skip_primary"):
                     self.ai.skip_primary()
                 msg = self._chat(model, messages, effort, **kwargs).choices[0].message
@@ -741,6 +747,9 @@ class Agent:
                 receipts or out["meetings"] or out["checkin"] or out["rename"] or out.get("announcements") or out["announce_now"]):
             print(f"[Agent Warning] reply claimed an action nothing performed: {reply[:100]!r}")
             parts = [NOT_DONE, *show]
+        elif reply and wants_action(text) and not _asks_question(reply) and not (
+                receipts or out["meetings"] or out["checkin"] or out["rename"] or out.get("announcements") or out["announce_now"] or warnings):
+            parts = [*parts, "_Nothing has been created or changed yet._"]  # it talked but did nothing: don't let that read as done
         out["text"] = "\n".join(p for p in parts if p) or default
         self.memory.log(ident["slack_id"], "user", text)
         # The history must show that a card is waiting, or the model later claims it was already confirmed and done.
@@ -1827,6 +1836,18 @@ CLAIMS_DONE = re.compile(r"^\W{0,3}(?:[\u2705\U0001F3AF\U0001F4DD\U0001F5D1\u270
                          r"added|deleted|removed|booked|set up))", re.I)
 NOT_DONE = ("⚠️ I haven't done that: nothing was actually created, sent or changed. Tell me again what you'd like and I'll set it up "
             "(I show a card to confirm first).")
+
+
+# A message that asks the assistant to DO something (so a reply with no tool call and no result is suspect). Questions about
+# the past ("did you set...", "what meeting...") and plain chat don't count.
+ACTION_ASK = re.compile(
+    r"^(?!\W*(?:did|do|does|have|has|what|when|how|which|who|why|is|are|was|were)\b)"
+    r".*\b(?:(?:set|schedule|book|arrange|reschedule|move|cancel|create|add|send|announce|mark|update|delete|remove|rename|change|save)\b"
+    r".{0,80}?\b(?:meeting|call|sync|session|catch.?up|reminder|task|milestone|announcement|invite|check.?in|note)s?\b|\bremind me\b|\bannounce\b)", re.I | re.S)
+
+
+def wants_action(text: str) -> bool:
+    return bool(ACTION_ASK.search(text or ""))
 
 
 def _card_note(out: dict) -> str:

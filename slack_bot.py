@@ -117,10 +117,12 @@ if OpenAI and LOCAL_LLM_BASE_URL and LOCAL_LLM_MODEL:
                     timeout=float(os.environ.get("LOCAL_LLM_TIMEOUT", "60")), max_retries=1)
     if LOCAL_LLM_FIRST or ai_client is None:
         ai_client = llm_client.WithFallback(_local, ai_client, primary_model=LOCAL_LLM_MODEL, primary_fast_model=LOCAL_LLM_FAST_MODEL,
-                                            fast_model=FAST_AI_MODEL)  # Gemini (if any) answers when the local server can't
+                                            fast_model=FAST_AI_MODEL, notify=lambda why: alert_developers_once(
+                                                "model-fallback", f"⚠️ The local model couldn't answer ({why}); Gemini is answering instead."))  # Gemini (if any) answers when the local server can't
     else:  # Gemini answers; the local model (over Tailscale) takes over when Gemini can't
         ai_client = llm_client.WithFallback(ai_client, _local, primary_model=LOCAL_LLM_MODEL, primary_fast_model=LOCAL_LLM_FAST_MODEL,
-                                            fast_model=FAST_AI_MODEL, rewrite_fallback=True)
+                                            fast_model=FAST_AI_MODEL, rewrite_fallback=True, notify=lambda why: alert_developers_once(
+                                                "model-fallback", f"⚠️ Gemini couldn't answer ({why}); the local model is answering instead."))
 
 # Initialize Supabase Client (retrying requests whose idle connection the server closed)
 try:
@@ -345,7 +347,7 @@ agent = (Agent(ai_client, AI_MODEL, supabase, memory, connect_url=github_link, c
                             if LOCAL_LLM_BASE_URL and LOCAL_LLM_MODEL else f"Chat replies come from {AI_MODEL}."),
                 research=(lambda q: web_research.research(q, GEMINI_API_KEY, FAST_AI_MODEL or AI_MODEL)) if GEMINI_API_KEY else None,
                 semantic=semantic.Semantic(GEMINI_API_KEY) if GEMINI_API_KEY else None,
-                notify_developers=lambda text: notify_developers(text))
+                notify_developers=lambda text: notify_developers(text), alert=lambda key, text: alert_developers_once(key, text))
          if (ai_client and supabase) else None)
 
 # Initialize Slack Bolt App
@@ -4084,6 +4086,21 @@ def link_org_claims():
 # --- DEVELOPER PAGE: commands queued from the dashboard (only the developer can queue them) ---
 
 DEV_EMAILS = {e.strip().lower() for e in os.environ.get("DEV_EMAILS", "ben@evecount.com").split(",") if e.strip()}
+
+
+_alert_last: dict = {}
+
+
+def alert_developers_once(key: str, text: str, every: float = 3600.0):
+    """DM the developers about a model problem, at most once an hour per kind (a flaky model must not flood them)."""
+    now = time.time()
+    if now - _alert_last.get(key, 0.0) < every:
+        return
+    _alert_last[key] = now
+    try:
+        notify_developers(text)
+    except Exception as e:  # noqa: BLE001
+        print(f"[Alert Warning] {e}")
 
 
 def notify_developers(text: str):
