@@ -2683,6 +2683,8 @@ def handle_syllabus_upload(user_id: str, f: dict, text: str, say):
         say("⚠️ I couldn't prepare that (is the pending_meetings table created?).")
         return
     say(blocks=build_meeting_card({"id": meeting_id, **payload}), text="Confirm syllabus import")
+    # so a typed "yes" afterwards is recognised as answering this card (the assistant's history is where the bot looks)
+    memory.log(user_id, "assistant", "[A confirmation card for a syllabus import was shown. Nothing is imported until the mentor presses its button or replies yes.]")
 
 
 def build_syllabus_card(m: dict) -> list:
@@ -2869,7 +2871,8 @@ PROPOSAL_WINDOW = timedelta(minutes=30)  # a typed yes only counts for a card sh
 
 def proposal_title(payload: dict) -> str:
     return payload.get("title") or (payload.get("routine") or {}).get("title") or (
-        "the announcement" if payload.get("kind") == "announce" else "your check-in change" if payload.get("kind") == "checkin_fix" else "that proposal")
+        "the announcement" if payload.get("kind") == "announce" else "your check-in change" if payload.get("kind") == "checkin_fix"
+        else "the syllabus import" if payload.get("kind") == "syllabus" else "that proposal")
 
 
 def confirm_by_text(user_id: str, text: str, say) -> bool:
@@ -2883,7 +2886,7 @@ def confirm_by_text(user_id: str, text: str, say) -> bool:
     if not (last and last.get("role") == "assistant" and "confirmation card" in str(last.get("content"))):
         return False
     since = (datetime.now(timezone.utc) - PROPOSAL_WINDOW).isoformat()
-    rows = [r for r in memory.pending_for(user_id, since) if (r.get("payload") or {}).get("kind") != "syllabus"]
+    rows = memory.pending_for(user_id, since)
     checkin, rename = waiting_checkin(user_id), waiting_rename(user_id)
     extras = [n for n, w in (("your check-in", checkin), ("the rename", rename)) if w]
     if len(rows) + len(extras) > 1:
@@ -2915,7 +2918,10 @@ def confirm_by_text(user_id: str, text: str, say) -> bool:
     row = rows[0]
     if cancel:
         memory.delete_meeting(row["id"])
-        say(f"Okay, cancelled: {proposal_title(row['payload'])}. Nothing was sent.")
+        say(f"Okay, cancelled: {proposal_title(row['payload'])}. Nothing was " + ("changed." if row["payload"].get("kind") == "syllabus" else "sent."))
+        return True
+    if row["payload"].get("kind") == "syllabus" and not row["payload"].get("startup_id"):
+        say("I still need to know which startup this syllabus is for. Please choose it from the dropdown on the card.")
         return True
     res = say("⏳ Confirming…")
     body = {"actions": [{"value": row["id"]}], "user": {"id": user_id}, "channel": {"id": res.get("channel")}, "message": {"ts": res.get("ts")}}
@@ -2980,6 +2986,9 @@ def handle_confirm_meeting(ack, body, client):
             return  # a second click on the same card
         try:
             _, plan, gone = syllabus_plan(m)
+            if not plan["add"]:
+                finish("Nothing new to add: everything in this syllabus is already on their milestones. Nothing was changed.")
+                return
             added = syllabus_import.apply_import(supabase, m["startup_id"], user_id, plan["add"], gone)
             finish(f"✅ Added *{added} milestones* for {m['startup_names'].get(m['startup_id'], 'the startup')} from the syllabus."
                    + (f" Replaced {len(gone)} earlier syllabus milestones." if gone else "") + " Their own milestones were left as they were.")

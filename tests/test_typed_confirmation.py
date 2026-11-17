@@ -103,10 +103,26 @@ class ConfirmByTextTests(unittest.TestCase):
         confirm.assert_not_called()
         self.assertIn("2 proposals", say.said[0])
 
-    def test_syllabus_cards_still_need_their_button(self):
-        handled, _, confirm, _ = self.run_it("yes", self.CARD, [row(kind="syllabus")])
-        self.assertFalse(handled)
+    def test_a_typed_yes_confirms_a_syllabus_card_once_a_startup_is_chosen(self):
+        r = row(kind="syllabus")
+        r["payload"]["startup_id"] = "s1"
+        handled, _, confirm, _ = self.run_it("yes", self.CARD, [r])
+        self.assertTrue(handled)
+        confirm.assert_called_once()
+
+    def test_a_syllabus_card_without_a_startup_asks_for_the_dropdown(self):
+        r = row(kind="syllabus")
+        r["payload"]["startup_id"] = None
+        handled, say, confirm, _ = self.run_it("yes", self.CARD, [r])
+        self.assertTrue(handled)
         confirm.assert_not_called()
+        self.assertIn("dropdown", say.said[0])
+
+    def test_a_typed_no_cancels_a_syllabus_import(self):
+        handled, say, _, delete = self.run_it("no", self.CARD, [row(kind="syllabus")])
+        self.assertTrue(handled)
+        delete.assert_called_once_with("r1")
+        self.assertIn("Nothing was changed", say.said[0])
 
 
 class CheckinTypedConfirmTests(unittest.TestCase):
@@ -217,6 +233,40 @@ class RenameTypedConfirmTests(unittest.TestCase):
         self.assertTrue(handled)
         sb.table.return_value.update.assert_not_called()
         self.assertIn("2 proposals", say.said[0])
+
+
+class EmptyAnswerTests(unittest.TestCase):
+    def test_a_model_that_says_nothing_is_asked_again_and_the_fallback_is_used(self):
+        from test_agent_loop import Script, agent_with
+        from test_bot_agent import FOUNDER
+        skipped = []
+        s = Script(("", []), ("Which day do you mean?", []))
+        a, _ = agent_with(s)
+        a.ai.skip_primary = lambda: skipped.append(1)
+        out = a.respond(FOUNDER, "set a meeting tomorrow at 4.30pm")
+        self.assertEqual(skipped, [1])
+        self.assertEqual(out["text"], "Which day do you mean?")
+
+    def test_still_nothing_is_not_reported_as_got_it(self):
+        from test_agent_loop import Script, agent_with
+        from test_bot_agent import FOUNDER
+        a, _ = agent_with(Script(("", []), ("", [])))
+        out = a.respond(FOUNDER, "set a meeting tomorrow")
+        self.assertNotEqual(out["text"], "Got it.")
+        self.assertIn("couldn't act on that", out["text"])
+
+    def test_the_wrapper_skips_the_primary_after_an_empty_answer(self):
+        import llm_client
+        t = [0.0]
+        calls = []
+        mk = lambda name: mock.MagicMock(chat=mock.MagicMock(completions=mock.MagicMock(create=lambda **kw: calls.append(name) or name)))  # noqa: E731
+        w = llm_client.WithFallback(mk("local"), mk("gemini"), "q", clock=lambda: t[0])
+        w.create(model="m")
+        w.skip_primary()
+        w.create(model="m")
+        t[0] = 120
+        w.create(model="m")
+        self.assertEqual(calls, ["local", "gemini", "local"])
 
 
 class HistoryNoteTests(unittest.TestCase):

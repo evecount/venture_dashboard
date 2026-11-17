@@ -36,6 +36,11 @@ class WithFallback:
         fast = bool(self.fast_model) and kw.get("model") == self.fast_model
         return {**kw, "model": (self.primary_fast_model if fast and self.primary_fast_model else self.primary_model)}
 
+    def skip_primary(self, seconds: float = DOWN_FOR):
+        """The primary answered with nothing useful: use the fallback for the next while."""
+        if self.fallback is not None:
+            self.down_until = self.clock() + seconds
+
     def create(self, **kw):
         if self.fallback is not None and self.clock() < self.down_until:
             return self.fallback.chat.completions.create(**kw)

@@ -684,6 +684,13 @@ class Agent:
             effort = self.skills.effort(loaded, self._setting("ai_reasoning", "none"))
             t = time.perf_counter()
             msg = self._chat(model, messages, effort, **kwargs).choices[0].message
+            if not (msg.content or "").strip() and not getattr(msg, "tool_calls", None):
+                # The model said nothing and did nothing (seen with the local model on "set a meeting..."). Ask again, from the
+                # fallback model when there is one, instead of answering "Got it." to a request nobody handled.
+                print(f"[Agent Warning] {model} returned an empty answer; asking again")
+                if hasattr(self.ai, "skip_primary"):
+                    self.ai.skip_primary()
+                msg = self._chat(model, messages, effort, **kwargs).choices[0].message
             timing["llm_ms"] += _ms(t)
             timing["rounds"] += 1
             reply = (msg.content or "").strip() or reply
@@ -728,7 +735,8 @@ class Agent:
         parts = [reply, *receipts, *show] if reply else [*warnings, *receipts, *lookups]
         default = ("Here's what I captured. Confirm below to sync it to the dashboard." if out["checkin"]
                    else "Please confirm the rename below." if out["rename"]
-                   else "Please check the card below and press its button to confirm." if out["meetings"] else "Got it.")
+                   else "Please check the card below and press its button to confirm." if out["meetings"]
+                   else "Sorry, I couldn't act on that. Could you say it again, a little differently?")
         if reply and CLAIMS_DONE.search(reply.lstrip()[:160]) and not (
                 receipts or out["meetings"] or out["checkin"] or out["rename"] or out.get("announcements") or out["announce_now"]):
             print(f"[Agent Warning] reply claimed an action nothing performed: {reply[:100]!r}")
