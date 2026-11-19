@@ -322,7 +322,9 @@ agent = (Agent(ai_client, AI_MODEL, supabase, memory, connect_url=github_link, c
                 model_info=f"Chat replies come from {AI_MODEL}. Images, PDFs, voice notes and web research use Gemini too.",
                 research=(lambda q: web_research.research(q, GEMINI_API_KEY, FAST_AI_MODEL or AI_MODEL)) if GEMINI_API_KEY else None,
                 semantic=semantic.Semantic(GEMINI_API_KEY) if GEMINI_API_KEY else None,
-                notify_developers=lambda text: notify_developers(text), alert=lambda key, text: alert_developers_once(key, text))
+                notify_developers=lambda text: notify_developers(text), alert=lambda key, text: alert_developers_once(key, text),
+                is_developer=lambda sid: is_developer(sid),
+                notify_user=lambda sid, text: app.client.chat_postMessage(channel=sid, text=text))
          if (ai_client and supabase) else None)
 
 # Initialize Slack Bolt App

@@ -251,6 +251,11 @@ def build_tools(role: str, skills=None) -> list:
         _tool("list_feature_requests", (
             "List the feature requests that have been passed on to Ben (mentors see everyone's, founders only their own). Use it when "
             "someone asks what has been requested or whether their request was recorded."), {}, []),
+        *([_tool("mark_feature_implemented", (
+            "DEVELOPERS ONLY. Mark a feature request as implemented by its ref (from list_feature_requests) and DM the person who asked, "
+            "once. Use when the developer says a request has been built or shipped. 'message' is a short note on what they can now do."), {
+            "ref": {"type": "string"}, "message": {"type": "string", "description": "Optional: what is new and how to use it"}}, ["ref"])]
+          if role == "mentor" else []),
         _tool("request_feature", (
             "Pass a request for something you CAN'T do yet (a new integration, a new kind of automatic message, a change "
             "to how the program works for everyone) to the developer, Ben. Use instead of pretending you can."), {
@@ -421,9 +426,11 @@ class Agent:
     def __init__(self, ai_client, model: str, sb, memory: Memory | None = None, connect_url=None, calendar_link=None, calendar_text=None,
                  studio_link=None, studio_connected=None, studio_events=None, settings=None, channel_context=None,
                  awareness=None, routines=None, repos_changed=None, skills=None, fast_model="", research=None, semantic=None,
-                 notify_developers=None, model_info="", alert=None):
+                 notify_developers=None, model_info="", alert=None, is_developer=None, notify_user=None):
         self.ai, self.model, self.sb = ai_client, model, sb
         self.alert = alert  # callable(key, text): tell the developers something is off (the caller rate-limits it)
+        self.is_developer = is_developer  # callable(slack_id) -> bool: the developers may close feature requests
+        self.notify_user = notify_user  # callable(slack_id, text): DM one person (the originator of a feature request)
         self.model_info = model_info  # which AI model is answering, so "what model are you?" has a true answer
         self.calendar_link, self.calendar_text = calendar_link, calendar_text
         self.studio_events = studio_events  # callable(days) -> events on the shared studio calendar
@@ -937,7 +944,11 @@ class Agent:
                 if not rows:
                     return ("No feature requests are stored yet. (Requests are also sent to Ben as a Slack message when they're made.)")
                 return "Feature requests passed on to Ben (newest first):" + chr(10) + chr(10).join(
-                    f"- {r['date']}" + (f" · {r['by']}" if r["by"] and role == "mentor" else "") + f": {r['text']}" for r in rows[:20])
+                    "- " + (f"[{r['id'][:6]}] " if role == "mentor" and r.get("id") else "") + f"{r['date']}"
+                    + (f" · {r['by']}" if r["by"] and role == "mentor" else "") + f": {r['text']}" + (" ✅ implemented" if r.get("done") else "")
+                    for r in rows[:20])
+            if name == "mark_feature_implemented" and role == "mentor":
+                return self._mark_feature(ident, args)
             if name == "request_feature":
                 text = " ".join(str(args.get("description") or "").split())[:500]
                 if not text:
@@ -1159,6 +1170,34 @@ class Agent:
         where = f"{_label(t.get('startups'))} · " if ident["role"] == "mentor" else ""
         stage = " · 🔧 in progress" if t.get("status") == "doing" else ""
         return f"- [{t['id'][:6]}] {where}{t['title']} · due {t.get('due_date') or 'no date'} · for {owner}{stage}"
+
+    def _mark_feature(self, ident: dict, args: dict) -> str:
+        """A developer closes a feature request: the person who asked gets one DM saying it is live."""
+        if not (self.is_developer and self.is_developer(ident["slack_id"])):
+            return "🔒 Only the developers can mark a feature request as implemented."
+        if not self.sb:
+            return "⚠️ I can't reach the request list right now."
+        req, problem = personal.mark_implemented(self.sb, args.get("ref"))
+        if problem == "which" or not req:
+            return "⚠️ I couldn't tell which request. Use list_feature_requests to see the refs."
+        if problem == "already":
+            return f"ℹ️ That request was already marked implemented, so I didn't message {req['by'] or 'them'} again."
+        if problem == "failed":
+            return "⚠️ I couldn't mark that request as implemented just now, so I haven't messaged anyone."
+        told = ""
+        asker = req.get("slack_id")
+        if asker and self.notify_user:
+            first = first_name(req["by"]) if req["by"] else ""
+            note = " ".join(str(args.get("message") or "").split())[:500]
+            text = (f"Hi{(' ' + first) if first else ''}, good news: the feature you asked for is now live. :tada:" + chr(10)
+                    + f"> {req['text']}" + (chr(10) + note if note else ""))
+            try:
+                self.notify_user(asker, text)
+                told = f" and told {first or 'them'}"
+            except Exception as e:  # noqa: BLE001
+                print(f"[Agent Warning] feature implemented DM: {e}")
+                told = f" but I couldn't DM {first or 'them'}"
+        return f"✅ Marked implemented{told}: {req['text'][:80]}"
 
     def _list_tasks(self, ident: dict, args: dict) -> str:
         tasks = self._visible_tasks(ident)

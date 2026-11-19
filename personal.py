@@ -9,6 +9,7 @@ these rows are filtered out wherever facts are shown.
 """
 
 import json
+from datetime import date
 
 BEHAVIOR, REQUEST = "behavior", "feature_request"
 MAX_INSTRUCTIONS = 12
@@ -70,10 +71,13 @@ def numbered(items: list) -> str:
     return "\n".join(f"{n}. {i}" for n, i in enumerate(items, 1))
 
 
+DONE_MARK = "[implemented "  # a request that has shipped starts "[implemented 2026-11-20] ", so the originator is told only once
+
+
 def list_requests(sb, slack_id: str | None = None, limit: int = 30) -> list:
-    """Feature requests people have passed on, newest first: [{'by', 'text', 'date'}]. `slack_id` limits it to one person's."""
+    """Feature requests people have passed on, newest first: [{'id', 'by', 'text', 'date', 'done'}]. `slack_id` limits it to one person's."""
     try:
-        q = sb.table("memories").select("subject_id,fact,created_at").eq("subject_type", REQUEST)
+        q = sb.table("memories").select("id,subject_id,fact,created_at").eq("subject_type", REQUEST)
         if slack_id:
             q = q.eq("subject_id", slack_id)
         rows = q.order("created_at", desc=True).limit(limit).execute().data or []
@@ -82,9 +86,35 @@ def list_requests(sb, slack_id: str | None = None, limit: int = 30) -> list:
         return []
     out = []
     for r in rows:
-        by, _, text = str(r.get("fact") or "").partition(": ")
-        out.append({"by": by if text else "", "text": text or by, "date": str(r.get("created_at") or "")[:10]})
+        fact = str(r.get("fact") or "")
+        done = fact.startswith(DONE_MARK)
+        if done:
+            fact = fact.split("] ", 1)[1] if "] " in fact else fact
+        by, _, text = fact.partition(": ")
+        out.append({"id": str(r.get("id") or ""), "slack_id": r.get("subject_id"), "by": by if text else "", "text": text or by,
+                    "date": str(r.get("created_at") or "")[:10], "done": done})
     return out
+
+
+def mark_implemented(sb, ref: str) -> tuple:
+    """Marks the request whose id starts with `ref` as implemented. Returns (request or None, problem or ''): a request already marked
+    comes back with 'already', so its originator is never told twice."""
+    ref = str(ref or "").strip("[] ").lower()
+    if len(ref) < 4:
+        return None, "which"
+    matches = [r for r in list_requests(sb, None, 100) if r["id"].lower().startswith(ref)]
+    if len(matches) != 1:
+        return None, "which"
+    req = matches[0]
+    if req["done"]:
+        return req, "already"
+    try:
+        fact = f"{req['by']}: {req['text']}" if req["by"] else req["text"]
+        sb.table("memories").update({"fact": f"{DONE_MARK}{date.today().isoformat()}] {fact}"[:540]}).eq("id", req["id"]).execute()
+    except Exception as e:  # noqa: BLE001
+        print(f"[Personal Warning] mark implemented: {e}")
+        return req, "failed"
+    return req, ""
 
 
 def save_request(sb, slack_id: str, name: str, text: str) -> bool:
