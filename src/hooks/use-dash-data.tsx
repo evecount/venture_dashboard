@@ -47,8 +47,10 @@ export type TaskRow = {
   startup_id: string | null;
   title: string;
   due_date: string | null;
+  /** open = To do, doing = In progress, done = finished (only the last two weeks are sent). */
   status: string;
   created_at: string;
+  completed_at?: string | null;
 };
 /** A cohort (MVP#1, MVP#2...): same syllabus, its own start date. */
 export type CohortRow = {

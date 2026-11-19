@@ -251,24 +251,48 @@ export function StartupPage({
 
           <section className="panel" aria-labelledby="tasks-title">
             <div className="panel-head">
-              <h2 id="tasks-title">Open tasks</h2>
-              {tasks.length > 0 && <span className="pill pill-neutral">{tasks.length}</span>}
+              <h2 id="tasks-title">Task board</h2>
+              {tasks.some((t) => t.status !== "done") && (
+                <span className="pill pill-neutral">
+                  {tasks.filter((t) => t.status !== "done").length} open
+                </span>
+              )}
             </div>
             {tasks.length === 0 ? (
-              <p className="muted-note">No open tasks. Tasks set through the bot appear here.</p>
+              <p className="muted-note">No tasks yet. Tasks set through the bot appear here.</p>
             ) : (
-              <ul className="list">
-                {tasks.map((t) => (
-                  <li key={t.id}>
-                    <Flag size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0">
-                      <span className="block">{t.title}</span>
-                      {t.due_date && <span className="list-meta">Due {formatDay(t.due_date)}</span>}
-                    </span>
-                  </li>
+              <div className="grid gap-4 md:grid-cols-3">
+                {[
+                  { key: "open", label: "To do", rows: tasks.filter((t) => t.status === "open") },
+                  { key: "doing", label: "In progress", rows: tasks.filter((t) => t.status === "doing") },
+                  { key: "done", label: "Done (last 2 weeks)", rows: tasks.filter((t) => t.status === "done") },
+                ].map((col) => (
+                  <div key={col.key} data-testid={`task-col-${col.key}`}>
+                    <p className="eyebrow">
+                      {col.label} · {col.rows.length}
+                    </p>
+                    {col.rows.length === 0 ? (
+                      <p className="muted-note">Nothing here.</p>
+                    ) : (
+                      <ul className="list">
+                        {col.rows.map((t) => (
+                          <li key={t.id} className={col.key === "done" ? "opacity-70" : undefined}>
+                            <Flag size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
+                            <span className="min-w-0">
+                              <span className="block">{t.title}</span>
+                              {t.due_date && col.key !== "done" && (
+                                <span className="list-meta">Due {formatDay(t.due_date)}</span>
+                              )}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 ))}
-              </ul>
+              </div>
             )}
+            <p className="muted-note">Move a task by telling Venture Buddy in Slack.</p>
           </section>
 
           {isMentor && (

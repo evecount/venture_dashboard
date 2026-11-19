@@ -1594,12 +1594,27 @@ def build_milestone_blocks(milestones: list) -> list:
     return blocks
 
 
-def build_task_blocks(tasks: list) -> list:
-    if not tasks:
+def build_task_blocks(tasks: list, done: list | None = None) -> list:
+    """The task board on a founder's Home tab: To do, In progress, and what was finished this week."""
+    done = done or []
+    if not (tasks or done):
         return []
     nl = chr(10)
-    lines = [f"• {t['title']}" + (f" (due {friendly_date(t['due_date'])})" if t.get("due_date") else "") for t in tasks[:8]]
-    return [{"type": "section", "text": {"type": "mrkdwn", "text": "*Follow-ups*" + nl + nl.join(lines)}}]
+
+    def column(title, rows, empty, mark="•"):
+        lines = [f"{mark} {str(t['title'])[:90]}" + (f" (due {friendly_date(t['due_date'])})" if t.get("due_date") and mark != "✅" else "")
+                 for t in rows[:6]]
+        more = f"{nl}_…and {len(rows) - 6} more_" if len(rows) > 6 else ""
+        return {"type": "section", "text": {"type": "mrkdwn", "text": f"*{title}* ({len(rows)})" + nl + (nl.join(lines) + more if rows else f"_{empty}_")}}
+
+    todo = [t for t in tasks if t.get("status") != "doing"]
+    doing = [t for t in tasks if t.get("status") == "doing"]
+    return [{"type": "divider"},
+            {"type": "header", "text": {"type": "plain_text", "text": "Task board"}},
+            column("📋 To do", todo, "Nothing waiting."),
+            column("🔧 In progress", doing, "Nothing started."),
+            column("✅ Done this week", done, "Nothing finished yet.", "✅"),
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": "Move a task by telling me, e.g. _\"start the pricing task\"_ or _\"the pricing task is done\"_."}]}]
 
 
 def getting_started_blocks(founder_id: str, latest: dict | None, milestones: list, conns: list, gcal_rows: list,
@@ -1643,7 +1658,7 @@ def setup_checklist_blocks(context: dict, latest, milestones: list, conns: list,
 
 
 def build_home_view(context: dict | None, latest: dict | None, tasks: list | None = None, milestones: list | None = None, conns: list | None = None, gcal_rows: list | None = None,
-                    meeting_lines: list | None = None) -> dict:
+                    meeting_lines: list | None = None, done_tasks: list | None = None) -> dict:
     """Founder's personal sprint radar. context=None means the user isn't on the roster yet."""
     if context is None:
         return {"type": "home", "blocks": [{"type": "header", "text": {"type": "plain_text", "text": "Your sprint radar"}}] + build_onboarding_card()}
@@ -1686,7 +1701,7 @@ def build_home_view(context: dict | None, latest: dict | None, tasks: list | Non
     blocks += build_milestone_blocks(milestones or [])
     blocks += build_connections_blocks(context["founder_id"], context["startup_id"], conns or [])
     blocks += build_calendar_blocks(context["founder_id"], context["startup_id"], gcal_rows or [])
-    blocks += build_task_blocks(tasks or [])
+    blocks += build_task_blocks(tasks or [], done_tasks)
     blocks += home_features_blocks("founder")  # at a glance; the full how-to is under "help"
     return {"type": "home", "blocks": add_to_top_row(blocks, dashboard_button_element(context["founder_id"]))}
 
@@ -1727,7 +1742,8 @@ def publish_home(slack_user_id: str, client=None):
             latest = res.data[0] if res.data else None
         view = build_home_view(context, latest, memory.founder_tasks(context["startup_id"]) if context else [], memory.milestones(context["startup_id"]) if context else [], integrations.github_connections(supabase, context["startup_id"]) if context else [],
                                                integrations.google_connections(supabase, context["startup_id"]) if context else [],
-                                               meeting_lines=founder_meeting_lines(slack_user_id) if context else [])
+                                               meeting_lines=founder_meeting_lines(slack_user_id) if context else [],
+                                               done_tasks=memory.done_tasks(context["startup_id"]) if context else [])
         client.views_publish(user_id=slack_user_id, view=dict(view, blocks=branded(view["blocks"])))
     except Exception as e:
         print(f"[Home Tab Error] {e}")

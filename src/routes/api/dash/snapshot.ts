@@ -121,8 +121,9 @@ export const Route = createFileRoute("/api/dash/snapshot")({
             "notes?select=id,startup_id,author_name,body,created_at&order=created_at.desc&limit=200",
           ),
           admin<{ owner_slack_id: string | null }[]>(
-            `tasks?select=id,startup_id,owner_slack_id,title,due_date,status,created_at&status=eq.open` +
-              `&order=due_date.asc.nullslast&limit=200${by("startup_id")}`,
+            `tasks?select=id,startup_id,owner_slack_id,title,due_date,status,created_at,completed_at` +
+              `&or=(status.in.(open,doing),and(status.eq.done,completed_at.gte.${encodeURIComponent(new Date(Date.now() - 14 * 86400_000).toISOString())}))` +
+              `&order=due_date.asc.nullslast&limit=300${by("startup_id")}`,
           ),
         ]);
         if (!startups.ok) return json({ error: "unavailable" }, 502);

@@ -5,7 +5,7 @@ Every method swallows and logs database errors and returns an empty/False result
 table or an outage degrades the bot to "no memory" instead of crashing a conversation.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 
 class Memory:
@@ -104,20 +104,32 @@ class Memory:
 
     def open_tasks(self, startup_id: str | None = None, limit: int = 30) -> list:
         def run():
-            q = self.sb.table("tasks").select("id,startup_id,owner_slack_id,title,due_date,created_by,startups(name)").eq("status", "open")
+            q = (self.sb.table("tasks").select("id,startup_id,owner_slack_id,title,due_date,created_by,status,startups(name)")
+                 .in_("status", ["open", "doing"]))
             if startup_id:
                 q = q.eq("startup_id", startup_id)
             return q.order("due_date", desc=False, nullsfirst=False).limit(limit).execute().data or []
         return self._guard("open_tasks", run, [])
 
-    def founder_tasks(self, startup_id: str, limit: int = 30) -> list:
-        """Open tasks a founder may see: unowned ones and their team's own, never a mentor's private follow-ups."""
-        tasks = self.open_tasks(startup_id, limit)
+    def _founder_visible(self, tasks: list, startup_id: str) -> list:
+        """Unowned tasks and the team's own, never a mentor's private follow-ups."""
         if not any(t.get("owner_slack_id") for t in tasks):
             return tasks
         team = {f["slack_user_id"] for f in self._guard("team", lambda: self.sb.table("founders").select("slack_user_id")
                 .eq("startup_id", startup_id).execute().data or [], []) if f.get("slack_user_id")}
         return [t for t in tasks if not t.get("owner_slack_id") or t["owner_slack_id"] in team]
+
+    def founder_tasks(self, startup_id: str, limit: int = 30) -> list:
+        """Open and in-progress tasks a founder may see."""
+        return self._founder_visible(self.open_tasks(startup_id, limit), startup_id)
+
+    def done_tasks(self, startup_id: str, days: int = 7, limit: int = 15) -> list:
+        """Tasks finished in the last `days` days that a founder may see (the board's Done column)."""
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        rows = self._guard("done_tasks", lambda: self.sb.table("tasks").select("id,startup_id,owner_slack_id,title,due_date,status,completed_at")
+                           .eq("startup_id", startup_id).eq("status", "done").gte("completed_at", since)
+                           .order("completed_at", desc=True).limit(limit).execute().data or [], [])
+        return self._founder_visible(rows, startup_id)
 
     def update_task(self, task_id: str, patch: dict) -> bool:
         return self._guard("update_task", lambda: bool(self.sb.table("tasks").update(patch).eq("id", task_id).execute().data), False)

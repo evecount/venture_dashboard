@@ -216,9 +216,12 @@ def build_tools(role: str, skills=None) -> list:
         _tool("list_tasks", ("List open follow-up tasks with their refs" + (" (all startups, or one)." if role == "mentor" else " for this startup.")
                              + " Use for 'what's on my list', 'what tasks are open', or before changing one."),
               {**({"startup": {"type": "string", "description": "Optional: one startup (id or name)"}} if role == "mentor" else {})}, []),
-        _tool("update_task", "Change an open task: its title, its due date (or clear it), or who it is for. Use list_tasks first if you don't have its ref.", {
+        _tool("update_task", ("Change a task: move it on the board (status todo / doing = In progress / done), its title, its due date "
+                              "(or clear it), or who it is for. Use for 'start the pricing task', 'move X to in progress', 'put it back to to-do'. "
+                              "Use list_tasks first if you don't have its ref."), {
             "task_ref": {"type": "string"}, "title": {"type": "string"}, "due_date": {"type": "string", "description": "YYYY-MM-DD"},
-            "clear_due_date": {"type": "boolean"}, "assignee": {"type": "string", "enum": ["me", "startup"]}}, ["task_ref"]),
+            "clear_due_date": {"type": "boolean"}, "assignee": {"type": "string", "enum": ["me", "startup"]},
+            "status": {"type": "string", "enum": ["todo", "doing", "done"], "description": "Move the task on the board"}}, ["task_ref"]),
         _tool("whats_new", ("What happened lately: check-ins, blockers, goals finished, tasks done, new milestones and code work, "
                             + ("for the whole cohort or one startup" if role == "mentor" else "for this startup") + ". Use for 'what's new', "
                             "'catch me up', 'what happened since Monday'."), {
@@ -1154,7 +1157,8 @@ class Agent:
     def _task_line(self, t: dict, ident: dict) -> str:
         owner = "you" if t.get("owner_slack_id") == ident["slack_id"] else ("the startup" if not t.get("owner_slack_id") else "someone else")
         where = f"{_label(t.get('startups'))} · " if ident["role"] == "mentor" else ""
-        return f"- [{t['id'][:6]}] {where}{t['title']} · due {t.get('due_date') or 'no date'} · for {owner}"
+        stage = " · 🔧 in progress" if t.get("status") == "doing" else ""
+        return f"- [{t['id'][:6]}] {where}{t['title']} · due {t.get('due_date') or 'no date'} · for {owner}{stage}"
 
     def _list_tasks(self, ident: dict, args: dict) -> str:
         tasks = self._visible_tasks(ident)
@@ -1189,13 +1193,20 @@ class Agent:
             patch["due_date"] = due
         if args.get("assignee") in ("me", "startup"):
             patch["owner_slack_id"] = me if args["assignee"] == "me" else None
+        stage = {"todo": "open", "doing": "doing", "done": "done"}.get(str(args.get("status") or "").lower())
+        if stage:
+            patch["status"] = stage
+            patch["completed_at"] = datetime.now(timezone.utc).isoformat() if stage == "done" else None
         if not patch:
-            return "⚠️ What should I change on that task: the title, the due date or who it's for?"
+            return "⚠️ What should I change on that task: its stage, the title, the due date or who it's for?"
         if not self.memory.update_task(task["id"], patch):
+            if stage == "doing":
+                return "⚠️ I couldn't move that to In progress. The database may still need the task-status update; the studio team can add it."
             return "⚠️ I couldn't update that task."
         bits = [f"title → {patch['title']}" if "title" in patch else "",
                 ("due → " + (patch["due_date"] or "no date")) if "due_date" in patch else "",
-                ("now for " + ("you" if patch["owner_slack_id"] else "the startup")) if "owner_slack_id" in patch else ""]
+                ("now for " + ("you" if patch["owner_slack_id"] else "the startup")) if "owner_slack_id" in patch else "",
+                {"open": "moved to To do", "doing": "moved to In progress", "done": "moved to Done"}.get(patch.get("status"), "")]
         return f"✏️ Task updated ({task['title'][:60]}): " + ", ".join(b for b in bits if b) + "."
 
     def _notes_tool(self, ident: dict, name: str, args: dict) -> str:
